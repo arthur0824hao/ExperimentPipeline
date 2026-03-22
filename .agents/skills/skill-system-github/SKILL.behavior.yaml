@@ -1,0 +1,67 @@
+schema_version: 1
+skill_name: skill-system-github
+title: skill-system-github Behavior Contract
+purpose: 'GitHub operations skill for gh CLI issue, label, template, and workflow management.
+
+  '
+generated_from: SKILL.spec.yaml
+updated_at: '2026-03-09T12:08:25.053450'
+depends_on: []
+delegates_to: []
+operations:
+- name: manage-issues
+  intent: Create, list, comment on, close, or reopen GitHub issues
+  inputs:
+  - action
+  - repo
+  outputs:
+  - result
+  constraints:
+  - Must perform duplicate detection before creating issues
+  - Must validate repo accessibility
+- name: manage-labels
+  intent: Create, update, delete, and apply labels
+  inputs:
+  - action
+  - repo
+  outputs:
+  - result
+  constraints:
+  - Must require confirmation for delete
+- name: manage-templates
+  intent: Bootstrap and update repository issue templates
+  inputs:
+  - action
+  - repo
+  outputs:
+  - result
+  constraints:
+  - Must write only under .github/ISSUE_TEMPLATE
+- name: manage-workflows
+  intent: List, check, create, or update GitHub workflows safely
+  inputs:
+  - action
+  - repo
+  outputs:
+  - result
+  constraints:
+  - Must run safety-check before workflow write operations
+- name: safety-check
+  intent: Determine safe workflow write path based on token scope
+  inputs:
+  - repo
+  - workflow_file
+  outputs:
+  - result
+  constraints:
+  - Must inspect gh auth scope before recommending workflow writes
+mermaid: "flowchart TD\n  in_0_action[/\"action\"/]:::input\n  in_0_repo[/\"repo\"/]:::input\n  in_1_action[/\"action\"/]:::input\n\
+  \  in_1_repo[/\"repo\"/]:::input\n  op_manage_issues([\"manage-issues\"]):::stage\n  op_manage_labels([\"manage-labels\"\
+  ]):::stage\n  out_0_result[\\\"result\"\\]:::output\n  out_1_result[\\\"result\"\\]:::output\n\n  in_0_action --> op_manage_issues\n\
+  \  in_0_repo --> op_manage_issues\n  in_1_action --> op_manage_labels\n  in_1_repo --> op_manage_labels\n  op_manage_issues\
+  \ --> out_0_result\n  op_manage_labels --> out_1_result\n  op_manage_issues -->|\"violation\"| err_0_0[\"Must perform duplicate\
+  \ detection before ...\"]:::error\n  op_manage_issues -->|\"violation\"| err_0_1[\"Must validate repo accessibility\"]:::error\n\
+  \  op_manage_labels -->|\"violation\"| err_1_0[\"Must require confirmation for delete\"]:::error\n\n  classDef stage fill:#dbeafe,stroke:#3b82f6,stroke-width:2px,color:#1e40af\n\
+  \  classDef error fill:#fee2e2,stroke:#ef4444,stroke-width:2px,color:#991b1b,stroke-dasharray: 5 5\n  classDef input fill:#f0fdf4,stroke:#22c55e,stroke-width:2px,color:#166534\n\
+  \  classDef output fill:#fef3c7,stroke:#f59e0b,stroke-width:2px,color:#92400e\n  classDef dep fill:#ede9fe,stroke:#8b5cf6,stroke-width:2px,color:#5b21b6,stroke-dasharray:\
+  \ 5 5"

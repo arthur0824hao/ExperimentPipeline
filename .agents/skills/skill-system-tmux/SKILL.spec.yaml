@@ -1,0 +1,82 @@
+schema_version: 1
+skill_name: skill-system-tmux
+description: >
+  Tmux execution support for long-running and persistent commands.
+  Routes commands between direct bash and tmux based on expected duration.
+
+depends_on: []
+delegates_to: []
+
+operations:
+  - name: route-command
+    intent: "Decide whether a command should use direct bash or tmux"
+    inputs:
+      - name: command
+        type: string
+        required: true
+        description: "Command to execute"
+      - name: estimated_duration
+        type: string
+        required: false
+        description: "Expected duration hint"
+    outputs:
+      - name: result
+        type: json
+        description: "Execution result with session info"
+    constraints:
+      - "Must route to tmux if estimated duration exceeds 60s"
+      - "Must create unique session names with oc- prefix"
+    expected_effects:
+      - type: proc.exec
+        description: "Execute command via bash or tmux"
+
+  - name: reclaim-resources
+    intent: "Cleanup stale agent tmux sessions and orphaned processes"
+    inputs:
+      - name: scope
+        type: string
+        required: false
+        description: "Cleanup scope: agent-only or all"
+        default: "agent-only"
+    outputs:
+      - name: cleanup_report
+        type: json
+        description: "Killed sessions and reclaimed resources"
+    constraints:
+      - "Must only kill oc-* prefixed sessions by default"
+    expected_effects:
+      - type: proc.exec
+        description: "Kill tmux sessions and zombie processes"
+
+  - name: manage-session
+    intent: "Create, list, check, capture, or kill tmux sessions"
+    inputs:
+      - name: action
+        type: string
+        required: true
+        description: "Action: create, kill, list, check, capture"
+      - name: session_name
+        type: string
+        required: false
+        description: "Target session name"
+    outputs:
+      - name: result
+        type: json
+        description: "Session management result and optional output"
+    constraints:
+      - "Must preserve non-agent infrastructure sessions unless explicitly requested"
+    expected_effects:
+      - type: proc.exec
+        description: "Run tmux subcommands"
+
+acceptance_tests:
+  structural:
+    - id: manifest-valid
+      assert: "manifest exposes route-command, manage-session, and reclaim-resources operations"
+    - id: scripts-exist
+      assert: "SKILL.md contains tmux routing instructions"
+  behavioral:
+    - id: long-running-to-tmux
+      given: "Command with estimated_duration=300s"
+      when: "route-command is called"
+      then: "Command routed to tmux session with oc- prefix"

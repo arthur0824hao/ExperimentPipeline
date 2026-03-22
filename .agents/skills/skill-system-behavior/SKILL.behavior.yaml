@@ -1,0 +1,129 @@
+schema_version: 1
+skill_name: skill-system-behavior
+title: skill-system-behavior Behavior Contract
+purpose: 'BDD-style behavior specification engine for the skill system. Defines, validates, and verifies skill behavior specs.
+  Generates behavior contracts (Mermaid DAG) and builds skill dependency graphs.
+
+  '
+generated_from: SKILL.spec.yaml
+updated_at: '2026-03-11T11:44:32.822308'
+depends_on:
+- skill-system-postgres
+delegates_to: []
+operations:
+- name: create-spec
+  intent: Scaffold a new SKILL.spec.yaml from the schema template
+  inputs:
+  - skill_name
+  - skill_dir
+  outputs:
+  - spec_file
+  constraints:
+  - Must not overwrite existing SKILL.spec.yaml
+  - Must follow spec-v1 schema shape
+- name: validate-spec
+  intent: Validate a SKILL.spec.yaml against the v1 schema
+  inputs:
+  - spec_path
+  outputs:
+  - validation_result
+  constraints:
+  - 'Must check all required fields: schema_version, skill_name, description, operations'
+  - 'Must validate operation structure: name, intent, inputs/outputs, constraints'
+  - Must validate depends_on/delegates_to as lists of strings if present
+- name: verify-structural
+  intent: Run structural acceptance tests against a built skill
+  inputs:
+  - skill_dir
+  outputs:
+  - verification_result
+  constraints:
+  - Must check manifest ↔ spec operation consistency
+  - Must verify all entrypoint scripts exist on disk
+- name: generate-contract
+  intent: Generate SKILL.behavior.yaml (Mermaid DAG) from a completed spec
+  inputs:
+  - skill_dir
+  outputs:
+  - contract_file
+  constraints:
+  - Must include dependency edges (depends_on/delegates_to) in Mermaid DAG
+  - Must include all operations, inputs, outputs, and constraint error paths
+- name: coverage-gate
+  intent: Scan a project directory for scripts/modules that lack behavior specs, reporting coverage gaps
+  inputs:
+  - project_dir
+  - patterns
+  - exclude
+  outputs:
+  - coverage_report
+  constraints:
+  - Must not modify any files
+  - Must match scripts to behavior specs by naming convention or explicit link
+  - Must support custom inclusion and exclusion patterns
+  - Must return coverage percentage as uncovered/total ratio
+- name: build-graph
+  intent: Parse all SKILL.spec.yaml files to build a skill dependency graph and output Mermaid DAG
+  inputs:
+  - skills_dir
+  - output_format
+  - db_write
+  outputs:
+  - graph
+  constraints:
+  - Must scan all SKILL.spec.yaml files recursively
+  - Must extract depends_on and delegates_to edges
+  - Must extract capabilities from skills-index.json if available
+  - Must produce valid Mermaid flowchart for ecosystem visualization
+  - SQL output must be compatible with skill_graph_nodes/skill_graph_edges tables
+- name: refresh-projections
+  intent: Refresh behavior projection tables from canonical SKILL.spec.yaml files
+  inputs:
+  - skills_dir
+  - output_format
+  outputs:
+  - projection_bundle
+  constraints:
+  - Must treat SKILL.spec.yaml files as the canonical source
+  - Must produce behavior_sources, behavior_nodes, behavior_edges, and behavior_snapshots projections
+  - SQL output must be compatible with the phase-1 Postgres-first behavior_* tables
+mermaid: "flowchart TD\n  in_0_skill_name[/\"skill_name\"/]:::input\n  in_0_skill_dir[/\"skill_dir\"/]:::input\n  in_1_spec_path[/\"\
+  spec_path\"/]:::input\n  in_2_skill_dir[/\"skill_dir\"/]:::input\n  in_3_skill_dir[/\"skill_dir\"/]:::input\n  in_4_project_dir[/\"\
+  project_dir\"/]:::input\n  in_4_patterns[/\"patterns\"/]:::input\n  in_4_exclude[/\"exclude\"/]:::input\n  in_5_skills_dir[/\"\
+  skills_dir\"/]:::input\n  in_5_output_format[/\"output_format\"/]:::input\n  in_5_db_write[/\"db_write\"/]:::input\n  in_6_skills_dir[/\"\
+  skills_dir\"/]:::input\n  in_6_output_format[/\"output_format\"/]:::input\n  op_create_spec([\"create-spec\"]):::stage\n\
+  \  op_validate_spec([\"validate-spec\"]):::stage\n  op_verify_structural([\"verify-structural\"]):::stage\n  op_generate_contract([\"\
+  generate-contract\"]):::stage\n  op_coverage_gate([\"coverage-gate\"]):::stage\n  op_build_graph([\"build-graph\"]):::stage\n\
+  \  op_refresh_projections([\"refresh-projections\"]):::stage\n  out_0_spec_file[\\\"spec_file\"\\]:::output\n  out_1_validation_result[\\\
+  \"validation_result\"\\]:::output\n  out_2_verification_result[\\\"verification_result\"\\]:::output\n  out_3_contract_file[\\\
+  \"contract_file\"\\]:::output\n  out_4_coverage_report[\\\"coverage_report\"\\]:::output\n  out_5_graph[\\\"graph\"\\]:::output\n\
+  \  out_6_projection_bundle[\\\"projection_bundle\"\\]:::output\n\n  in_0_skill_name --> op_create_spec\n  in_0_skill_dir\
+  \ --> op_create_spec\n  in_1_spec_path --> op_validate_spec\n  in_2_skill_dir --> op_verify_structural\n  in_3_skill_dir\
+  \ --> op_generate_contract\n  in_4_project_dir --> op_coverage_gate\n  in_4_patterns --> op_coverage_gate\n  in_4_exclude\
+  \ --> op_coverage_gate\n  in_5_skills_dir --> op_build_graph\n  in_5_output_format --> op_build_graph\n  in_5_db_write -->\
+  \ op_build_graph\n  in_6_skills_dir --> op_refresh_projections\n  in_6_output_format --> op_refresh_projections\n  op_create_spec\
+  \ --> out_0_spec_file\n  op_validate_spec --> out_1_validation_result\n  op_verify_structural --> out_2_verification_result\n\
+  \  op_generate_contract --> out_3_contract_file\n  op_coverage_gate --> out_4_coverage_report\n  op_build_graph --> out_5_graph\n\
+  \  op_refresh_projections --> out_6_projection_bundle\n  op_create_spec -->|\"violation\"| err_0_0[\"Must not overwrite\
+  \ existing SKILL.spec.y...\"]:::error\n  op_create_spec -->|\"violation\"| err_0_1[\"Must follow spec-v1 schema shape\"\
+  ]:::error\n  op_validate_spec -->|\"violation\"| err_1_0[\"Must check all required fields: schema_v...\"]:::error\n  op_validate_spec\
+  \ -->|\"violation\"| err_1_1[\"Must validate operation structure: name,...\"]:::error\n  op_validate_spec -->|\"violation\"\
+  | err_1_2[\"Must validate depends_on/delegates_to as...\"]:::error\n  op_verify_structural -->|\"violation\"| err_2_0[\"\
+  Must check manifest ↔ spec operation con...\"]:::error\n  op_verify_structural -->|\"violation\"| err_2_1[\"Must verify\
+  \ all entrypoint scripts exist...\"]:::error\n  op_generate_contract -->|\"violation\"| err_3_0[\"Must include dependency\
+  \ edges (depends_o...\"]:::error\n  op_generate_contract -->|\"violation\"| err_3_1[\"Must include all operations, inputs,\
+  \ out...\"]:::error\n  op_coverage_gate -->|\"violation\"| err_4_0[\"Must not modify any files\"]:::error\n  op_coverage_gate\
+  \ -->|\"violation\"| err_4_1[\"Must match scripts to behavior specs by ...\"]:::error\n  op_coverage_gate -->|\"violation\"\
+  | err_4_2[\"Must support custom inclusion and exclus...\"]:::error\n  op_coverage_gate -->|\"violation\"| err_4_3[\"Must\
+  \ return coverage percentage as uncov...\"]:::error\n  op_build_graph -->|\"violation\"| err_5_0[\"Must scan all SKILL.spec.yaml\
+  \ files recu...\"]:::error\n  op_build_graph -->|\"violation\"| err_5_1[\"Must extract depends_on and delegates_to...\"\
+  ]:::error\n  op_build_graph -->|\"violation\"| err_5_2[\"Must extract capabilities from skills-in...\"]:::error\n  op_build_graph\
+  \ -->|\"violation\"| err_5_3[\"Must produce valid Mermaid flowchart for...\"]:::error\n  op_build_graph -->|\"violation\"\
+  | err_5_4[\"SQL output must be compatible with skill...\"]:::error\n  op_refresh_projections -->|\"violation\"| err_6_0[\"\
+  Must treat SKILL.spec.yaml files as the ...\"]:::error\n  op_refresh_projections -->|\"violation\"| err_6_1[\"Must produce\
+  \ behavior_sources, behavior_...\"]:::error\n  op_refresh_projections -->|\"violation\"| err_6_2[\"SQL output must be compatible\
+  \ with the p...\"]:::error\n  dep_skill_system_postgres{{\"skill-system-postgres\"}}:::dep\n  dep_skill_system_postgres\
+  \ -.->|depends_on| op_create_spec\n\n  classDef stage fill:#dbeafe,stroke:#3b82f6,stroke-width:2px,color:#1e40af\n  classDef\
+  \ error fill:#fee2e2,stroke:#ef4444,stroke-width:2px,color:#991b1b,stroke-dasharray: 5 5\n  classDef input fill:#f0fdf4,stroke:#22c55e,stroke-width:2px,color:#166534\n\
+  \  classDef output fill:#fef3c7,stroke:#f59e0b,stroke-width:2px,color:#92400e\n  classDef dep fill:#ede9fe,stroke:#8b5cf6,stroke-width:2px,color:#5b21b6,stroke-dasharray:\
+  \ 5 5"

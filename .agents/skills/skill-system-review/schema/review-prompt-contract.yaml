@@ -1,0 +1,12 @@
+type: object
+required:
+  - ticket_id
+  - prompt
+  - bundle_path
+properties:
+  ticket_id:
+    type: string
+  prompt:
+    type: string
+  bundle_path:
+    type: string

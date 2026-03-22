@@ -1,0 +1,21 @@
+{
+  "local": {
+    "host": "localhost",
+    "user": "arthur0824hao",
+    "work_dir": "/datas/store162/arthur0824hao/Project/ExperimentPipeline/pipeline",
+    "tmux_session": "exp_runner",
+    "python_env": "~/miniconda3/envs/gnn_fraud/bin/python",
+    "max_jobs_per_gpu": 1,
+    "max_gpus": 1,
+    "description": "Local default worker"
+  },
+  "_protected_tmux_sessions": {
+    "_comment": "Agent MUST NEVER kill these sessions. They are user-owned infrastructure.",
+    "sessions": [
+      "unified",
+      "unified-oc",
+      "mem-handoff",
+      "exp_runner"
+    ]
+  }
+}

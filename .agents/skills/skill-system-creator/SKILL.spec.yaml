@@ -1,0 +1,61 @@
+schema_version: 1
+skill_name: skill-system-creator
+description: >
+  Guide for creating new skills with proper structure, manifests, and conventions.
+  Uses BDD workflow: Spec → Test → Develop → Contract.
+
+depends_on:
+  - skill-system-behavior
+delegates_to: []
+
+operations:
+  - name: init
+    intent: "Initialize a new skill directory with SKILL.md template and resource folders"
+    inputs:
+      - name: skill_name
+        type: string
+        required: true
+        description: "New skill identifier"
+      - name: output_dir
+        type: path
+        required: false
+        description: "Parent directory for new skill"
+    outputs:
+      - name: skill_dir
+        type: file
+        description: "Created skill directory"
+    constraints:
+      - "Must create SKILL.md with valid manifest"
+      - "Must follow Spec → Test → Develop workflow"
+    expected_effects:
+      - type: fs.write
+        description: "Create skill directory structure"
+
+  - name: package
+    intent: "Validate and package a skill for distribution"
+    inputs:
+      - name: skill_path
+        type: path
+        required: true
+        description: "Skill directory to package"
+    outputs:
+      - name: package_result
+        type: json
+        description: "Validation and packaging result"
+    constraints:
+      - "Must validate SKILL.md exists and has valid manifest"
+    expected_effects:
+      - type: fs.read
+        description: "Read and validate skill files"
+
+acceptance_tests:
+  structural:
+    - id: manifest-valid
+      assert: "manifest exposes init and package operations"
+    - id: scripts-exist
+      assert: "SKILL.md contains instructions for BDD workflow"
+  behavioral:
+    - id: init-creates-structure
+      given: "Valid skill name"
+      when: "init is called"
+      then: "Directory created with SKILL.md containing valid manifest"

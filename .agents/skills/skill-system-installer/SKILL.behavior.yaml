@@ -1,0 +1,104 @@
+schema_version: 1
+skill_name: skill-system-installer
+title: skill-system-installer Behavior Contract
+purpose: 'Unified skill installer with global/local scoping and skills.sh CLI. Supports installing from GitHub (curated or
+  custom repos), drift detection via lockfile hashing, and hub-spoke sync (global → local workspace). Entry point: scripts/skills.sh
+
+  '
+generated_from: SKILL.spec.yaml
+updated_at: '2026-03-20T23:50:45.576630'
+depends_on: []
+delegates_to:
+- skill-system-behavior
+operations:
+- name: bootstrap
+  intent: Detect and scaffold the skill system into the current project
+  inputs: []
+  outputs:
+  - checks
+  - actions_taken
+  constraints:
+  - Must create only missing structure and never overwrite existing files
+  - Must validate installed skills after scaffolding completes
+- name: install
+  intent: Install a skill from GitHub to global or local scope
+  inputs:
+  - repo
+  - path
+  - scope
+  - force
+  outputs:
+  - result
+  constraints:
+  - Must validate SKILL.md exists in source before copying
+  - Must create timestamped backup when --force overwrites existing skill
+  - 'Global scope installs to $SKILLS_GLOBAL_HOME/skills/ (default: ~/.skills-system/skills/)'
+  - Local scope installs to <workspace>/skills/
+  - Must update corresponding lockfile (global or local) after install
+- name: list
+  intent: List installed skills with scope annotations and curated catalog
+  inputs:
+  - scope
+  - format
+  outputs:
+  - skills_list
+  constraints:
+  - Must show both global and local skills when scope=all
+  - Must annotate curated skills with install status
+- name: update
+  intent: Check skill drift against lockfile and optionally reinstall drifted skills
+  inputs:
+  - scope
+  - skill
+  - apply
+  - dry_run
+  outputs:
+  - drift_report
+  constraints:
+  - Must compute SHA256 hash of entire skill directory (sorted file order)
+  - Must compare against corresponding scope lockfile
+  - Must not modify skills when dry_run=true
+- name: sync
+  intent: Synchronize global skills into local workspace (hub-spoke pull)
+  inputs:
+  - skills
+  - strategy
+  - force
+  outputs:
+  - sync_report
+  constraints:
+  - Must not overwrite local skills without --force
+  - Must skip skills that already exist locally with matching hash
+  - Symlink strategy creates relative symlinks from local → global
+  - Copy strategy does full directory copy
+  - Must update local lockfile after sync
+mermaid: "flowchart TD\n  in_1_repo[/\"repo\"/]:::input\n  in_1_path[/\"path\"/]:::input\n  in_1_scope[/\"scope\"/]:::input\n\
+  \  in_1_force[/\"force\"/]:::input\n  in_2_scope[/\"scope\"/]:::input\n  in_2_format[/\"format\"/]:::input\n  in_3_scope[/\"\
+  scope\"/]:::input\n  in_3_skill[/\"skill\"/]:::input\n  in_3_apply[/\"apply\"/]:::input\n  in_3_dry_run[/\"dry_run\"/]:::input\n\
+  \  in_4_skills[/\"skills\"/]:::input\n  in_4_strategy[/\"strategy\"/]:::input\n  in_4_force[/\"force\"/]:::input\n  op_bootstrap([\"\
+  bootstrap\"]):::stage\n  op_install([\"install\"]):::stage\n  op_list([\"list\"]):::stage\n  op_update([\"update\"]):::stage\n\
+  \  op_sync([\"sync\"]):::stage\n  out_0_checks[\\\"checks\"\\]:::output\n  out_0_actions_taken[\\\"actions_taken\"\\]:::output\n\
+  \  out_1_result[\\\"result\"\\]:::output\n  out_2_skills_list[\\\"skills_list\"\\]:::output\n  out_3_drift_report[\\\"drift_report\"\
+  \\]:::output\n  out_4_sync_report[\\\"sync_report\"\\]:::output\n\n  in_1_repo --> op_install\n  in_1_path --> op_install\n\
+  \  in_1_scope --> op_install\n  in_1_force --> op_install\n  in_2_scope --> op_list\n  in_2_format --> op_list\n  in_3_scope\
+  \ --> op_update\n  in_3_skill --> op_update\n  in_3_apply --> op_update\n  in_3_dry_run --> op_update\n  in_4_skills -->\
+  \ op_sync\n  in_4_strategy --> op_sync\n  in_4_force --> op_sync\n  op_bootstrap --> out_0_checks\n  op_bootstrap --> out_0_actions_taken\n\
+  \  op_install --> out_1_result\n  op_list --> out_2_skills_list\n  op_update --> out_3_drift_report\n  op_sync --> out_4_sync_report\n\
+  \  op_bootstrap -->|\"violation\"| err_0_0[\"Must create only missing structure and n...\"]:::error\n  op_bootstrap -->|\"\
+  violation\"| err_0_1[\"Must validate installed skills after sca...\"]:::error\n  op_install -->|\"violation\"| err_1_0[\"\
+  Must validate SKILL.md exists in source ...\"]:::error\n  op_install -->|\"violation\"| err_1_1[\"Must create timestamped\
+  \ backup when --fo...\"]:::error\n  op_install -->|\"violation\"| err_1_2[\"Global scope installs to $SKILLS_GLOBAL_...\"\
+  ]:::error\n  op_install -->|\"violation\"| err_1_3[\"Local scope installs to <workspace>/skil...\"]:::error\n  op_install\
+  \ -->|\"violation\"| err_1_4[\"Must update corresponding lockfile (glob...\"]:::error\n  op_list -->|\"violation\"| err_2_0[\"\
+  Must show both global and local skills w...\"]:::error\n  op_list -->|\"violation\"| err_2_1[\"Must annotate curated skills\
+  \ with instal...\"]:::error\n  op_update -->|\"violation\"| err_3_0[\"Must compute SHA256 hash of entire skill...\"]:::error\n\
+  \  op_update -->|\"violation\"| err_3_1[\"Must compare against corresponding scope...\"]:::error\n  op_update -->|\"violation\"\
+  | err_3_2[\"Must not modify skills when dry_run=true\"]:::error\n  op_sync -->|\"violation\"| err_4_0[\"Must not overwrite\
+  \ local skills without ...\"]:::error\n  op_sync -->|\"violation\"| err_4_1[\"Must skip skills that already exist loca...\"\
+  ]:::error\n  op_sync -->|\"violation\"| err_4_2[\"Symlink strategy creates relative symlin...\"]:::error\n  op_sync -->|\"\
+  violation\"| err_4_3[\"Copy strategy does full directory copy\"]:::error\n  op_sync -->|\"violation\"| err_4_4[\"Must update\
+  \ local lockfile after sync\"]:::error\n  op_sync -.->|delegates_to| dlg_skill_system_behavior\n  dlg_skill_system_behavior{{\"\
+  skill-system-behavior\"}}:::dep\n\n  classDef stage fill:#dbeafe,stroke:#3b82f6,stroke-width:2px,color:#1e40af\n  classDef\
+  \ error fill:#fee2e2,stroke:#ef4444,stroke-width:2px,color:#991b1b,stroke-dasharray: 5 5\n  classDef input fill:#f0fdf4,stroke:#22c55e,stroke-width:2px,color:#166534\n\
+  \  classDef output fill:#fef3c7,stroke:#f59e0b,stroke-width:2px,color:#92400e\n  classDef dep fill:#ede9fe,stroke:#8b5cf6,stroke-width:2px,color:#5b21b6,stroke-dasharray:\
+  \ 5 5"

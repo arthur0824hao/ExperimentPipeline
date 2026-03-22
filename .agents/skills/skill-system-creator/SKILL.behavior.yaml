@@ -1,0 +1,42 @@
+schema_version: 1
+skill_name: skill-system-creator
+title: skill-system-creator Behavior Contract
+purpose: 'Guide for creating new skills with proper structure, manifests, and conventions. Uses BDD workflow: Spec → Test
+  → Develop → Contract.
+
+  '
+generated_from: SKILL.spec.yaml
+updated_at: '2026-03-09T12:08:24.816408'
+depends_on:
+- skill-system-behavior
+delegates_to: []
+operations:
+- name: init
+  intent: Initialize a new skill directory with SKILL.md template and resource folders
+  inputs:
+  - skill_name
+  - output_dir
+  outputs:
+  - skill_dir
+  constraints:
+  - Must create SKILL.md with valid manifest
+  - Must follow Spec → Test → Develop workflow
+- name: package
+  intent: Validate and package a skill for distribution
+  inputs:
+  - skill_path
+  outputs:
+  - package_result
+  constraints:
+  - Must validate SKILL.md exists and has valid manifest
+mermaid: "flowchart TD\n  in_0_skill_name[/\"skill_name\"/]:::input\n  in_0_output_dir[/\"output_dir\"/]:::input\n  in_1_skill_path[/\"\
+  skill_path\"/]:::input\n  op_init([\"init\"]):::stage\n  op_package([\"package\"]):::stage\n  out_0_skill_dir[\\\"skill_dir\"\
+  \\]:::output\n  out_1_package_result[\\\"package_result\"\\]:::output\n\n  in_0_skill_name --> op_init\n  in_0_output_dir\
+  \ --> op_init\n  in_1_skill_path --> op_package\n  op_init --> out_0_skill_dir\n  op_package --> out_1_package_result\n\
+  \  op_init -->|\"violation\"| err_0_0[\"Must create SKILL.md with valid manifest\"]:::error\n  op_init -->|\"violation\"\
+  | err_0_1[\"Must follow Spec → Test → Develop workfl...\"]:::error\n  op_package -->|\"violation\"| err_1_0[\"Must validate\
+  \ SKILL.md exists and has va...\"]:::error\n  dep_skill_system_behavior{{\"skill-system-behavior\"}}:::dep\n  dep_skill_system_behavior\
+  \ -.->|depends_on| op_init\n\n  classDef stage fill:#dbeafe,stroke:#3b82f6,stroke-width:2px,color:#1e40af\n  classDef error\
+  \ fill:#fee2e2,stroke:#ef4444,stroke-width:2px,color:#991b1b,stroke-dasharray: 5 5\n  classDef input fill:#f0fdf4,stroke:#22c55e,stroke-width:2px,color:#166534\n\
+  \  classDef output fill:#fef3c7,stroke:#f59e0b,stroke-width:2px,color:#92400e\n  classDef dep fill:#ede9fe,stroke:#8b5cf6,stroke-width:2px,color:#5b21b6,stroke-dasharray:\
+  \ 5 5"

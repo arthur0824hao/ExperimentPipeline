@@ -1,0 +1,15 @@
+{
+  "include": [
+    "pipeline"
+  ],
+  "executionEnvironments": [
+    {
+      "root": "pipeline",
+      "extraPaths": [
+        "pipeline"
+      ]
+    }
+  ],
+  "typeCheckingMode": "off",
+  "reportMissingImports": "none"
+}

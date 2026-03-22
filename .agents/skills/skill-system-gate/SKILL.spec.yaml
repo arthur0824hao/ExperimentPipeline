@@ -1,0 +1,94 @@
+schema_version: 1
+skill_name: skill-system-gate
+description: >
+  Experiment validation gate for GNN/FraudDetect pipeline.
+  Validates experiment code/logs against gate_bank.json rules (gate-ready-workflow)
+  and checks DB registry state safety (registry-safety).
+
+depends_on: []
+delegates_to: []
+
+operations:
+  - name: validate-experiment
+    intent: "Verify experiment source code and logs comply with gate_bank rules before registration"
+    inputs:
+      - name: exp_name
+        type: string
+        required: true
+        description: "Experiment directory name under experiments/"
+      - name: phase_root
+        type: path
+        required: false
+        description: "Phase directory path (default: Phase3)"
+        default: "/datas/store162/arthur0824hao/Study/GNN/FraudDetect/SubProject/Phase3"
+    outputs:
+      - name: report
+        type: markdown
+        description: "Validation report with [ERROR]/[WARN] items and pass/fail verdict"
+    constraints:
+      - "Must not modify experiment source code or config files"
+      - "Must fail-closed: any error-severity violation blocks the gate"
+      - "Must check all rule types: source_contains, source_not_contains, stderr_scan, file_exists, file_min_size"
+    expected_effects:
+      - type: fs.read
+        description: "Read gate_bank.json, train.py, stderr logs, BEHAVIOR.md"
+      - type: returns
+        description: "Structured markdown report"
+
+  - name: verify-registry
+    intent: "Check DB registry experiment state safety — prevent unsafe resets of RUNNING experiments"
+    inputs:
+      - name: exp_name
+        type: string
+        required: true
+        description: "Experiment name in registry"
+    outputs:
+      - name: safety_report
+        type: markdown
+        description: "Registry safety check result with status and recommendation"
+    constraints:
+      - "Must not force-overwrite RUNNING status experiments"
+      - "Only check and recommend — never execute actual rerun/reset"
+      - "Must report stale/zombie detection results"
+    expected_effects:
+      - type: db.read
+        description: "Query exp_registry.experiments table"
+      - type: returns
+        description: "Safety assessment markdown"
+
+  - name: status
+    intent: "Show current experiment queue and registry health overview"
+    inputs: []
+    outputs:
+      - name: dashboard
+        type: markdown
+        description: "Current queue status with counts by state"
+    constraints:
+      - "Read-only operation — must not modify any state"
+    expected_effects:
+      - type: db.read
+        description: "Query experiment counts by status"
+      - type: returns
+        description: "Status dashboard markdown"
+
+acceptance_tests:
+  structural:
+    - id: manifest-valid
+      assert: "manifest exposes validate-experiment, verify-registry, and status operations"
+    - id: scripts-exist
+      assert: "validate_exp.sh, check_registry.sh, and status.sh exist in scripts/"
+    - id: router-routes
+      assert: "skill-system-router can discover and route to this skill"
+  behavioral:
+    - id: safe-block
+      given: "Experiment missing scripts/train.py"
+      when: "validate-experiment is called"
+      then: "Report contains [ERROR] for train_script rule, verdict is FAIL"
+    - id: warning-pass
+      given: "Experiment with only sys.exit() warning"
+      when: "validate-experiment is called"
+      then: "Report contains [WARN] but verdict is PASS"
+    - id: registry-running-block
+      given: "Experiment with status=RUNNING in DB"
+      when: "verify-registry is called"
+      then: "Report shows RUNNING state and recommends NOT resetting"

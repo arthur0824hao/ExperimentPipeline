@@ -1,0 +1,198 @@
+schema_version: 1
+skill_name: skill-system-installer
+description: >
+  Unified skill installer with global/local scoping and skills.sh CLI.
+  Supports installing from GitHub (curated or custom repos), drift detection
+  via lockfile hashing, and hub-spoke sync (global → local workspace).
+  Entry point: scripts/skills.sh
+
+depends_on: []
+delegates_to:
+  - skill-system-behavior  # spec validation on installed skills
+
+operations:
+  - name: bootstrap
+    intent: "Detect and scaffold the skill system into the current project"
+    outputs:
+      - name: checks
+        type: json
+      - name: actions_taken
+        type: json
+    constraints:
+      - "Must create only missing structure and never overwrite existing files"
+      - "Must validate installed skills after scaffolding completes"
+    expected_effects:
+      - type: fs.read
+        description: "Inspect current workspace state"
+      - type: fs.write
+        description: "Create missing config, note, .tkt, and lockfile assets"
+      - type: proc.exec
+        description: "Run validation and hash refresh helpers"
+
+  - name: install
+    intent: "Install a skill from GitHub to global or local scope"
+    inputs:
+      - name: repo
+        type: string
+        required: true
+        description: "GitHub owner/repo (e.g. arthur0824hao/skills)"
+      - name: path
+        type: string
+        required: true
+        description: "Path to skill within repo (e.g. skills/skill-system-gate)"
+      - name: scope
+        type: string
+        required: false
+        description: "Install scope: global or local (default: local)"
+        default: "local"
+      - name: force
+        type: boolean
+        required: false
+        description: "Overwrite existing skill with backup"
+        default: false
+    outputs:
+      - name: result
+        type: json
+        description: "Install result with skill name, destination path, scope"
+    constraints:
+      - "Must validate SKILL.md exists in source before copying"
+      - "Must create timestamped backup when --force overwrites existing skill"
+      - "Global scope installs to $SKILLS_GLOBAL_HOME/skills/ (default: ~/.skills-system/skills/)"
+      - "Local scope installs to <workspace>/skills/"
+      - "Must update corresponding lockfile (global or local) after install"
+    expected_effects:
+      - type: net.fetch
+        description: "Download repo archive from GitHub or git sparse-checkout"
+      - type: fs.write
+        description: "Write skill directory and update lockfile"
+
+  - name: list
+    intent: "List installed skills with scope annotations and curated catalog"
+    inputs:
+      - name: scope
+        type: string
+        required: false
+        description: "Filter scope: global, local, or all (default: all)"
+        default: "all"
+      - name: format
+        type: string
+        required: false
+        description: "Output format: text or json"
+        default: "text"
+    outputs:
+      - name: skills_list
+        type: json
+        description: "Array of {name, scope, installed, source}"
+    constraints:
+      - "Must show both global and local skills when scope=all"
+      - "Must annotate curated skills with install status"
+    expected_effects:
+      - type: fs.read
+        description: "Read global and local skill directories"
+      - type: net.fetch
+        description: "Fetch curated catalog from GitHub API (optional)"
+      - type: returns
+        description: "Formatted skill listing"
+
+  - name: update
+    intent: "Check skill drift against lockfile and optionally reinstall drifted skills"
+    inputs:
+      - name: scope
+        type: string
+        required: false
+        description: "Scope to check: global, local, or all (default: all)"
+        default: "all"
+      - name: skill
+        type: string
+        required: false
+        description: "Specific skill name to check (overrides --all)"
+      - name: apply
+        type: boolean
+        required: false
+        description: "Apply updates to drifted/missing skills"
+        default: false
+      - name: dry_run
+        type: boolean
+        required: false
+        description: "Report only, no changes"
+        default: false
+    outputs:
+      - name: drift_report
+        type: json
+        description: "Table of skill_name/local_hash/lock_hash/status/scope"
+    constraints:
+      - "Must compute SHA256 hash of entire skill directory (sorted file order)"
+      - "Must compare against corresponding scope lockfile"
+      - "Must not modify skills when dry_run=true"
+    expected_effects:
+      - type: fs.read
+        description: "Read skill directories and lockfiles"
+      - type: fs.write
+        description: "Update lockfile hashes after reinstall (when apply=true)"
+      - type: net.fetch
+        description: "Download from source repo when reinstalling"
+
+  - name: sync
+    intent: "Synchronize global skills into local workspace (hub-spoke pull)"
+    inputs:
+      - name: skills
+        type: string
+        required: false
+        description: "Comma-separated skill names to sync (default: all global skills)"
+      - name: strategy
+        type: string
+        required: false
+        description: "Sync strategy: copy or symlink (default: copy)"
+        default: "copy"
+      - name: force
+        type: boolean
+        required: false
+        description: "Overwrite existing local skills"
+        default: false
+    outputs:
+      - name: sync_report
+        type: json
+        description: "Array of {skill, action, source, destination}"
+    constraints:
+      - "Must not overwrite local skills without --force"
+      - "Must skip skills that already exist locally with matching hash"
+      - "Symlink strategy creates relative symlinks from local → global"
+      - "Copy strategy does full directory copy"
+      - "Must update local lockfile after sync"
+    expected_effects:
+      - type: fs.read
+        description: "Read global skills directory and lockfile"
+      - type: fs.write
+        description: "Write/symlink skills to local workspace and update local lockfile"
+
+acceptance_tests:
+  structural:
+    - id: manifest-valid
+      assert: "manifest exposes bootstrap, install, list, update, and sync operations"
+    - id: scripts-exist
+      assert: "scripts/skills.sh exists and is executable"
+    - id: python-scripts-exist
+      assert: "install-skill-from-github.py, update-skills.py, list-curated-skills.py exist in scripts/"
+    - id: router-routes
+      assert: "skill-system-router can discover and route to this skill"
+  behavioral:
+    - id: global-install
+      given: "Valid GitHub repo path and --global flag"
+      when: "install is called with scope=global"
+      then: "Skill installed to $SKILLS_GLOBAL_HOME/skills/ and global lockfile updated"
+    - id: local-install-default
+      given: "Valid GitHub repo path without scope flag"
+      when: "install is called"
+      then: "Skill installed to <workspace>/skills/ and local lockfile updated"
+    - id: sync-copy
+      given: "Skills exist in global scope but not in local workspace"
+      when: "sync is called with strategy=copy"
+      then: "Skills copied from global to local, local lockfile updated"
+    - id: sync-skip-existing
+      given: "Skill already exists in local with matching hash"
+      when: "sync is called without --force"
+      then: "Skill skipped with 'already up-to-date' status"
+    - id: drift-detection
+      given: "Local skill modified after install"
+      when: "update is called with scope=local"
+      then: "Drift report shows status=drifted for modified skill"

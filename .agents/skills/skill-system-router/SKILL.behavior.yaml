@@ -1,0 +1,82 @@
+schema_version: 1
+skill_name: skill-system-router
+title: skill-system-router Behavior Contract
+purpose: 'Meta-skill that orchestrates skill discovery, selection, execution, chaining, and observability. The router is the
+  central hub that delegates work to all other skill-system skills.
+
+  '
+generated_from: SKILL.spec.yaml
+updated_at: '2026-03-09T12:08:25.479962'
+depends_on: []
+delegates_to:
+- skill-system-behavior
+- skill-system-creator
+- skill-system-installer
+- skill-system-gate
+- skill-system-github
+- skill-system-insight
+- skill-system-soul
+- skill-system-memory
+- skill-system-postgres
+- skill-system-tmux
+- skill-system-tkt
+- skill-system-workflow
+operations:
+- name: rebuild-index
+  intent: Regenerate skills-index.json by scanning all skill manifests
+  inputs:
+  - skills_dir
+  outputs:
+  - index
+  constraints:
+  - Must parse all SKILL.md manifest blocks
+  - Must rebuild capability_index mapping
+- name: plan-with-workflow
+  intent: Use skill-system-workflow to plan complex goals as DAG waves
+  inputs:
+  - goal
+  - context
+  outputs:
+  - plan
+  constraints:
+  - Must route execution by dependency order
+- name: report-improvement-issue
+  intent: Create or link an improvement issue discovered during routing
+  inputs:
+  - title
+  - summary
+  - repo
+  outputs:
+  - result
+  constraints:
+  - Must check for duplicate open issues before creating a new one
+- name: guard-check
+  intent: Ensure router discovery guard runs at session start
+  inputs:
+  - session_id
+  outputs:
+  - result
+  constraints:
+  - Must execute before loading non-router skills
+mermaid: "flowchart TD\n  in_0_skills_dir[/\"skills_dir\"/]:::input\n  in_1_goal[/\"goal\"/]:::input\n  in_1_context[/\"context\"\
+  /]:::input\n  op_rebuild_index([\"rebuild-index\"]):::stage\n  op_plan_with_workflow([\"plan-with-workflow\"]):::stage\n\
+  \  out_0_index[\\\"index\"\\]:::output\n  out_1_plan[\\\"plan\"\\]:::output\n\n  in_0_skills_dir --> op_rebuild_index\n\
+  \  in_1_goal --> op_plan_with_workflow\n  in_1_context --> op_plan_with_workflow\n  op_rebuild_index --> out_0_index\n \
+  \ op_plan_with_workflow --> out_1_plan\n  op_rebuild_index -->|\"violation\"| err_0_0[\"Must parse all SKILL.md manifest\
+  \ blocks\"]:::error\n  op_rebuild_index -->|\"violation\"| err_0_1[\"Must rebuild capability_index mapping\"]:::error\n\
+  \  op_plan_with_workflow -->|\"violation\"| err_1_0[\"Must route execution by dependency order\"]:::error\n  op_plan_with_workflow\
+  \ -.->|delegates_to| dlg_skill_system_behavior\n  dlg_skill_system_behavior{{\"skill-system-behavior\"}}:::dep\n  op_plan_with_workflow\
+  \ -.->|delegates_to| dlg_skill_system_creator\n  dlg_skill_system_creator{{\"skill-system-creator\"}}:::dep\n  op_plan_with_workflow\
+  \ -.->|delegates_to| dlg_skill_system_installer\n  dlg_skill_system_installer{{\"skill-system-installer\"}}:::dep\n  op_plan_with_workflow\
+  \ -.->|delegates_to| dlg_skill_system_gate\n  dlg_skill_system_gate{{\"skill-system-gate\"}}:::dep\n  op_plan_with_workflow\
+  \ -.->|delegates_to| dlg_skill_system_github\n  dlg_skill_system_github{{\"skill-system-github\"}}:::dep\n  op_plan_with_workflow\
+  \ -.->|delegates_to| dlg_skill_system_insight\n  dlg_skill_system_insight{{\"skill-system-insight\"}}:::dep\n  op_plan_with_workflow\
+  \ -.->|delegates_to| dlg_skill_system_soul\n  dlg_skill_system_soul{{\"skill-system-soul\"}}:::dep\n  op_plan_with_workflow\
+  \ -.->|delegates_to| dlg_skill_system_memory\n  dlg_skill_system_memory{{\"skill-system-memory\"}}:::dep\n  op_plan_with_workflow\
+  \ -.->|delegates_to| dlg_skill_system_postgres\n  dlg_skill_system_postgres{{\"skill-system-postgres\"}}:::dep\n  op_plan_with_workflow\
+  \ -.->|delegates_to| dlg_skill_system_tkt\n  dlg_skill_system_tkt{{\"skill-system-tkt\"}}:::dep\n  op_plan_with_workflow\
+  \ -.->|delegates_to| dlg_skill_system_tmux\n  dlg_skill_system_tmux{{\"skill-system-tmux\"}}:::dep\n  op_plan_with_workflow\
+  \ -.->|delegates_to| dlg_skill_system_workflow\n  dlg_skill_system_workflow{{\"skill-system-workflow\"}}:::dep\n\n  classDef\
+  \ stage fill:#dbeafe,stroke:#3b82f6,stroke-width:2px,color:#1e40af\n  classDef error fill:#fee2e2,stroke:#ef4444,stroke-width:2px,color:#991b1b,stroke-dasharray:\
+  \ 5 5\n  classDef input fill:#f0fdf4,stroke:#22c55e,stroke-width:2px,color:#166534\n  classDef output fill:#fef3c7,stroke:#f59e0b,stroke-width:2px,color:#92400e\n\
+  \  classDef dep fill:#ede9fe,stroke:#8b5cf6,stroke-width:2px,color:#5b21b6,stroke-dasharray: 5 5"

@@ -1,0 +1,287 @@
+schema_version: 1
+skill_name: skill-system-memory
+description: >
+  Persistent shared memory for AI agents backed by PostgreSQL.
+  Supports full-text search, trigram matching, optional pgvector,
+  typed sub-tables for soul state, insights, preferences, and evolution ledger reads.
+  Current supported-now runtime surfaces are core memory, typed context reads,
+  evolution ledger access, and compaction logging; projection upserts and behavior
+  graph refresh are capability-gated optional surfaces. The doctor also reports
+  canonical evolution accepted/rejected/task stores once the durable evolution
+  model is present.
+
+depends_on:
+  - skill-system-postgres
+delegates_to: []
+
+operations:
+  - name: search
+    intent: "Search memories by natural language query with ranked results"
+    inputs:
+      - name: query
+        type: string
+        required: true
+        description: "Search query"
+      - name: limit
+        type: number
+        required: false
+        description: "Max results"
+        default: 10
+      - name: scope
+        type: string
+        required: false
+        description: "global | project | session filter"
+    outputs:
+      - name: results
+        type: json
+        description: "Ranked memory results with relevance scores"
+    constraints:
+      - "Must use FTS + trigram scoring"
+      - "Must respect deleted_at soft delete"
+      - "Unscoped search returns all scopes and labels each result with scope"
+      - "When DB is unavailable, may fall back to local pending-file search with explicit warning"
+      - "When memory schema is missing, returns empty results with explicit warning instead of crashing"
+    expected_effects:
+      - type: db.read
+        description: "Query agent_memories with search_memories function"
+      - type: returns
+        description: "Ranked results"
+
+  - name: store
+    intent: "Store a new memory with auto-deduplication"
+    inputs:
+      - name: memory_type
+        type: string
+        required: true
+        description: "Memory type: working, episodic, semantic, procedural"
+      - name: category
+        type: string
+        required: true
+        description: "Memory category"
+      - name: title
+        type: string
+        required: true
+        description: "Memory title"
+      - name: tags_csv
+        type: string
+        required: false
+        description: "Comma-separated tags"
+      - name: importance
+        type: number
+        required: false
+        description: "Importance score 0-10"
+        default: 5
+      - name: scope
+        type: string
+        required: false
+        description: "global | project | session, default session"
+    outputs:
+      - name: memory_id
+        type: json
+        description: "Stored memory ID"
+    constraints:
+      - "Must deduplicate by content_hash"
+      - "Must validate memory_type enum"
+      - "Must persist scope in metadata and use session_id for session scope when available"
+      - "Typed projection tables must remain query-oriented projections, not canonical authoring sources"
+      - "When DB is unavailable, may write pending fallback files under .memory/pending instead of crashing"
+      - "When memory schema is missing, degrades to warning + no-op instead of crashing"
+    expected_effects:
+      - type: db.write
+        description: "Insert or update agent_memories via store_memory function"
+      - type: fs.write
+        description: "May write .memory/pending fallback files when DB is unavailable"
+
+  - name: flush
+    intent: "Flush locally buffered fallback memory writes into PostgreSQL"
+    inputs: []
+    outputs:
+      - name: flushed_count
+        type: json
+        description: "Flushed pending file count"
+    constraints:
+      - "Must read .memory/pending and replay pending writes when DB is available"
+      - "Must not crash when no pending files exist"
+    expected_effects:
+      - type: fs.read
+        description: "Read pending fallback files"
+      - type: fs.write
+        description: "Remove flushed pending files"
+      - type: db.write
+        description: "Persist replayed fallback writes to agent_memories"
+
+  - name: list
+    intent: "List memories with optional scope/category filters"
+    inputs:
+      - name: scope
+        type: string
+        required: false
+      - name: category
+        type: string
+        required: false
+      - name: limit
+        type: number
+        required: false
+        default: 20
+    outputs:
+      - name: memories
+        type: json
+    constraints:
+      - "Must show scope on each listed record"
+      - "When DB is unavailable, may list pending fallback files instead"
+    expected_effects:
+      - type: db.read
+      - type: fs.read
+
+  - name: compact
+    intent: "Compact duplicate memories within an optional scope"
+    inputs:
+      - name: scope
+        type: string
+        required: false
+    outputs:
+      - name: compacted_count
+        type: json
+    constraints:
+      - "Must soft-delete duplicate content_hash rows while keeping the strongest survivor"
+      - "When DB is unavailable, must fail closed with a warning instead of crashing"
+    expected_effects:
+      - type: db.write
+      - type: fs.read
+
+  - name: export
+    intent: "Export memories in json or csv format"
+    inputs:
+      - name: format
+        type: string
+        required: false
+      - name: scope
+        type: string
+        required: false
+      - name: limit
+        type: number
+        required: false
+    outputs:
+      - name: export_payload
+        type: json
+    constraints:
+      - "Must include scope in exported records"
+      - "When DB is unavailable, may export pending fallback records instead"
+    expected_effects:
+      - type: db.read
+      - type: fs.read
+
+  - name: health
+    intent: "Inspect the current memory system health metrics"
+    inputs: []
+    outputs:
+      - name: health_metrics
+        type: json
+        description: "Health metrics for total memories, average importance, and stale count"
+    constraints:
+      - "Must report health using memory_health_check()"
+      - "Must not modify memory records"
+    expected_effects:
+      - type: db.read
+        description: "Read memory health metrics"
+      - type: returns
+        description: "Health metric results"
+
+  - name: types
+    intent: "List the available memory types and their intended usage"
+    inputs: []
+    outputs:
+      - name: memory_types
+        type: json
+        description: "Memory type definitions and descriptions"
+    constraints:
+      - "Must return the supported memory type set"
+      - "Must not modify memory records"
+    expected_effects:
+      - type: returns
+        description: "Memory type definitions"
+
+  - name: auto-write
+    intent: "Propose a structured memory write after solving a non-obvious problem"
+    inputs: []
+    outputs:
+      - name: memory_proposal
+        type: json
+        description: "Proposed memory fields for a post-task writeback"
+    constraints:
+      - "Must produce a structured proposal rather than write directly to the database"
+      - "Must follow the standard memory write template"
+    expected_effects:
+      - type: returns
+        description: "Memory write proposal"
+
+  - name: doctor
+    intent: "Report the live runtime capability model, plugin alignment, target selection, and current support boundaries"
+    inputs: []
+    outputs:
+      - name: doctor_report
+        type: json
+        description: "Current runtime report including capability statuses, config paths, plugin drift, memory target, canonical evolution store reporting, table readiness, and evolution ledger classification"
+    constraints:
+      - "Must classify runtime capabilities as SUPPORTED_NOW, GATED_OPTIONAL, or DEFERRED_UNSUPPORTED with evidence"
+      - "Must report the active memory target and its source"
+      - "Must compare live plugin files against the repo source-of-truth"
+      - "Must report how optional unsupported surfaces are skipped or fail closed"
+      - "Must report canonical evolution accepted/rejected/task stores and the limited role of agent_memories when the durable evolution model is present"
+      - "Must report approve/reject transaction status, migration/backfill rerun safety, replay/idempotency status, and the task authority model for evolution writes"
+      - "Must not silently mutate runtime state unless explicitly asked to sync"
+    expected_effects:
+      - type: fs.read
+        description: "Read config, plugin, and metadata files"
+      - type: db.read
+        description: "Inspect table readiness through read-only psql queries"
+      - type: returns
+        description: "Doctor report"
+
+acceptance_tests:
+  structural:
+    - id: manifest-valid
+      assert: "manifest exposes search, store, list, compact, export, flush, health, types, auto-write, and doctor operations"
+    - id: scripts-exist
+      assert: "mem.sh, mem.py, router_mem.sh, router_mem.ps1, runtime_doctor.py, and auto-write-template.md exist in scripts/"
+  behavioral:
+    - id: dedup-on-store
+      given: "Memory with identical content already exists"
+      when: "store is called"
+      then: "Existing memory updated (access_count incremented) instead of creating duplicate"
+    - id: typed-projections-separate
+      given: "Behavior or summary projections are stored in typed tables"
+      when: "runtime queries retrieve context"
+      then: "Typed tables remain separate from canonical file artifacts and general memory log semantics"
+    - id: compaction-gates-optional-runtime-projections
+      given: "A plugin-enabled compaction completes but session/project/context projection tables are absent"
+      when: "the compaction event is finalized"
+      then: "projection writes are skipped with an explicit surfaced reason and core logging does not fail"
+    - id: compaction-syncs-runtime-projections-when-supported
+      given: "A plugin-enabled compaction completes and projection tables are present"
+      when: "runtime sync runs after compaction"
+      then: "session_summaries, project_summaries, and context_rollups are upserted for runtime recall"
+    - id: behavior-refresh-gated-when-graph-surfaces-missing
+      given: "Behavior graph tables are absent in agent_memory"
+      when: "the plugin considers refreshing behavior projections"
+      then: "the refresh is skipped explicitly instead of attempting writes that would fail"
+    - id: doctor-reports-runtime-alignment
+      given: "The runtime doctor is executed against the current OpenCode environment"
+      when: "doctor runs without sync mode"
+      then: "it reports capability statuses, config paths, plugin drift, memory target source, canonical evolution store reporting, OMO resolution evidence, table readiness, and evolution ledger status without mutating files"
+    - id: doctor-reports-write-integrity
+      given: "The canonical durable evolution model is enabled"
+      when: "doctor runs after integrity hardening"
+      then: "it reports approve/reject transaction safety, migration/backfill rerun safety, replay/idempotency status, and that `agent_tasks` is the lifecycle authority while `evolution_tasks` is mapping only"
+    - id: file-fallback-when-db-unavailable
+      given: "The PostgreSQL connection is unavailable"
+      when: "store is called"
+      then: "a pending fallback file is written under .memory/pending and the command does not crash"
+    - id: graceful-no-schema-mode
+      given: "The database is reachable but memory schema objects are missing"
+      when: "search or store is called"
+      then: "search returns empty results with a warning and store degrades to warning plus no-op"
+    - id: project-scope-fallback
+      given: "DB is unavailable and a project-scoped memory is stored"
+      when: "search or list uses --scope project"
+      then: "the fallback record is returned only for project scope"

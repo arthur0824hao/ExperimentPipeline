@@ -1,0 +1,228 @@
+schema_version: 1
+skill_name: skill-system-eda
+description: >
+  Exploratory Data Analysis skill for CSV and parquet datasets with deterministic profiling,
+  distribution and anomaly analysis, leakage detection, feature ranking, contract generation,
+  contract validation, and optional memory writeback through skill-system-memory. Runtime is
+  Polars-first with lazy large-file scanning, early head sampling, high-cardinality guards,
+  and Cramer's V categorical correlation support.
+
+depends_on:
+  - skill-system-memory
+delegates_to: []
+
+operations:
+  - name: profile-dataset
+    intent: "Generate a deterministic base profile.yaml and report.md for a dataset"
+    inputs:
+      - name: input
+        type: path
+        required: true
+      - name: target
+        type: string
+        required: false
+      - name: output
+        type: path
+        required: true
+      - name: sample
+        type: number
+        required: false
+      - name: no_memory
+        type: boolean
+        required: false
+    outputs:
+      - name: profile
+        type: path
+      - name: report
+        type: path
+    constraints:
+      - "Must emit profile.yaml and report.md"
+      - "Sampling must be deterministic via lazy head"
+      - "Large CSV/parquet paths must use lazy scan strategy"
+      - "High-cardinality categorical columns must be truncated to top-20 values"
+    expected_effects:
+      - type: fs.read
+      - type: fs.write
+      - type: proc.exec
+
+  - name: distribution-report
+    intent: "Append distribution and class-conditional analysis to an existing EDA profile"
+    inputs:
+      - name: input
+        type: path
+        required: true
+      - name: target
+        type: string
+        required: true
+      - name: profile
+        type: path
+        required: true
+    outputs:
+      - name: profile
+        type: path
+      - name: report
+        type: path
+    constraints:
+      - "Must write class-conditional statistics and KS tests into profile.yaml and report.md"
+    expected_effects:
+      - type: fs.read
+      - type: fs.write
+
+  - name: correlation-matrix
+    intent: "Compute feature-feature and feature-target correlations"
+    inputs:
+      - name: input
+        type: path
+        required: true
+      - name: target
+        type: string
+        required: false
+      - name: profile
+        type: path
+        required: true
+    outputs:
+      - name: profile
+        type: path
+      - name: report
+        type: path
+    constraints:
+      - "Must produce top_with_target and high_inter_feature outputs"
+      - "Must compute Cramer's V for categorical pairs when cardinality <= 50"
+    expected_effects:
+      - type: fs.read
+      - type: fs.write
+
+  - name: anomaly-profiling
+    intent: "Rank class-conditional distribution shifts with effect sizes"
+    inputs:
+      - name: input
+        type: path
+        required: true
+      - name: target
+        type: string
+        required: true
+      - name: profile
+        type: path
+        required: true
+    outputs:
+      - name: profile
+        type: path
+      - name: report
+        type: path
+    constraints:
+      - "Must compute top shifted features and Cohen's d effect sizes"
+    expected_effects:
+      - type: fs.read
+      - type: fs.write
+
+  - name: feature-importance-scan
+    intent: "Rank features using mutual information and optional sklearn tree importance"
+    inputs:
+      - name: input
+        type: path
+        required: true
+      - name: target
+        type: string
+        required: true
+      - name: profile
+        type: path
+        required: true
+    outputs:
+      - name: profile
+        type: path
+      - name: report
+        type: path
+    constraints:
+      - "Must still produce a ranking when sklearn tree importance is unavailable"
+      - "Must skip one-hot expansion for categorical features with cardinality > 50"
+    expected_effects:
+      - type: fs.read
+      - type: fs.write
+
+  - name: leakage-detector
+    intent: "Detect leakage signals and emit severity-graded findings"
+    inputs:
+      - name: input
+        type: path
+        required: true
+      - name: target
+        type: string
+        required: true
+      - name: profile
+        type: path
+        required: true
+    outputs:
+      - name: profile
+        type: path
+      - name: report
+        type: path
+    constraints:
+      - "Correlation > 0.95 with target must be marked critical"
+    expected_effects:
+      - type: fs.read
+      - type: fs.write
+
+  - name: save-contract
+    intent: "Generate a data contract from a saved EDA profile"
+    inputs:
+      - name: profile
+        type: path
+        required: true
+      - name: output
+        type: path
+        required: true
+    outputs:
+      - name: contract
+        type: path
+    constraints:
+      - "Must emit a machine-readable contract with columns, nullability, and bounds"
+      - "Truncated categorical columns must use cardinality_range instead of allowed_values"
+    expected_effects:
+      - type: fs.read
+      - type: fs.write
+
+  - name: validate-contract
+    intent: "Validate a dataset against a saved contract and emit PASS/FAIL JSON"
+    inputs:
+      - name: input
+        type: path
+        required: true
+      - name: contract
+        type: path
+        required: true
+    outputs:
+      - name: validation
+        type: json
+    constraints:
+      - "Must fail closed with a violation list when the contract is broken"
+    expected_effects:
+      - type: fs.read
+      - type: returns
+
+acceptance_tests:
+  structural:
+    - id: manifest-valid
+      assert: "manifest exposes profile-dataset, distribution-report, correlation-matrix, anomaly-profiling, feature-importance-scan, leakage-detector, save-contract, and validate-contract"
+    - id: scripts-exist
+      assert: "eda.py and test_eda.py exist in scripts/"
+  behavioral:
+    - id: profile-artifacts
+      given: "A CSV dataset with a binary target"
+      when: "profile-dataset runs"
+      then: "profile.yaml contains column schema and class balance and report.md contains a markdown table"
+    - id: contract-pass-fail
+      given: "A saved contract and a modified dataset"
+      when: "validate-contract runs"
+      then: "the original data passes and the modified data fails with a violation list"
+    - id: memory-pending-fallback
+      given: "Memory writeback is enabled but direct memory writes are bypassed"
+      when: "profile-dataset runs"
+      then: "pending memory JSON files are written under .memory/pending and --no-memory skips them"
+    - id: high-cardinality-guards
+      given: "A categorical feature with 563 unique values"
+      when: "profile-dataset, feature-importance-scan, and save-contract run"
+      then: "profile truncates to top-20 values, importance skips one-hot, and contract emits cardinality_range"
+    - id: categorical-correlation
+      given: "A dataset with categorical target and categorical features"
+      when: "correlation-matrix runs"
+      then: "correlations include method=cramers_v entries and categorical correlation report table"

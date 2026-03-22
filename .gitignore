@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.progress/
+experiments/*/outputs/
+experiments/*/checkpoints/
+*.egg-info/
+.env
+results_db/

@@ -1,0 +1,246 @@
+schema_version: 1
+skill_name: skill-system-graph
+description: >
+  Graph navigation skill for the skill system. It parses `SKILL.spec.yaml` files
+  into a dependency graph using only `depends_on` and `delegates_to`, stores the
+  canonical model in PostgreSQL-backed project graph tables, and exposes CLI tools
+  for topology inspection.
+
+depends_on:
+  - skill-system-postgres
+  - skill-system-behavior
+delegates_to: []
+
+operations:
+  - name: parse-specs
+    intent: "Parse all skill SKILL.spec.yaml files into a normalized graph model"
+    inputs:
+      - name: skills_dir
+        type: path
+        required: false
+        description: "Root directory that contains `skills/`"
+        default: "skills"
+      - name: include_invalid
+        type: boolean
+        required: false
+        description: "Include parse-error metadata in output"
+        default: false
+    outputs:
+      - name: graph
+        type: json
+        description: "Graph model with nodes and edges"
+      - name: parse_report
+        type: json
+        description: "Counts for parsed, skipped, and malformed specs"
+    constraints:
+      - "Must ignore SKILL.behavior.yaml and only parse SKILL.spec.yaml"
+      - "Must include one outgoing edge per depends_on and one per delegates_to"
+      - "Must continue on malformed specs when include_invalid is false"
+    expected_effects:
+      - type: fs.read
+      - type: returns
+
+  - name: sync-graph
+    intent: "Sync the normalized graph model into PostgreSQL graph tables"
+    inputs:
+      - name: skills_dir
+        type: path
+        required: false
+        description: "Root directory that contains `skills/`"
+        default: "skills"
+      - name: force
+        type: boolean
+        required: false
+        description: "Ignore stored hashes and rebuild all nodes/edges"
+        default: false
+    outputs:
+      - name: sync_result
+        type: json
+        description: "Inserted, updated, skipped, and removed counters"
+    constraints:
+      - "Must be hash-aware and skip unchanged nodes by default"
+      - "Must remove stale skill nodes that no longer have SKILL.spec.yaml"
+      - "Must upsert into existing skill graph tables instead of creating new schemas"
+    expected_effects:
+      - type: fs.read
+      - type: db.write
+      - type: returns
+
+  - name: show
+    intent: "Display the full skill graph from the current spec-scan graph model"
+    inputs:
+      - name: skills_dir
+        type: path
+        required: false
+        description: "Root directory that contains `skills/`"
+        default: "skills"
+      - name: format
+        type: string
+        required: false
+        description: "Output format: json or text"
+        default: "json"
+    outputs:
+      - name: graph_view
+        type: json
+        description: "Full graph view with nodes and edges"
+    constraints:
+      - "JSON output must include nodes and edges arrays"
+      - "Must read directly from `SKILL.spec.yaml` files instead of persisted graph tables"
+      - "Text output should remain human readable and complete"
+    expected_effects:
+      - type: fs.read
+      - type: returns
+
+  - name: neighbors
+    intent: "List direct neighbor skills for a target skill"
+    inputs:
+      - name: skill_name
+        type: string
+        required: true
+        description: "Skill id to inspect"
+      - name: format
+        type: string
+        required: false
+        description: "Output format: json or text"
+        default: "json"
+    outputs:
+      - name: neighbors
+        type: json
+        description: "Outgoing and incoming neighbors with edge types"
+    constraints:
+      - "Must include both outgoing and incoming neighbors"
+      - "Missing skill names must return empty arrays with an explicit status"
+    expected_effects:
+      - type: db.read
+      - type: returns
+
+  - name: path
+    intent: "Find the shortest dependency path between two skills"
+    inputs:
+      - name: from_skill
+        type: string
+        required: true
+        description: "Source skill id"
+      - name: to_skill
+        type: string
+        required: true
+        description: "Destination skill id"
+      - name: max_depth
+        type: number
+        required: false
+        description: "Traversal depth guard"
+        default: 10
+      - name: format
+        type: string
+        required: false
+        description: "Output format: json or text"
+        default: "json"
+    outputs:
+      - name: path_result
+        type: json
+        description: "Shortest path list and found flag"
+    constraints:
+      - "Must return explicit not-found status when no path exists"
+      - "Must terminate on max_depth and avoid cycles"
+    expected_effects:
+      - type: db.read
+      - type: returns
+
+  - name: impact
+    intent: "Find all transitive dependents for one skill"
+    inputs:
+      - name: skill_name
+        type: string
+        required: true
+        description: "Skill id whose dependents are requested"
+      - name: max_depth
+        type: number
+        required: false
+        description: "Traversal depth guard"
+        default: 10
+      - name: format
+        type: string
+        required: false
+        description: "Output format: json or text"
+        default: "json"
+    outputs:
+      - name: impact_result
+        type: json
+        description: "Transitive dependents with count plus depth/path metadata"
+    constraints:
+      - "Must traverse incoming `depends_on` and `delegates_to` edges"
+      - "Must return stable order for deterministic text output"
+      - "Must avoid cycles and deep traversal hangs"
+    expected_effects:
+      - type: db.read
+      - type: returns
+
+  - name: refresh
+    intent: "Rebuild graph from specs and refresh persistence in one command"
+    inputs:
+      - name: skills_dir
+        type: path
+        required: false
+        description: "Root directory that contains `skills/`"
+        default: "skills"
+      - name: force
+        type: boolean
+        required: false
+        description: "Force rebuild ignoring cached hashes"
+        default: false
+      - name: format
+        type: string
+        required: false
+        description: "Output format: json or text"
+        default: "json"
+    outputs:
+      - name: refresh_result
+        type: json
+        description: "Summary of parsed spec count plus inserted, updated, skipped, and removed sync counters"
+    constraints:
+      - "Must be parse-specs + sync-graph in one command"
+      - "Must surface parsed spec count alongside sync counters in the same result"
+    expected_effects:
+      - type: fs.read
+      - type: db.write
+      - type: returns
+
+acceptance_tests:
+  structural:
+    - id: manifest-valid
+      assert: "manifest exposes parse-specs, sync-graph, show, neighbors, path, impact, and refresh operations"
+    - id: scripts-exist
+      assert: "scripts directory exists under skill-system-graph and is writable"
+  behavioral:
+    - id: parse-only-specs
+      given: "A skill folder with SKILL.spec.yaml files and no SKILL.behavior.yaml"
+      when: "parse-specs is called with default skills_dir"
+      then: "The parsed graph includes only skill-level nodes and depends_on/delegates_to edges"
+    - id: malformed-specs-are-skipped
+      given: "One malformed SKILL.spec.yaml exists in the skills directory"
+      when: "parse-specs runs with include_invalid false"
+      then: "That file is skipped with warning data and all valid files still parse"
+    - id: hash-aware-sync
+      given: "The same spec set has not changed"
+      when: "sync-graph runs"
+      then: "The sync_result reports skipped count for unchanged nodes"
+    - id: show-returns-graph
+      given: "Skill specs exist on disk"
+      when: "show is called with format json"
+      then: "The response contains nodes and edges arrays and a node_count summary"
+    - id: neighbors-are-bi-directional
+      given: "Two skills connect via depends_on or delegates_to"
+      when: "neighbors is called for the source or destination skill"
+      then: "Both outgoing and incoming neighbor lists are returned"
+    - id: path-finds-shortest
+      given: "A transitive path exists from from_skill to to_skill"
+      when: "path is called"
+      then: "The result includes the shortest path as an ordered skill list"
+    - id: impact-transitive-closure
+      given: "A chain of dependencies references skill_name"
+      when: "impact is called"
+      then: "All transitive dependents are returned without duplicates"
+    - id: refresh-covers-parse-and-sync
+      given: "Skill specs changed on disk"
+      when: "refresh is called"
+      then: "The command updates persisted graph data and reports parsed count plus sync counters"

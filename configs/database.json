@@ -1,0 +1,27 @@
+{
+  "postgres_runtime": {
+    "conda_env": "gnn_fraud",
+    "data_dir": "/datas/store162/arthur0824hao/postgres_data",
+    "required_major_version": 17,
+    "start_cmd": "conda run -n gnn_fraud pg_ctl -D /datas/store162/arthur0824hao/postgres_data -l /datas/store162/arthur0824hao/postgres_data/logfile start",
+    "stop_cmd": "conda run -n gnn_fraud pg_ctl -D /datas/store162/arthur0824hao/postgres_data stop"
+  },
+  "memory": {
+    "canonical_name": "ExperimentPipeline-memory",
+    "legacy_names": [
+      "agent_memory"
+    ],
+    "host": "localhost",
+    "port": 5432,
+    "dbname": "ExperimentPipeline-memory",
+    "user": "arthur0824hao"
+  },
+  "experiment": {
+    "host": "localhost",
+    "port": 5432,
+    "dbname": "ExperimentPipeline-experiment",
+    "user": "arthur0824hao",
+    "connect_timeout": 3,
+    "schema": "exp_registry"
+  }
+}

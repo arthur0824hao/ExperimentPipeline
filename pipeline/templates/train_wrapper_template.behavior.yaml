@@ -1,0 +1,58 @@
+schema_version: 1
+script_path: "Phase3/templates/train_wrapper_template.py"
+title: "Phase3 Train Wrapper Template"
+purpose: "提供 experiments/*/scripts/train.py 的標準 wrapper 介面，統一 gate 與 runtime entrypoint。"
+updated_at: "2026-03-17T00:00:00Z"
+inputs:
+  - name: "EXPERIMENT_NAME"
+    type: "const"
+    description: "wrapper 中固定的實驗名稱"
+    required: true
+  - name: "BASE_TRAIN"
+    type: "const"
+    description: "被委派的底層訓練腳本路徑"
+    required: true
+outputs:
+  - name: "gate_smoke_test"
+    type: "api"
+    path: "module.gate_smoke_test"
+    description: "供 preprocess gate 調用"
+  - name: "main"
+    type: "api"
+    path: "module.main"
+    description: "供 runner 執行正式訓練"
+dependencies:
+  - type: "file"
+    name: "Phase3/preprocess_lib/gate_engine.py"
+    description: "source_contains 規則會檢查 gate token"
+  - type: "file"
+    name: "Phase3/tests/test_default_gate.py"
+    description: "驗證 gate_smoke_test 與必要 token"
+stages:
+  - id: "bind-env"
+    name: "注入 runtime env"
+    description: "設定 EXPERIMENT_DIR/NAME 與訓練預設參數。"
+    depends_on: []
+    error_paths: []
+  - id: "load-base"
+    name: "動態載入 base trainer"
+    description: "透過 importlib 載入 BASE_TRAIN 模組。"
+    depends_on: ["bind-env"]
+    error_paths:
+      - condition: "BASE_TRAIN 路徑錯誤"
+        action: "assert 失敗並中止"
+  - id: "expose-interface"
+    name: "匯出標準介面"
+    description: "匯出 gate_smoke_test/main 並保留 gate token 常數。"
+    depends_on: ["load-base"]
+    error_paths: []
+scenarios:
+  - id: "gate-interface-contract"
+    title: "Wrapper fulfills gate-required API contract"
+    given: "A new experiment uses this template as scripts/train.py"
+    when: "preprocess gate imports the module and evaluates source rules"
+    then:
+      - "module has gate_smoke_test"
+      - "module has main"
+      - "source contains mandatory gate tokens via _GATE_TOKENS"
+    tested_by: "Phase3/tests/test_default_gate.py"

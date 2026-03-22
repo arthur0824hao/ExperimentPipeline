@@ -1,0 +1,151 @@
+schema_version: 1
+skill_name: skill-system-postgres
+title: skill-system-postgres Behavior Contract
+purpose: 'Postgres-backed observability, policy store, and skill dependency graph for the skill system. Provides tables for
+  policy profiles, execution runs, step-level events, skill graph (nodes + edges), refresh/control-plane state, canonical
+  rule hierarchy projections, and project architecture graph projections.
+
+  '
+generated_from: SKILL.spec.yaml
+updated_at: '2026-03-15T16:18:26.189469'
+depends_on: []
+delegates_to: []
+operations:
+- name: check-policy
+  intent: Check if a skill's effects are allowed by the active policy profile
+  inputs:
+  - policy_name
+  - effects
+  outputs:
+  - policy_result
+  constraints:
+  - Must return blocked_effects list for any denied effects
+  - Must handle missing policy profile gracefully
+- name: log-run
+  intent: Log a skill execution run for observability
+  inputs:
+  - skill_id
+  - operation
+  - status
+  - duration_ms
+  outputs:
+  - run_id
+  constraints:
+  - Must use skill_system.run_status enum values
+  - Must record timestamp automatically
+- name: migrate-graph
+  intent: Apply graph schema migration (skill_graph_nodes + skill_graph_edges tables)
+  inputs:
+  - action
+  outputs:
+  - migration_result
+  constraints:
+  - Must be idempotent (CREATE IF NOT EXISTS)
+  - Must not drop or alter existing tables
+  - Check action must not modify database
+- name: migrate-control-plane
+  intent: Apply refresh/control-plane migration for queued refresh jobs, events, and artifact versions
+  inputs:
+  - action
+  outputs:
+  - migration_result
+  constraints:
+  - Must be idempotent (CREATE IF NOT EXISTS)
+  - Must not drop or alter existing tables
+  - Check action must not modify database
+- name: migrate-rule-model
+  intent: Apply canonical rule hierarchy schema for projected rule sets and entries
+  inputs:
+  - action
+  outputs:
+  - migration_result
+  constraints:
+  - Must be idempotent (CREATE IF NOT EXISTS)
+  - Must not drop or alter existing rows destructively
+  - Check action must not modify database
+- name: project-rules
+  intent: Project canonical rule hierarchy from PostgreSQL into deterministic markdown surfaces
+  inputs:
+  - write_files
+  outputs:
+  - rule_model
+  - written_files
+  constraints:
+  - 'Must keep merge priority deterministic: skill_system -> project -> compat'
+  - Must derive projected markdown from PostgreSQL rows, not manual free-form editing
+  - Must produce note/skill_system_rules.md, note/project_rules.md, and note/compat_rules.md when writing files
+- name: migrate-project-graph
+  intent: Apply canonical project architecture graph schema
+  inputs:
+  - action
+  outputs:
+  - migration_result
+  constraints:
+  - Must be idempotent (CREATE IF NOT EXISTS)
+  - Must not drop or alter existing rows destructively
+  - Check action must not modify database
+- name: project-architecture
+  intent: Sync canonical project architecture graph into PostgreSQL and deterministic markdown projection
+  inputs:
+  - write_file
+  outputs:
+  - architecture_graph
+  - written_file
+  constraints:
+  - Must parse skills/*, note/*, review/*, and spec/* into a deterministic graph
+  - Must emit Runtime Layers, Skill Graph, Document Graph, and Workflow Graph sections
+  - Must derive note/architecture_map.md from PostgreSQL-backed project graph rows
+- name: run-projection-engine
+  intent: Write deterministic PostgreSQL-backed markdown projections with managed blocks
+  inputs: []
+  outputs:
+  - written_files
+  constraints:
+  - Must use <!-- GENERATED_START --> and <!-- GENERATED_END --> managed blocks
+  - Must preserve manual text outside managed blocks
+  - Must be idempotent across repeated runs with unchanged PostgreSQL state
+mermaid: "flowchart TD\n  in_0_policy_name[/\"policy_name\"/]:::input\n  in_0_effects[/\"effects\"/]:::input\n  in_1_skill_id[/\"\
+  skill_id\"/]:::input\n  in_1_operation[/\"operation\"/]:::input\n  in_1_status[/\"status\"/]:::input\n  in_1_duration_ms[/\"\
+  duration_ms\"/]:::input\n  in_2_action[/\"action\"/]:::input\n  in_3_action[/\"action\"/]:::input\n  in_4_action[/\"action\"\
+  /]:::input\n  in_5_write_files[/\"write_files\"/]:::input\n  in_6_action[/\"action\"/]:::input\n  in_7_write_file[/\"write_file\"\
+  /]:::input\n  op_check_policy([\"check-policy\"]):::stage\n  op_log_run([\"log-run\"]):::stage\n  op_migrate_graph([\"migrate-graph\"\
+  ]):::stage\n  op_migrate_control_plane([\"migrate-control-plane\"]):::stage\n  op_migrate_rule_model([\"migrate-rule-model\"\
+  ]):::stage\n  op_project_rules([\"project-rules\"]):::stage\n  op_migrate_project_graph([\"migrate-project-graph\"]):::stage\n\
+  \  op_project_architecture([\"project-architecture\"]):::stage\n  op_run_projection_engine([\"run-projection-engine\"]):::stage\n\
+  \  out_0_policy_result[\\\"policy_result\"\\]:::output\n  out_1_run_id[\\\"run_id\"\\]:::output\n  out_2_migration_result[\\\
+  \"migration_result\"\\]:::output\n  out_3_migration_result[\\\"migration_result\"\\]:::output\n  out_4_migration_result[\\\
+  \"migration_result\"\\]:::output\n  out_5_rule_model[\\\"rule_model\"\\]:::output\n  out_5_written_files[\\\"written_files\"\
+  \\]:::output\n  out_6_migration_result[\\\"migration_result\"\\]:::output\n  out_7_architecture_graph[\\\"architecture_graph\"\
+  \\]:::output\n  out_7_written_file[\\\"written_file\"\\]:::output\n  out_8_written_files[\\\"written_files\"\\]:::output\n\
+  \n  in_0_policy_name --> op_check_policy\n  in_0_effects --> op_check_policy\n  in_1_skill_id --> op_log_run\n  in_1_operation\
+  \ --> op_log_run\n  in_1_status --> op_log_run\n  in_1_duration_ms --> op_log_run\n  in_2_action --> op_migrate_graph\n\
+  \  in_3_action --> op_migrate_control_plane\n  in_4_action --> op_migrate_rule_model\n  in_5_write_files --> op_project_rules\n\
+  \  in_6_action --> op_migrate_project_graph\n  in_7_write_file --> op_project_architecture\n  op_check_policy --> out_0_policy_result\n\
+  \  op_log_run --> out_1_run_id\n  op_migrate_graph --> out_2_migration_result\n  op_migrate_control_plane --> out_3_migration_result\n\
+  \  op_migrate_rule_model --> out_4_migration_result\n  op_project_rules --> out_5_rule_model\n  op_project_rules --> out_5_written_files\n\
+  \  op_migrate_project_graph --> out_6_migration_result\n  op_project_architecture --> out_7_architecture_graph\n  op_project_architecture\
+  \ --> out_7_written_file\n  op_run_projection_engine --> out_8_written_files\n  op_check_policy -->|\"violation\"| err_0_0[\"\
+  Must return blocked_effects list for any...\"]:::error\n  op_check_policy -->|\"violation\"| err_0_1[\"Must handle missing\
+  \ policy profile grace...\"]:::error\n  op_log_run -->|\"violation\"| err_1_0[\"Must use skill_system.run_status enum va...\"\
+  ]:::error\n  op_log_run -->|\"violation\"| err_1_1[\"Must record timestamp automatically\"]:::error\n  op_migrate_graph\
+  \ -->|\"violation\"| err_2_0[\"Must be idempotent (CREATE IF NOT EXISTS...\"]:::error\n  op_migrate_graph -->|\"violation\"\
+  | err_2_1[\"Must not drop or alter existing tables\"]:::error\n  op_migrate_graph -->|\"violation\"| err_2_2[\"Check action\
+  \ must not modify database\"]:::error\n  op_migrate_control_plane -->|\"violation\"| err_3_0[\"Must be idempotent (CREATE\
+  \ IF NOT EXISTS...\"]:::error\n  op_migrate_control_plane -->|\"violation\"| err_3_1[\"Must not drop or alter existing tables\"\
+  ]:::error\n  op_migrate_control_plane -->|\"violation\"| err_3_2[\"Check action must not modify database\"]:::error\n  op_migrate_rule_model\
+  \ -->|\"violation\"| err_4_0[\"Must be idempotent (CREATE IF NOT EXISTS...\"]:::error\n  op_migrate_rule_model -->|\"violation\"\
+  | err_4_1[\"Must not drop or alter existing rows des...\"]:::error\n  op_migrate_rule_model -->|\"violation\"| err_4_2[\"\
+  Check action must not modify database\"]:::error\n  op_project_rules -->|\"violation\"| err_5_0[\"Must keep merge priority\
+  \ deterministic: ...\"]:::error\n  op_project_rules -->|\"violation\"| err_5_1[\"Must derive projected markdown from Post...\"\
+  ]:::error\n  op_project_rules -->|\"violation\"| err_5_2[\"Must produce note/skill_system_rules.md,...\"]:::error\n  op_migrate_project_graph\
+  \ -->|\"violation\"| err_6_0[\"Must be idempotent (CREATE IF NOT EXISTS...\"]:::error\n  op_migrate_project_graph -->|\"\
+  violation\"| err_6_1[\"Must not drop or alter existing rows des...\"]:::error\n  op_migrate_project_graph -->|\"violation\"\
+  | err_6_2[\"Check action must not modify database\"]:::error\n  op_project_architecture -->|\"violation\"| err_7_0[\"Must\
+  \ parse skills/*, note/*, review/*, a...\"]:::error\n  op_project_architecture -->|\"violation\"| err_7_1[\"Must emit Runtime\
+  \ Layers, Skill Graph, D...\"]:::error\n  op_project_architecture -->|\"violation\"| err_7_2[\"Must derive note/architecture_map.md\
+  \ fro...\"]:::error\n  op_run_projection_engine -->|\"violation\"| err_8_0[\"Must use <!-- GENERATED_START --> and <!...\"\
+  ]:::error\n  op_run_projection_engine -->|\"violation\"| err_8_1[\"Must preserve manual text outside manage...\"]:::error\n\
+  \  op_run_projection_engine -->|\"violation\"| err_8_2[\"Must be idempotent across repeated runs ...\"]:::error\n\n  classDef\
+  \ stage fill:#dbeafe,stroke:#3b82f6,stroke-width:2px,color:#1e40af\n  classDef error fill:#fee2e2,stroke:#ef4444,stroke-width:2px,color:#991b1b,stroke-dasharray:\
+  \ 5 5\n  classDef input fill:#f0fdf4,stroke:#22c55e,stroke-width:2px,color:#166534\n  classDef output fill:#fef3c7,stroke:#f59e0b,stroke-width:2px,color:#92400e\n\
+  \  classDef dep fill:#ede9fe,stroke:#8b5cf6,stroke-width:2px,color:#5b21b6,stroke-dasharray: 5 5"

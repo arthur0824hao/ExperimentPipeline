@@ -1,0 +1,55 @@
+schema_version: 1
+skill_name: skill-system-gate
+title: skill-system-gate Behavior Contract
+purpose: 'Experiment validation gate for GNN/FraudDetect pipeline. Validates experiment code/logs against gate_bank.json rules
+  (gate-ready-workflow) and checks DB registry state safety (registry-safety).
+
+  '
+generated_from: SKILL.spec.yaml
+updated_at: '2026-03-09T12:08:24.985441'
+depends_on: []
+delegates_to: []
+operations:
+- name: validate-experiment
+  intent: Verify experiment source code and logs comply with gate_bank rules before registration
+  inputs:
+  - exp_name
+  - phase_root
+  outputs:
+  - report
+  constraints:
+  - Must not modify experiment source code or config files
+  - 'Must fail-closed: any error-severity violation blocks the gate'
+  - 'Must check all rule types: source_contains, source_not_contains, stderr_scan, file_exists, file_min_size'
+- name: verify-registry
+  intent: Check DB registry experiment state safety — prevent unsafe resets of RUNNING experiments
+  inputs:
+  - exp_name
+  outputs:
+  - safety_report
+  constraints:
+  - Must not force-overwrite RUNNING status experiments
+  - Only check and recommend — never execute actual rerun/reset
+  - Must report stale/zombie detection results
+- name: status
+  intent: Show current experiment queue and registry health overview
+  inputs: []
+  outputs:
+  - dashboard
+  constraints:
+  - Read-only operation — must not modify any state
+mermaid: "flowchart TD\n  in_0_exp_name[/\"exp_name\"/]:::input\n  in_0_phase_root[/\"phase_root\"/]:::input\n  in_1_exp_name[/\"\
+  exp_name\"/]:::input\n  op_validate_experiment([\"validate-experiment\"]):::stage\n  op_verify_registry([\"verify-registry\"\
+  ]):::stage\n  op_status([\"status\"]):::stage\n  out_0_report[\\\"report\"\\]:::output\n  out_1_safety_report[\\\"safety_report\"\
+  \\]:::output\n  out_2_dashboard[\\\"dashboard\"\\]:::output\n\n  in_0_exp_name --> op_validate_experiment\n  in_0_phase_root\
+  \ --> op_validate_experiment\n  in_1_exp_name --> op_verify_registry\n  op_validate_experiment --> out_0_report\n  op_verify_registry\
+  \ --> out_1_safety_report\n  op_status --> out_2_dashboard\n  op_validate_experiment -->|\"violation\"| err_0_0[\"Must not\
+  \ modify experiment source code o...\"]:::error\n  op_validate_experiment -->|\"violation\"| err_0_1[\"Must fail-closed:\
+  \ any error-severity vio...\"]:::error\n  op_validate_experiment -->|\"violation\"| err_0_2[\"Must check all rule types:\
+  \ source_contai...\"]:::error\n  op_verify_registry -->|\"violation\"| err_1_0[\"Must not force-overwrite RUNNING status\
+  \ ...\"]:::error\n  op_verify_registry -->|\"violation\"| err_1_1[\"Only check and recommend — never execute...\"]:::error\n\
+  \  op_verify_registry -->|\"violation\"| err_1_2[\"Must report stale/zombie detection resul...\"]:::error\n  op_status -->|\"\
+  violation\"| err_2_0[\"Read-only operation — must not modify an...\"]:::error\n\n  classDef stage fill:#dbeafe,stroke:#3b82f6,stroke-width:2px,color:#1e40af\n\
+  \  classDef error fill:#fee2e2,stroke:#ef4444,stroke-width:2px,color:#991b1b,stroke-dasharray: 5 5\n  classDef input fill:#f0fdf4,stroke:#22c55e,stroke-width:2px,color:#166534\n\
+  \  classDef output fill:#fef3c7,stroke:#f59e0b,stroke-width:2px,color:#92400e\n  classDef dep fill:#ede9fe,stroke:#8b5cf6,stroke-width:2px,color:#5b21b6,stroke-dasharray:\
+  \ 5 5"

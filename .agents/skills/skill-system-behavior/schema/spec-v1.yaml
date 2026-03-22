@@ -1,0 +1,114 @@
+# SKILL.spec.yaml Schema — v1
+#
+# Defines the expected shape of a behavior specification file.
+# Every spec declares WHAT a skill does (operations, constraints, effects)
+# and HOW to verify it (acceptance tests) — BEFORE implementation.
+#
+# Workflow: Spec → Test → Develop → Contract (generated docs)
+
+schema_version: 1
+title: "Behavior Specification"
+
+required_fields:
+  - schema_version
+  - skill_name
+  - description
+  - operations
+
+shape:
+  schema_version: "integer (always 1)"
+  skill_name: "string (skill id, e.g. skill-system-gate)"
+  description: "string (1-3 sentences: what the skill does and why)"
+
+  depends_on: "list of string (optional — skill IDs this skill requires to function)"
+  delegates_to: "list of string (optional — skill IDs this skill may route work to)"
+
+  operations:
+    - name: "string (kebab-case operation id)"
+      intent: "string (what this operation achieves — the WHY)"
+      inputs:
+        - name: "string (parameter name)"
+          type: "enum: string | number | boolean | path | json"
+          required: "boolean"
+          description: "string"
+          default: "any (optional)"
+      outputs:
+        - name: "string (output identifier)"
+          type: "enum: markdown | json | file | side_effect"
+          description: "string"
+      constraints:
+        - "string (invariant that MUST hold — violation = bug)"
+      expected_effects:
+        - type: "enum: returns | fs.read | fs.write | proc.exec | db.read | db.write | net.fetch"
+          description: "string"
+
+  acceptance_tests:
+    structural:
+      - id: "string (unique test id)"
+        assert: "string (what to verify)"
+    behavioral:
+      - id: "string (unique test id)"
+        given: "string (precondition / setup)"
+        when: "string (action triggered)"
+        then: "string (expected outcome)"
+        tested_by: "string (optional — test file::test_function traceability link)"
+
+  # --- Governance Tiers (optional, for cross-file documentation governance) ---
+  governance:
+    tier: "enum: architecture | behavior | test (optional — declares this spec's governance tier)"
+    traces_to: "list of string (optional — IDs of higher-tier specs or arch docs this spec implements)"
+
+# -----------------------------------------------------------
+# Minimal example
+# -----------------------------------------------------------
+example:
+  schema_version: 1
+  skill_name: skill-system-gate
+  description: >
+    Experiment validation gate for GNN/FraudDetect pipeline.
+    Merges gate-ready-workflow (rule-based code/log checks) and
+    registry-safety (DB state protection) into one skill.
+
+  operations:
+    - name: validate-experiment
+      intent: "Verify experiment code and logs comply with gate_bank rules before registration"
+      inputs:
+        - name: exp_name
+          type: string
+          required: true
+          description: "Experiment directory name"
+        - name: phase_root
+          type: path
+          required: false
+          description: "Phase directory (default: Phase3)"
+          default: "Phase3"
+      outputs:
+        - name: report
+          type: markdown
+          description: "Validation report with [ERROR]/[WARN] items"
+      constraints:
+        - "Must not modify experiment source or config files"
+        - "Must fail-closed: error-severity violations block the gate"
+      expected_effects:
+        - type: fs.read
+          description: "Read gate_bank.json, train.py, stderr logs"
+        - type: returns
+          description: "Structured markdown report"
+
+  acceptance_tests:
+    structural:
+      - id: manifest-valid
+        assert: "manifest exposes all operations defined in spec"
+      - id: scripts-exist
+        assert: "all entrypoint scripts referenced in manifest exist"
+      - id: router-routes
+        assert: "skill-system-router can discover and route to this skill"
+    behavioral:
+      - id: safe-block
+        given: "Experiment missing scripts/train.py"
+        when: "validate-experiment is called"
+        then: "Agent outputs error report and refuses to pass"
+      - id: warning-pass
+        given: "Experiment with only warning-level violations"
+        when: "validate-experiment is called"
+        then: "Agent outputs warnings but gives Pass verdict"

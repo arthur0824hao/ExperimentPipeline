@@ -1,0 +1,131 @@
+schema_version: 1
+skill_name: skill-system-router
+description: >
+  Meta-skill that orchestrates skill discovery, selection, execution,
+  chaining, and observability. The router is the central hub that
+  delegates work to all other skill-system skills.
+
+depends_on: []
+delegates_to:
+  - skill-system-behavior
+  - skill-system-creator
+  - skill-system-installer
+  - skill-system-gate
+  - skill-system-github
+  - skill-system-insight
+  - skill-system-soul
+  - skill-system-memory
+  - skill-system-postgres
+  - skill-system-tmux
+  - skill-system-tkt
+  - skill-system-workflow
+
+constraints:
+  - "When work is decomposition-eligible, router should prefer bounded subagent assistance without taking over workflow legality"
+  - "Every subagent invocation must stay inside one claimed ticket scope and carry parent_ticket_id in reporting surfaces"
+  - "Router must not decide claim / close / integrator legality"
+
+operations:
+  - name: rebuild-index
+    intent: "Regenerate skills-index.json by scanning all skill manifests"
+    inputs:
+      - name: skills_dir
+        type: path
+        required: false
+        description: "Skills directory to scan"
+        default: "./skills"
+    outputs:
+      - name: index
+        type: file
+        description: "Updated skills-index.json"
+    constraints:
+      - "Must parse all SKILL.md manifest blocks"
+      - "Must rebuild capability_index mapping"
+    expected_effects:
+      - type: fs.read
+        description: "Scan skill directories"
+      - type: fs.write
+        description: "Write skills-index.json"
+
+  - name: plan-with-workflow
+    intent: "Use skill-system-workflow to plan complex goals as DAG waves"
+    inputs:
+      - name: goal
+        type: string
+        required: true
+        description: "Goal to plan"
+      - name: context
+        type: string
+        required: false
+        description: "Additional context"
+    outputs:
+      - name: plan
+        type: json
+        description: "DAG execution plan"
+    constraints:
+      - "Must route execution by dependency order"
+    expected_effects:
+      - type: fs.read
+        description: "Read workflow recipes"
+      - type: returns
+        description: "Execution plan"
+
+  - name: report-improvement-issue
+    intent: "Create or link an improvement issue discovered during routing"
+    inputs:
+      - name: title
+        type: string
+        required: true
+        description: "Issue title"
+      - name: summary
+        type: string
+        required: true
+        description: "Why this improvement matters"
+      - name: repo
+        type: string
+        required: false
+        description: "owner/repo override"
+    outputs:
+      - name: result
+        type: json
+        description: "Created or linked issue metadata"
+    constraints:
+      - "Must check for duplicate open issues before creating a new one"
+    expected_effects:
+      - type: proc.exec
+        description: "Run gh issue commands"
+      - type: net.fetch
+        description: "Read and create issue data"
+
+  - name: guard-check
+    intent: "Ensure router discovery guard runs at session start"
+    inputs:
+      - name: session_id
+        type: string
+        required: false
+        description: "Optional session identifier for status context"
+    outputs:
+      - name: result
+        type: json
+        description: "Guard status and guidance"
+    constraints:
+      - "Must execute before loading non-router skills"
+    expected_effects:
+      - type: fs.read
+        description: "Read skills index and router guidance files"
+
+acceptance_tests:
+  structural:
+    - id: manifest-valid
+      assert: "manifest exposes rebuild-index, report-improvement-issue, plan-with-workflow, and guard-check operations"
+    - id: scripts-exist
+      assert: "build-index.sh or equivalent exists"
+  behavioral:
+    - id: full-delegation
+      given: "All skill-system skills installed"
+      when: "Router discovers skills"
+      then: "All skills appear in skills-index.json with correct capabilities"
+    - id: bounded-subagent-guidance
+      given: "A claimed ticket that can be decomposed into bounded helper work"
+      when: "Router guidance is consulted"
+      then: "Router prefers parent-bound subagent help for eligible decomposition but leaves workflow legality in workflow-owned paths"

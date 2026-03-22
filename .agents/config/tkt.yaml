@@ -1,0 +1,4 @@
+# TKT Configuration
+close_gate:
+  enabled: false
+  command: ""

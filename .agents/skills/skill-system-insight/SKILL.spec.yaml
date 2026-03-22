@@ -1,0 +1,207 @@
+schema_version: 1
+skill_name: skill-system-insight
+description: >
+  Unified observe-and-evolve engine. Extracts per-session facets,
+  maintains a dual-matrix soul state, and version-evolves soul profiles
+  and workflow recipes with auditability, safety constraints, and rollback.
+
+depends_on:
+  - skill-system-memory
+  - skill-system-postgres
+delegates_to:
+  - skill-system-soul
+  - skill-system-workflow
+
+operations:
+  - name: extract-facets
+    intent: "Extract a per-session facet from transcript"
+    inputs:
+      - name: session_id
+        type: string
+        required: true
+        description: "Session to analyze"
+      - name: user
+        type: string
+        required: true
+        description: "User identifier"
+    outputs:
+      - name: facet
+        type: json
+        description: "Extracted session facet"
+    constraints:
+      - "Rate limited to 3 per 24h per user"
+    expected_effects:
+      - type: db.write
+        description: "Insert insight facet via insert_insight_facet"
+
+  - name: update-matrix
+    intent: "Update dual matrix from stored facet with confidence gating"
+    inputs:
+      - name: user
+        type: string
+        required: true
+        description: "User identifier"
+    outputs:
+      - name: state
+        type: json
+        description: "Updated soul-state"
+    constraints:
+      - "Requires 3+ similar observations before changing values"
+    expected_effects:
+      - type: db.read
+        description: "Query recent facets and current soul state"
+      - type: db.write
+        description: "Upsert soul state"
+
+  - name: synthesize-profile
+    intent: "Regenerate Soul profile from matrix and recent facets with versioned snapshot"
+    inputs:
+      - name: user
+        type: string
+        required: true
+        description: "User identifier"
+    outputs:
+      - name: profile
+        type: file
+        description: "Updated soul profile markdown"
+    constraints:
+      - "Must use recent facets and current matrix"
+      - "Must create versioned snapshot"
+    expected_effects:
+      - type: db.read
+        description: "Query facets and soul state"
+      - type: db.write
+        description: "Insert evolution snapshot"
+      - type: fs.write
+        description: "Write updated profile"
+
+  - name: evolve-soul
+    intent: "Evolve soul profile from accumulated insight data"
+    inputs:
+      - name: user
+        type: string
+        required: true
+        description: "User identifier"
+    outputs:
+      - name: snapshot
+        type: json
+        description: "Evolution snapshot with version tag"
+    constraints:
+      - "Max 1 evolution pass per day per user"
+      - "Must create versioned snapshot before applying changes"
+      - "Must preserve rollback capability"
+      - "Changes > 0.5 drift require user approval"
+    expected_effects:
+      - type: db.read
+        description: "Query insight facets and current soul state"
+      - type: db.write
+        description: "Insert evolution snapshot"
+      - type: fs.write
+        description: "Update soul profile file"
+
+  - name: evolve-recipes
+    intent: "Evolve workflow recipes based on effectiveness data"
+    inputs:
+      - name: user
+        type: string
+        required: true
+        description: "User identifier"
+    outputs:
+      - name: snapshot
+        type: json
+        description: "Recipe evolution snapshot with version tag"
+    constraints:
+      - "Max 1 evolution pass per day per user"
+      - "Must create versioned snapshot"
+      - "Requires 3+ observations per recipe change"
+    expected_effects:
+      - type: db.read
+        description: "Query workflow facets"
+      - type: db.write
+        description: "Insert evolution snapshot"
+      - type: fs.write
+        description: "Update recipe files"
+
+  - name: list-versions
+    intent: "List all evolution snapshots for a user"
+    inputs:
+      - name: user
+        type: string
+        required: true
+      - name: target
+        type: string
+        required: false
+        description: "Filter: soul | recipe | all"
+    outputs:
+      - name: versions
+        type: json
+        description: "Array of version snapshots"
+    constraints:
+      - "Most recent first"
+    expected_effects:
+      - type: db.read
+        description: "Query evolution snapshots"
+
+  - name: rollback
+    intent: "Restore a previous evolution version"
+    inputs:
+      - name: user
+        type: string
+        required: true
+        description: "User identifier"
+      - name: version_tag
+        type: string
+        required: true
+        description: "Version to restore"
+    outputs:
+      - name: result
+        type: json
+        description: "Rollback result"
+    constraints:
+      - "Must verify version exists before rollback"
+      - "Must create a new snapshot recording the rollback"
+    expected_effects:
+      - type: db.read
+        description: "Query evolution snapshot"
+      - type: db.write
+        description: "Update soul state and create rollback record"
+      - type: fs.write
+        description: "Restore profile or recipe files"
+
+acceptance_tests:
+  structural:
+    - id: manifest-valid
+      assert: "manifest exposes all 7 operations: extract-facets, update-matrix, synthesize-profile, evolve-soul, evolve-recipes, list-versions, rollback"
+    - id: scripts-exist
+      assert: "All procedure files exist in scripts/"
+    - id: schemas-exist
+      assert: "facet.yaml, soul-state.yaml, evolution-plan.yaml, evolution-snapshot.yaml exist in schema/"
+  behavioral:
+    - id: facet-extraction
+      given: "Completed session transcript"
+      when: "extract-facets is called"
+      then: "Facet stored in insight_facets table"
+    - id: confidence-gating
+      given: "Less than 3 observations in same direction"
+      when: "update-matrix is called"
+      then: "Matrix values remain unchanged, buffers updated"
+    - id: versioned-evolution
+      given: "3+ insight facets accumulated"
+      when: "evolve-soul is called"
+      then: "New version snapshot created, soul profile updated"
+    - id: rollback-safety
+      given: "Existing evolution snapshot"
+      when: "rollback is called"
+      then: "Previous version restored, rollback recorded as new snapshot"
+    - id: rate-limit-observe
+      given: "3 facets already extracted today"
+      when: "extract-facets is called"
+      then: "Extraction blocked with summary message"
+    - id: rate-limit-evolve
+      given: "Evolution already ran today"
+      when: "evolve-soul is called"
+      then: "Evolution blocked"
+    - id: approval-gate
+      given: "Proposed dimension change > 0.5"
+      when: "evolve-soul plans changes"
+      then: "Changes not applied, plan presented for user approval"

@@ -1,0 +1,31 @@
+type: object
+required:
+  - ticket_id
+  - title
+  - summary
+  - status
+  - created_at
+  - claimed_at
+  - closed_at
+  - claimed_by_session
+  - source
+properties:
+  ticket_id:
+    type: string
+  title:
+    type: string
+  summary:
+    type: string
+  status:
+    type: string
+    enum: [OPEN, CLAIMED, BLOCKED, CLOSED]
+  created_at:
+    type: string
+  claimed_at:
+    type: [string, "null"]
+  closed_at:
+    type: [string, "null"]
+  claimed_by_session:
+    type: [string, "null"]
+  source:
+    type: string

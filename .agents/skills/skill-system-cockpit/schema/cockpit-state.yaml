@@ -1,0 +1,121 @@
+type: object
+required:
+  - generated_at_minute
+  - active_round
+  - current_progress
+  - recent_actions
+  - inferred_next_step
+  - frictions
+  - proposals
+  - active_tasks
+  - task_surface
+  - active_ticket
+  - batch_id
+  - open_ticket_count
+  - claimed_by_this_session_count
+  - claimable_ticket_count
+  - claimed_by_other_count
+  - blocked_ticket_count
+  - closed_ticket_count
+  - next_claimable_ticket
+  - unresolved_ticket_summary
+  - review_handoff_available
+  - startup_state
+  - health_signals
+  - rule_model
+  - architecture_graph
+  - projection_status
+  - profile_watchers
+  - watcher_gaps
+properties:
+  generated_at_minute:
+    type: string
+    description: Minute-precision local timestamp used by note_feedback render output.
+  generated_at_utc:
+    type: string
+    description: UTC ISO timestamp for renderer/debug evidence.
+  active_round:
+    type: object
+    required: [version, mode, primary_objective]
+  current_progress:
+    type: object
+    required: [summary, completed, total, checks]
+  recent_actions:
+    type: array
+    items:
+      type: string
+  inferred_next_step:
+    type: string
+  frictions:
+    type: array
+    items:
+      type: object
+      required: [status, summary]
+  proposals:
+    type: object
+    required: [pending, accepted_recent, rejected_hidden_count]
+  active_tasks:
+    type: array
+    items:
+      type: object
+      required: [task_id, title, status, priority, updated_at]
+  task_surface:
+    type: object
+    required:
+      [
+        provenance_model,
+        default_visible_task_scope,
+        hidden_verification_count,
+        hidden_legacy_count,
+        historical_pollution_status,
+      ]
+  active_ticket:
+    type: [object, "null"]
+  batch_id:
+    type: [string, "null"]
+  open_ticket_count:
+    type: integer
+  claimed_by_this_session_count:
+    type: integer
+  claimable_ticket_count:
+    type: integer
+  claimed_by_other_count:
+    type: integer
+  blocked_ticket_count:
+    type: integer
+  closed_ticket_count:
+    type: integer
+  next_claimable_ticket:
+    type: [object, "null"]
+  unresolved_ticket_summary:
+    type: array
+    items:
+      type: string
+  review_handoff_available:
+    type: boolean
+  startup_state:
+    type: [object, "null"]
+  health_signals:
+    type: array
+    items:
+      type: object
+      required: [signal, status, summary]
+  rule_model:
+    type: object
+    required: [rule_sets, merge_priority, source_paths]
+  architecture_graph:
+    type: object
+    required: [node_count, edge_count, layer_map]
+  projection_status:
+    type: object
+    required: [last_projection_at, managed_target_count, total_target_count]
+  profile_watchers:
+    type: array
+    items:
+      type: object
+      required: [watcher, kind, status, source]
+  watcher_gaps:
+    type: array
+    items:
+      type: object
+      required: [watcher, reason, recommended_next]

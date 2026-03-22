@@ -1,0 +1,53 @@
+schema_version: 1
+skill_name: skill-system-soul
+description: >
+  Agent behavioral profiles that standardize how different LLMs behave.
+  Provides personality, decision heuristics, communication style.
+
+depends_on: []
+delegates_to: []
+
+operations:
+  - name: load-profile
+    intent: "Load a behavioral profile by name"
+    inputs:
+      - name: profile_name
+        type: string
+        required: true
+        description: "Profile name (e.g. balanced, creative, strict)"
+    outputs:
+      - name: profile
+        type: markdown
+        description: "Profile content for agent to adopt"
+    constraints:
+      - "Must validate profile exists before loading"
+    expected_effects:
+      - type: fs.read
+        description: "Read profile markdown from profiles/ directory"
+      - type: returns
+        description: "Profile content"
+
+  - name: list-profiles
+    intent: "List available soul profiles"
+    inputs: []
+    outputs:
+      - name: profiles
+        type: json
+        description: "Array of available profile names"
+    constraints:
+      - "Must scan profiles/ directory"
+    expected_effects:
+      - type: fs.read
+        description: "List profiles/ directory"
+
+acceptance_tests:
+  structural:
+    - id: manifest-valid
+      assert: "manifest exposes load-profile and list-profiles operations"
+    - id: scripts-exist
+      assert: "profiles/ directory exists with at least balanced.md"
+  behavioral:
+    - id: load-balanced
+      given: "balanced.md exists in profiles/"
+      when: "load-profile is called with profile_name=balanced"
+      then: "Returns balanced profile content"

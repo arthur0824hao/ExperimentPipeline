@@ -1,0 +1,136 @@
+schema_version: 1
+skill_name: skill-system-github
+description: >
+  GitHub operations skill for gh CLI issue, label, template, and workflow management.
+
+depends_on: []
+delegates_to: []
+
+operations:
+  - name: manage-issues
+    intent: "Create, list, comment on, close, or reopen GitHub issues"
+    inputs:
+      - name: action
+        type: string
+        required: true
+        description: "Action: create, list, comment, close, reopen"
+      - name: repo
+        type: string
+        required: true
+        description: "GitHub owner/repo"
+    outputs:
+      - name: result
+        type: json
+        description: "Operation result"
+    constraints:
+      - "Must perform duplicate detection before creating issues"
+      - "Must validate repo accessibility"
+    expected_effects:
+      - type: net.fetch
+        description: "GitHub API calls via gh CLI"
+      - type: proc.exec
+        description: "Execute gh commands"
+
+  - name: manage-labels
+    intent: "Create, update, delete, and apply labels"
+    inputs:
+      - name: action
+        type: string
+        required: true
+        description: "Action: create, update, delete, apply"
+      - name: repo
+        type: string
+        required: true
+        description: "GitHub owner/repo"
+    outputs:
+      - name: result
+        type: json
+        description: "Label operation result"
+    constraints:
+      - "Must require confirmation for delete"
+    expected_effects:
+      - type: net.fetch
+        description: "GitHub API calls"
+
+  - name: manage-templates
+    intent: "Bootstrap and update repository issue templates"
+    inputs:
+      - name: action
+        type: string
+        required: true
+        description: "Action: bootstrap, update"
+      - name: repo
+        type: string
+        required: false
+        description: "GitHub owner/repo"
+    outputs:
+      - name: result
+        type: json
+        description: "Template operation result"
+    constraints:
+      - "Must write only under .github/ISSUE_TEMPLATE"
+    expected_effects:
+      - type: fs.read
+        description: "Read template files"
+      - type: fs.write
+        description: "Write template files"
+
+  - name: manage-workflows
+    intent: "List, check, create, or update GitHub workflows safely"
+    inputs:
+      - name: action
+        type: string
+        required: true
+        description: "Action: list, check, create, update"
+      - name: repo
+        type: string
+        required: false
+        description: "GitHub owner/repo"
+    outputs:
+      - name: result
+        type: json
+        description: "Workflow operation result"
+    constraints:
+      - "Must run safety-check before workflow write operations"
+    expected_effects:
+      - type: net.fetch
+        description: "GitHub API and workflow metadata calls"
+      - type: fs.read
+        description: "Read workflow files"
+      - type: fs.write
+        description: "Write workflow files"
+
+  - name: safety-check
+    intent: "Determine safe workflow write path based on token scope"
+    inputs:
+      - name: repo
+        type: string
+        required: false
+        description: "GitHub owner/repo"
+      - name: workflow_file
+        type: string
+        required: false
+        description: "Target workflow filename"
+    outputs:
+      - name: result
+        type: json
+        description: "Scope check and safe write strategy"
+    constraints:
+      - "Must inspect gh auth scope before recommending workflow writes"
+    expected_effects:
+      - type: proc.exec
+        description: "Execute gh auth checks"
+      - type: net.fetch
+        description: "Validate API fallback path"
+
+acceptance_tests:
+  structural:
+    - id: manifest-valid
+      assert: "manifest exposes manage-issues, manage-labels, manage-templates, manage-workflows, and safety-check operations"
+    - id: scripts-exist
+      assert: "SKILL.md contains gh CLI instructions"
+  behavioral:
+    - id: duplicate-detection
+      given: "Issue with same title already exists"
+      when: "manage-issues create is called"
+      then: "Warning about potential duplicate shown"

@@ -1,0 +1,35 @@
+schema_version: 1
+skill_name: skill-system-soul
+title: skill-system-soul Behavior Contract
+purpose: 'Agent behavioral profiles that standardize how different LLMs behave. Provides personality, decision heuristics,
+  communication style.
+
+  '
+generated_from: SKILL.spec.yaml
+updated_at: '2026-03-09T12:08:25.565935'
+depends_on: []
+delegates_to: []
+operations:
+- name: load-profile
+  intent: Load a behavioral profile by name
+  inputs:
+  - profile_name
+  outputs:
+  - profile
+  constraints:
+  - Must validate profile exists before loading
+- name: list-profiles
+  intent: List available soul profiles
+  inputs: []
+  outputs:
+  - profiles
+  constraints:
+  - Must scan profiles/ directory
+mermaid: "flowchart TD\n  in_0_profile_name[/\"profile_name\"/]:::input\n  op_load_profile([\"load-profile\"]):::stage\n \
+  \ op_list_profiles([\"list-profiles\"]):::stage\n  out_0_profile[\\\"profile\"\\]:::output\n  out_1_profiles[\\\"profiles\"\
+  \\]:::output\n\n  in_0_profile_name --> op_load_profile\n  op_load_profile --> out_0_profile\n  op_list_profiles --> out_1_profiles\n\
+  \  op_load_profile -->|\"violation\"| err_0_0[\"Must validate profile exists before load...\"]:::error\n  op_list_profiles\
+  \ -->|\"violation\"| err_1_0[\"Must scan profiles/ directory\"]:::error\n\n  classDef stage fill:#dbeafe,stroke:#3b82f6,stroke-width:2px,color:#1e40af\n\
+  \  classDef error fill:#fee2e2,stroke:#ef4444,stroke-width:2px,color:#991b1b,stroke-dasharray: 5 5\n  classDef input fill:#f0fdf4,stroke:#22c55e,stroke-width:2px,color:#166534\n\
+  \  classDef output fill:#fef3c7,stroke:#f59e0b,stroke-width:2px,color:#92400e\n  classDef dep fill:#ede9fe,stroke:#8b5cf6,stroke-width:2px,color:#5b21b6,stroke-dasharray:\
+  \ 5 5"

@@ -1,0 +1,1475 @@
+{
+  "schema_version": "2.0",
+  "generated_at": "2026-03-21T18:28:12.266Z",
+  "skills": {
+    "skill-system-behavior": {
+      "dir": "skill-system-behavior",
+      "version": "2.0.0",
+      "capabilities": [
+        "spec-create",
+        "spec-validate",
+        "spec-verify",
+        "contract-generate",
+        "coverage-gate",
+        "skill-graph-build"
+      ],
+      "effects": [
+        "fs.read",
+        "fs.write",
+        "proc.exec"
+      ],
+      "operations": {
+        "create-spec": {
+          "description": "Scaffold a new SKILL.spec.yaml from the schema template.",
+          "input_params": [
+            "skill_name",
+            "skill_dir"
+          ]
+        },
+        "validate-spec": {
+          "description": "Validate a SKILL.spec.yaml against the v1 schema.",
+          "input_params": [
+            "spec_path"
+          ]
+        },
+        "verify-structural": {
+          "description": "Run structural acceptance tests against a built skill.",
+          "input_params": [
+            "skill_dir"
+          ]
+        },
+        "generate-contract": {
+          "description": "Generate SKILL.behavior.yaml (Mermaid DAG) from a completed spec.",
+          "input_params": [
+            "skill_dir"
+          ]
+        },
+        "coverage-gate": {
+          "description": "Scan project for scripts/modules missing behavior specs.",
+          "input_params": [
+            "project_dir",
+            "patterns",
+            "exclude"
+          ]
+        },
+        "build-graph": {
+          "description": "Build a cross-skill dependency graph from SKILL.spec.yaml files.",
+          "input_params": [
+            "skills_dir",
+            "output_format"
+          ]
+        },
+        "refresh-projections": {
+          "description": "Refresh behavior projection bundles from SKILL.spec.yaml files for behavior_* tables.",
+          "input_params": [
+            "skills_dir",
+            "output_format"
+          ]
+        }
+      }
+    },
+    "skill-system-cli": {
+      "dir": "skill-system-cli",
+      "version": "1.0.0",
+      "capabilities": [
+        "cli-dispatch",
+        "project-init",
+        "project-status",
+        "config-read",
+        "config-write",
+        "tkt-dispatch",
+        "mem-dispatch",
+        "install-dispatch"
+      ],
+      "effects": [
+        "fs.read",
+        "fs.write",
+        "db.read",
+        "db.write",
+        "proc.exec"
+      ],
+      "operations": {
+        "init": {
+          "description": "Bootstrap project structure and report what was created or verified.",
+          "input_params": [
+            "check"
+          ]
+        },
+        "status": {
+          "description": "Show global project health across config, note, TKT, postgres, and skills inventory.",
+          "input_params": []
+        },
+        "config-get": {
+          "description": "Read a config value by dot-path.",
+          "input_params": [
+            "key"
+          ]
+        },
+        "config-set": {
+          "description": "Set a config value by dot-path.",
+          "input_params": [
+            "key",
+            "value"
+          ]
+        },
+        "tkt-dispatch": {
+          "description": "Route any TKT subcommand through the unified CLI.",
+          "input_params": [
+            "args"
+          ]
+        },
+        "mem-dispatch": {
+          "description": "Route any memory subcommand through the unified CLI.",
+          "input_params": [
+            "args"
+          ]
+        },
+        "install-dispatch": {
+          "description": "Route any installer subcommand through the unified CLI.",
+          "input_params": [
+            "args"
+          ]
+        }
+      }
+    },
+    "skill-system-cockpit": {
+      "dir": "skill-system-cockpit",
+      "version": "1.0.0",
+      "capabilities": [
+        "cockpit-state",
+        "cockpit-feedback",
+        "cockpit-tui"
+      ],
+      "effects": [
+        "fs.read",
+        "fs.write",
+        "db.read",
+        "proc.exec"
+      ],
+      "operations": {
+        "derive-state": {
+          "description": "Derive the shared cockpit state for note_feedback, review, and TUI surfaces.",
+          "input_params": [
+            "include_rejected"
+          ]
+        },
+        "render-feedback": {
+          "description": "Refresh the managed current-state block in note_feedback from the shared cockpit state.",
+          "input_params": [
+            "file_path",
+            "history_limit"
+          ]
+        },
+        "tui": {
+          "description": "Launch the read-only single-screen cockpit TUI.",
+          "input_params": [
+            "include_rejected"
+          ]
+        }
+      }
+    },
+    "skill-system-creator": {
+      "dir": "skill-system-creator",
+      "version": "1.0.0",
+      "capabilities": [
+        "skill-create",
+        "skill-validate",
+        "skill-package"
+      ],
+      "effects": [
+        "fs.read",
+        "fs.write",
+        "proc.exec"
+      ],
+      "operations": {
+        "init": {
+          "description": "Initialize a new skill directory with SKILL.md template and resource folders.",
+          "input_params": [
+            "skill_name",
+            "output_dir"
+          ]
+        },
+        "package": {
+          "description": "Validate and package a skill into a distributable .skill file.",
+          "input_params": [
+            "skill_path"
+          ]
+        }
+      }
+    },
+    "skill-system-eda": {
+      "dir": "skill-system-eda",
+      "version": "1.0.0",
+      "capabilities": [
+        "eda-profile",
+        "eda-distribution",
+        "eda-correlation",
+        "eda-anomaly",
+        "eda-feature-importance",
+        "eda-leakage",
+        "eda-contract-save",
+        "eda-contract-validate"
+      ],
+      "effects": [
+        "fs.read",
+        "fs.write",
+        "proc.exec"
+      ],
+      "operations": {
+        "profile-dataset": {
+          "description": "Profile a CSV/parquet dataset and generate profile.yaml plus report.md.",
+          "input_params": [
+            "input",
+            "target",
+            "output",
+            "sample",
+            "no_memory"
+          ]
+        },
+        "distribution-report": {
+          "description": "Append distribution and class-conditional analysis to an existing profile/report.",
+          "input_params": [
+            "input",
+            "target",
+            "profile"
+          ]
+        },
+        "correlation-matrix": {
+          "description": "Compute feature and target correlations and append them to profile/report.",
+          "input_params": [
+            "input",
+            "target",
+            "profile"
+          ]
+        },
+        "anomaly-profiling": {
+          "description": "Compare class-conditional distributions and effect sizes.",
+          "input_params": [
+            "input",
+            "target",
+            "profile"
+          ]
+        },
+        "feature-importance-scan": {
+          "description": "Rank features with mutual information and optional tree importances.",
+          "input_params": [
+            "input",
+            "target",
+            "profile"
+          ]
+        },
+        "leakage-detector": {
+          "description": "Detect high-correlation, target-encoding, and temporal leakage indicators.",
+          "input_params": [
+            "input",
+            "target",
+            "profile"
+          ]
+        },
+        "save-contract": {
+          "description": "Generate a data contract from a saved EDA profile.",
+          "input_params": [
+            "profile",
+            "output"
+          ]
+        },
+        "validate-contract": {
+          "description": "Validate a new dataset against a saved contract and emit PASS/FAIL JSON.",
+          "input_params": [
+            "input",
+            "contract"
+          ]
+        }
+      }
+    },
+    "skill-system-gate": {
+      "dir": "skill-system-gate",
+      "version": "1.0.0",
+      "capabilities": [
+        "experiment-gate",
+        "registry-safety",
+        "experiment-status"
+      ],
+      "effects": [
+        "fs.read",
+        "db.read",
+        "proc.exec"
+      ],
+      "operations": {
+        "validate-experiment": {
+          "description": "Validate experiment source artifacts and logs against gate_bank rules and return a pass/fail verdict.",
+          "input_params": [
+            "exp_name",
+            "phase_root"
+          ]
+        },
+        "verify-registry": {
+          "description": "Check registry state safety and recommend whether reset/rerun is safe without mutating state.",
+          "input_params": [
+            "exp_name",
+            "phase_root"
+          ]
+        },
+        "status": {
+          "description": "Show current registry dashboard with counts by status and running experiment details.",
+          "input_params": [
+            "phase_root"
+          ]
+        }
+      }
+    },
+    "skill-system-github": {
+      "dir": "skill-system-github",
+      "version": "1.0.0",
+      "capabilities": [
+        "github-issue",
+        "github-label",
+        "github-template",
+        "github-workflow",
+        "github-safety"
+      ],
+      "effects": [
+        "net.fetch",
+        "proc.exec",
+        "git.read",
+        "fs.read",
+        "fs.write"
+      ],
+      "operations": {
+        "manage-issues": {
+          "description": "Create, list, comment on, close, or reopen GitHub issues with duplicate detection before create.",
+          "input_params": [
+            "action",
+            "repo",
+            "title",
+            "body",
+            "number",
+            "state",
+            "limit",
+            "label"
+          ]
+        },
+        "manage-labels": {
+          "description": "Create, update, delete labels, and apply labels to issues in a GitHub repository.",
+          "input_params": [
+            "action",
+            "repo",
+            "name",
+            "new_name",
+            "description",
+            "color",
+            "number",
+            "labels",
+            "confirm_delete"
+          ]
+        },
+        "manage-templates": {
+          "description": "Bootstrap and update repository issue templates under .github/ISSUE_TEMPLATE.",
+          "input_params": [
+            "action",
+            "repo",
+            "template_type",
+            "content"
+          ]
+        },
+        "manage-workflows": {
+          "description": "List or check workflow runs and create/update workflow YAML files safely.",
+          "input_params": [
+            "action",
+            "repo",
+            "workflow_name",
+            "workflow_file",
+            "content",
+            "branch"
+          ]
+        },
+        "safety-check": {
+          "description": "Check gh auth token scopes for workflow writes and choose push or gh api fallback path.",
+          "input_params": [
+            "repo",
+            "workflow_file",
+            "workflow_content",
+            "branch",
+            "commit_message"
+          ]
+        }
+      }
+    },
+    "skill-system-graph": {
+      "dir": "skill-system-graph",
+      "version": "0.1.0",
+      "capabilities": [
+        "graph-navigation",
+        "behavior-query",
+        "dependency-analysis"
+      ],
+      "effects": [
+        "fs.read",
+        "db.read",
+        "db.write"
+      ],
+      "operations": {
+        "parse-specs": {
+          "description": "Parse all skill SKILL.spec.yaml files into a normalized graph model.",
+          "input_params": [
+            "skills_dir",
+            "include_invalid"
+          ]
+        },
+        "sync-graph": {
+          "description": "Sync the normalized graph model into PostgreSQL graph tables.",
+          "input_params": [
+            "skills_dir",
+            "force"
+          ]
+        },
+        "show": {
+          "description": "Display the full skill graph from the current spec-scan graph model.",
+          "input_params": [
+            "skills_dir",
+            "format"
+          ]
+        },
+        "neighbors": {
+          "description": "List direct neighbor skills for a target skill.",
+          "input_params": [
+            "skill_name",
+            "format"
+          ]
+        },
+        "path": {
+          "description": "Find the shortest dependency path between two skills.",
+          "input_params": [
+            "from_skill",
+            "to_skill",
+            "max_depth",
+            "format"
+          ]
+        },
+        "impact": {
+          "description": "Find all transitive dependents for one skill.",
+          "input_params": [
+            "skill_name",
+            "max_depth",
+            "format"
+          ]
+        },
+        "refresh": {
+          "description": "Rebuild graph from specs and refresh persistence in one command.",
+          "input_params": [
+            "skills_dir",
+            "force",
+            "format"
+          ]
+        }
+      }
+    },
+    "skill-system-insight": {
+      "dir": "skill-system-insight",
+      "version": "2.0.0",
+      "capabilities": [
+        "insight-extract",
+        "insight-matrix-update",
+        "insight-synthesize",
+        "evolution-soul",
+        "evolution-recipes",
+        "evolution-list",
+        "evolution-rollback"
+      ],
+      "effects": [
+        "db.read",
+        "db.write",
+        "fs.read",
+        "fs.write"
+      ],
+      "operations": {
+        "extract-facets": {
+          "description": "Extract a per-session facet from transcript. Rate limited to 3/24h per user.",
+          "input_params": [
+            "session_id",
+            "user"
+          ]
+        },
+        "update-matrix": {
+          "description": "Update dual matrix from stored facet with confidence gating.",
+          "input_params": [
+            "user"
+          ]
+        },
+        "synthesize-profile": {
+          "description": "Regenerate Layer 3 Soul profile from matrix + recent facets. Creates versioned snapshot.",
+          "input_params": [
+            "user"
+          ]
+        },
+        "evolve-soul": {
+          "description": "Evolve soul profile from accumulated insight data. Creates versioned snapshot.",
+          "input_params": [
+            "user"
+          ]
+        },
+        "evolve-recipes": {
+          "description": "Evolve workflow recipes based on effectiveness data from insight facets.",
+          "input_params": [
+            "user"
+          ]
+        },
+        "list-versions": {
+          "description": "List all evolution snapshots for a user.",
+          "input_params": [
+            "user",
+            "target"
+          ]
+        },
+        "rollback": {
+          "description": "Restore a previous evolution version.",
+          "input_params": [
+            "user",
+            "version_tag"
+          ]
+        }
+      }
+    },
+    "skill-system-installer": {
+      "dir": "skill-system-installer",
+      "version": "1.0.0",
+      "capabilities": [
+        "skill-install",
+        "skill-list",
+        "skill-update",
+        "skill-sync",
+        "skill-bootstrap"
+      ],
+      "effects": [
+        "net.fetch",
+        "fs.write",
+        "fs.read",
+        "proc.exec"
+      ],
+      "operations": {
+        "bootstrap": {
+          "description": "First-run setup: detect missing structure, scaffold directories, compute pending lockfile hashes, validate skills.",
+          "input_params": []
+        },
+        "list": {
+          "description": "List available curated skills with installed annotations and show local/global installed skills.",
+          "input_params": [
+            "format"
+          ]
+        },
+        "install": {
+          "description": "Install a skill from GitHub repo path. The scripts/skills.sh wrapper provides a scoped alternative entrypoint.",
+          "input_params": [
+            "repo",
+            "path"
+          ]
+        },
+        "update": {
+          "description": "Check skill drift against lockfile and optionally update drifted skills.",
+          "input_params": [
+            "scope",
+            "skill",
+            "apply",
+            "dry_run"
+          ]
+        },
+        "sync": {
+          "description": "Synchronize global skills into the local workspace.",
+          "input_params": [
+            "strategy",
+            "force",
+            "skills"
+          ]
+        }
+      }
+    },
+    "skill-system-memory": {
+      "dir": "skill-system-memory",
+      "version": "0.3.0",
+      "capabilities": [
+        "memory-search",
+        "memory-store",
+        "memory-flush",
+        "memory-health",
+        "memory-types",
+        "memory-auto-write",
+        "memory-doctor"
+      ],
+      "effects": [
+        "proc.exec",
+        "db.read",
+        "db.write"
+      ],
+      "operations": {
+        "search": {
+          "description": "Search memories by natural language query. Returns ranked results with relevance scores.",
+          "input_params": [
+            "query",
+            "limit"
+          ]
+        },
+        "store": {
+          "description": "Store a new memory. Auto-deduplicates by content hash.",
+          "input_params": [
+            "memory_type",
+            "category",
+            "title",
+            "tags_csv",
+            "importance"
+          ]
+        },
+        "flush": {
+          "description": "Flush local pending fallback files into PostgreSQL when the DB is back.",
+          "input_params": []
+        },
+        "health": {
+          "description": "Check memory system health: total count, average importance, stale count.",
+          "input_params": []
+        },
+        "types": {
+          "description": "List available memory types and their descriptions.",
+          "input_params": []
+        },
+        "auto-write": {
+          "description": "Procedure template for automatically storing a memory after solving a non-obvious problem.",
+          "input_params": []
+        },
+        "doctor": {
+          "description": "Report the current runtime capability map, memory plugin drift, memory DB target, OMO resolution, canonical evolution stores, table/routine readiness, and evolution ledger status.",
+          "input_params": []
+        }
+      }
+    },
+    "skill-system-postgres": {
+      "dir": "skill-system-postgres",
+      "version": "1.4.0",
+      "capabilities": [
+        "skill-policy-check",
+        "skill-run-log",
+        "skill-graph",
+        "skill-refresh-control",
+        "skill-rule-model",
+        "skill-project-graph",
+        "skill-projection-engine"
+      ],
+      "effects": [
+        "db.read",
+        "db.write"
+      ],
+      "operations": {
+        "check-policy": {
+          "description": "Check if a skill's effects are allowed by the active policy profile.",
+          "input_params": [
+            "policy_name",
+            "effects"
+          ]
+        },
+        "log-run": {
+          "description": "Log a skill execution run for observability.",
+          "input_params": [
+            "skill_id",
+            "operation",
+            "status",
+            "duration_ms"
+          ]
+        },
+        "migrate-graph": {
+          "description": "Apply migrate-v3-graph.sql to create graph nodes/edges schema.",
+          "input_params": [
+            "action"
+          ]
+        },
+        "migrate-control-plane": {
+          "description": "Apply migrate-v4-control-plane.sql to create refresh jobs, refresh job events, and artifact versions tables.",
+          "input_params": [
+            "action"
+          ]
+        },
+        "migrate-rule-model": {
+          "description": "Apply migrate-v5-rule-model.sql to create canonical rule hierarchy tables.",
+          "input_params": [
+            "action"
+          ]
+        },
+        "project-rules": {
+          "description": "Sync canonical rule hierarchy into PostgreSQL and deterministic markdown rule projections.",
+          "input_params": [
+            "write_files"
+          ]
+        },
+        "migrate-project-graph": {
+          "description": "Apply migrate-v6-project-graph.sql to create canonical project graph tables.",
+          "input_params": [
+            "action"
+          ]
+        },
+        "project-architecture": {
+          "description": "Sync canonical repo architecture graph into PostgreSQL and write note/architecture_map.md.",
+          "input_params": [
+            "write_file"
+          ]
+        },
+        "run-projection-engine": {
+          "description": "Refresh deterministic markdown projections with GENERATED_START / GENERATED_END managed blocks.",
+          "input_params": []
+        }
+      }
+    },
+    "skill-system-review": {
+      "dir": "skill-system-review",
+      "version": "1.0.0",
+      "capabilities": [
+        "review-generate",
+        "review-startup",
+        "review-plan-to-bundle",
+        "review-write-inbox"
+      ],
+      "effects": [
+        "fs.read",
+        "fs.write"
+      ],
+      "operations": {
+        "generate-review-prompt": {
+          "description": "Assemble structured review context from completed ticket/bundle for Prometheus",
+          "input_params": [
+            "ticket_id"
+          ]
+        },
+        "generate-startup-review-prompt": {
+          "description": "Generate Prometheus review overview at session startup",
+          "input_params": []
+        },
+        "plan-to-bundle": {
+          "description": "Convert Prometheus plan markdown into TKT bundle or express creation commands with metadata preservation",
+          "input_params": [
+            "plan_file"
+          ]
+        },
+        "write-review-inbox": {
+          "description": "Write Prometheus review feedback into Review Agent Inbox for ticket ingestion",
+          "input_params": [
+            "input_file"
+          ]
+        }
+      }
+    },
+    "skill-system-router": {
+      "dir": "skill-system-router",
+      "version": "1.0.0",
+      "capabilities": [
+        "skill-discover",
+        "skill-execute",
+        "skill-chain",
+        "index-rebuild",
+        "skill-improvement-report",
+        "workflow-route",
+        "session-guard"
+      ],
+      "effects": [
+        "fs.read",
+        "fs.write",
+        "proc.exec",
+        "db.read",
+        "db.write",
+        "net.fetch",
+        "git.read"
+      ],
+      "operations": {
+        "rebuild-index": {
+          "description": "Regenerate skills-index.json by scanning all skill manifests.",
+          "input_params": []
+        },
+        "report-improvement-issue": {
+          "description": "Create or link a GitHub issue for skill/system improvements discovered during routing.",
+          "input_params": [
+            "title",
+            "summary",
+            "repo",
+            "impact",
+            "repro_steps",
+            "suggested_fix"
+          ]
+        },
+        "plan-with-workflow": {
+          "description": "Use skill-system-workflow to plan complex goals as DAG waves, then route execution by dependency order.",
+          "input_params": [
+            "goal",
+            "context"
+          ]
+        },
+        "guard-check": {
+          "description": "Session-start guard that ensures router discovery has been performed before other skills are loaded.",
+          "input_params": []
+        }
+      }
+    },
+    "skill-system-soul": {
+      "dir": "skill-system-soul",
+      "version": "1.0.0",
+      "capabilities": [
+        "soul-profile-load",
+        "soul-profile-list"
+      ],
+      "effects": [
+        "fs.read"
+      ],
+      "operations": {
+        "load-profile": {
+          "description": "Load a behavioral profile by name. Agent reads and adopts the profile.",
+          "input_params": [
+            "profile_name"
+          ]
+        },
+        "list-profiles": {
+          "description": "List available soul profiles.",
+          "input_params": []
+        }
+      }
+    },
+    "skill-system-tkt": {
+      "dir": "skill-system-tkt",
+      "version": "2.0.0",
+      "capabilities": [
+        "tkt-init",
+        "tkt-create-bundle",
+        "tkt-claim",
+        "tkt-update",
+        "tkt-add",
+        "tkt-status",
+        "tkt-close",
+        "tkt-review",
+        "tkt-list",
+        "tkt-express",
+        "tkt-roadmap-transition",
+        "tkt-roadmap-status",
+        "tkt-intake",
+        "tkt-claim-db",
+        "tkt-block",
+        "tkt-close-db",
+        "tkt-check-open",
+        "tkt-claim-summary",
+        "tkt-session-loop",
+        "tkt-refresh-new",
+        "tkt-refresh-inbox",
+        "tkt-startup-flow",
+        "tkt-integrator-closure",
+        "tkt-check-scope",
+        "pm-interpret",
+        "pm-roadmap"
+      ],
+      "effects": [
+        "fs.read",
+        "fs.write",
+        "db.read",
+        "db.write",
+        "proc.exec"
+      ],
+      "operations": {
+        "init-roadmap": {
+          "description": "Initialize .tkt/ directory and roadmap.yaml",
+          "input_params": [
+            "project"
+          ]
+        },
+        "create-bundle": {
+          "description": "PM Agent creates a TKT bundle from user intent",
+          "input_params": [
+            "goal",
+            "context",
+            "track",
+            "source_plan",
+            "worktree",
+            "carryover"
+          ]
+        },
+        "claim": {
+          "description": "Claim a filesystem ticket within a bundle.",
+          "input_params": [
+            "bundle",
+            "ticket",
+            "agent"
+          ]
+        },
+        "update": {
+          "description": "Update a filesystem ticket status and summary.",
+          "input_params": [
+            "bundle",
+            "ticket",
+            "status",
+            "summary",
+            "evidence",
+            "evidence_file",
+            "reason"
+          ]
+        },
+        "add": {
+          "description": "Add a filesystem worker ticket with structured metadata.",
+          "input_params": [
+            "bundle",
+            "title",
+            "description",
+            "category",
+            "effort_estimate",
+            "skills",
+            "wave",
+            "qa_scenarios",
+            "depends_on",
+            "source_plan",
+            "source_ticket_index",
+            "acceptance"
+          ]
+        },
+        "express": {
+          "description": "Manage express tickets without requiring a bundle.",
+          "input_params": [
+            "action",
+            "title",
+            "acceptance",
+            "category",
+            "effort_estimate",
+            "wave",
+            "source_plan",
+            "source_ticket_index",
+            "ticket_id",
+            "agent",
+            "files_changed",
+            "evidence",
+            "evidence_file"
+          ]
+        },
+        "bundle-status": {
+          "description": "Show bundle status with all tickets",
+          "input_params": [
+            "bundle"
+          ]
+        },
+        "close-bundle": {
+          "description": "Close bundle after worker completion and verification gates.",
+          "input_params": [
+            "bundle",
+            "merge"
+          ]
+        },
+        "list-bundles": {
+          "description": "List all bundles and their status",
+          "input_params": []
+        },
+        "roadmap-transition": {
+          "description": "Transition roadmap to a new stage with gate checks",
+          "input_params": [
+            "stage",
+            "reason",
+            "force"
+          ]
+        },
+        "roadmap-status": {
+          "description": "Show roadmap stage, bundle summary, and allowed transitions",
+          "input_params": []
+        },
+        "generate-review": {
+          "description": "Generate review bundle post-closure",
+          "input_params": [
+            "bundle"
+          ]
+        },
+        "intake-ticket": {
+          "description": "Create or sync a durable ticket from note_tasks intake",
+          "input_params": [
+            "ticket_id",
+            "title",
+            "from_note_tasks"
+          ]
+        },
+        "list-tickets": {
+          "description": "List durable workflow tickets",
+          "input_params": [
+            "unresolved_only",
+            "batch_id"
+          ]
+        },
+        "claim-ticket": {
+          "description": "Claim a ticket for the current session (DB-backed, conflict-safe)",
+          "input_params": [
+            "ticket_id",
+            "session_id"
+          ]
+        },
+        "block-ticket": {
+          "description": "Mark a ticket as blocked",
+          "input_params": [
+            "ticket_id",
+            "reason"
+          ]
+        },
+        "close-ticket": {
+          "description": "Close the currently claimed ticket (runs refresh first)",
+          "input_params": [
+            "session_id",
+            "ticket_id",
+            "resolution"
+          ]
+        },
+        "check-open-tickets": {
+          "description": "Report unresolved tickets",
+          "input_params": [
+            "session_id"
+          ]
+        },
+        "claim-summary": {
+          "description": "Batch/session claim ownership summary with collaboration policy",
+          "input_params": [
+            "session_id",
+            "batch_id"
+          ]
+        },
+        "session-loop": {
+          "description": "Run the legal worker loop for one session",
+          "input_params": [
+            "session_id",
+            "batch_id"
+          ]
+        },
+        "refresh-new-tasks": {
+          "description": "Re-read note_tasks ### New and ingest new work",
+          "input_params": [
+            "batch_id",
+            "trigger_point"
+          ]
+        },
+        "refresh-review-inbox": {
+          "description": "Parse review inbox and ingest inbox-derived tickets",
+          "input_params": [
+            "batch_id",
+            "trigger_point"
+          ]
+        },
+        "startup-flow": {
+          "description": "Startup/claim-loop context from zero to review handoff",
+          "input_params": [
+            "session_id",
+            "batch_id"
+          ]
+        },
+        "integrator-closure-report": {
+          "description": "Report whether integrator can legally close the batch",
+          "input_params": [
+            "session_id",
+            "ticket_id"
+          ]
+        },
+        "check-ticket-scope": {
+          "description": "Report if changed files stay inside claimed ticket scope",
+          "input_params": [
+            "ticket_id"
+          ]
+        }
+      }
+    },
+    "skill-system-tmux": {
+      "dir": "skill-system-tmux",
+      "version": "1.0.0",
+      "capabilities": [
+        "tmux-route",
+        "tmux-session-manage",
+        "tmux-capture",
+        "tmux-reclaim",
+        "tmux-error-workaround"
+      ],
+      "effects": [
+        "proc.exec"
+      ],
+      "operations": {
+        "route-command": {
+          "description": "Decide whether a command should use direct bash or tmux, and execute accordingly.",
+          "input_params": [
+            "command",
+            "estimated_duration"
+          ]
+        },
+        "manage-session": {
+          "description": "Create, list, kill, or check tmux sessions.",
+          "input_params": [
+            "action",
+            "session_name"
+          ]
+        },
+        "reclaim-resources": {
+          "description": "Bulk cleanup of stale agent tmux sessions and orphaned processes. Kills all oc-* sessions, detects idle non-agent sessions, and reclaims zombie processes holding ports.",
+          "input_params": [
+            "scope"
+          ]
+        }
+      }
+    },
+    "skill-system-workflow": {
+      "dir": "skill-system-workflow",
+      "version": "1.2.0",
+      "capabilities": [
+        "workflow-plan",
+        "workflow-visualize",
+        "workflow-list-recipes"
+      ],
+      "effects": [
+        "fs.read",
+        "db.read"
+      ],
+      "operations": {
+        "plan": {
+          "description": "Analyze a goal and produce an execution plan as a DAG with Mermaid visualization.",
+          "input_params": [
+            "goal",
+            "context"
+          ]
+        },
+        "visualize": {
+          "description": "Convert an existing DAG YAML to a Mermaid flowchart.",
+          "input_params": [
+            "dag_yaml"
+          ]
+        },
+        "list-recipes": {
+          "description": "List available workflow recipes.",
+          "input_params": []
+        }
+      }
+    }
+  },
+  "capability_index": {
+    "spec-create": [
+      "skill-system-behavior"
+    ],
+    "spec-validate": [
+      "skill-system-behavior"
+    ],
+    "spec-verify": [
+      "skill-system-behavior"
+    ],
+    "contract-generate": [
+      "skill-system-behavior"
+    ],
+    "coverage-gate": [
+      "skill-system-behavior"
+    ],
+    "skill-graph-build": [
+      "skill-system-behavior"
+    ],
+    "cli-dispatch": [
+      "skill-system-cli"
+    ],
+    "project-init": [
+      "skill-system-cli"
+    ],
+    "project-status": [
+      "skill-system-cli"
+    ],
+    "config-read": [
+      "skill-system-cli"
+    ],
+    "config-write": [
+      "skill-system-cli"
+    ],
+    "tkt-dispatch": [
+      "skill-system-cli"
+    ],
+    "mem-dispatch": [
+      "skill-system-cli"
+    ],
+    "install-dispatch": [
+      "skill-system-cli"
+    ],
+    "cockpit-state": [
+      "skill-system-cockpit"
+    ],
+    "cockpit-feedback": [
+      "skill-system-cockpit"
+    ],
+    "cockpit-tui": [
+      "skill-system-cockpit"
+    ],
+    "skill-create": [
+      "skill-system-creator"
+    ],
+    "skill-validate": [
+      "skill-system-creator"
+    ],
+    "skill-package": [
+      "skill-system-creator"
+    ],
+    "eda-profile": [
+      "skill-system-eda"
+    ],
+    "eda-distribution": [
+      "skill-system-eda"
+    ],
+    "eda-correlation": [
+      "skill-system-eda"
+    ],
+    "eda-anomaly": [
+      "skill-system-eda"
+    ],
+    "eda-feature-importance": [
+      "skill-system-eda"
+    ],
+    "eda-leakage": [
+      "skill-system-eda"
+    ],
+    "eda-contract-save": [
+      "skill-system-eda"
+    ],
+    "eda-contract-validate": [
+      "skill-system-eda"
+    ],
+    "experiment-gate": [
+      "skill-system-gate"
+    ],
+    "registry-safety": [
+      "skill-system-gate"
+    ],
+    "experiment-status": [
+      "skill-system-gate"
+    ],
+    "github-issue": [
+      "skill-system-github"
+    ],
+    "github-label": [
+      "skill-system-github"
+    ],
+    "github-template": [
+      "skill-system-github"
+    ],
+    "github-workflow": [
+      "skill-system-github"
+    ],
+    "github-safety": [
+      "skill-system-github"
+    ],
+    "graph-navigation": [
+      "skill-system-graph"
+    ],
+    "behavior-query": [
+      "skill-system-graph"
+    ],
+    "dependency-analysis": [
+      "skill-system-graph"
+    ],
+    "insight-extract": [
+      "skill-system-insight"
+    ],
+    "insight-matrix-update": [
+      "skill-system-insight"
+    ],
+    "insight-synthesize": [
+      "skill-system-insight"
+    ],
+    "evolution-soul": [
+      "skill-system-insight"
+    ],
+    "evolution-recipes": [
+      "skill-system-insight"
+    ],
+    "evolution-list": [
+      "skill-system-insight"
+    ],
+    "evolution-rollback": [
+      "skill-system-insight"
+    ],
+    "skill-install": [
+      "skill-system-installer"
+    ],
+    "skill-list": [
+      "skill-system-installer"
+    ],
+    "skill-update": [
+      "skill-system-installer"
+    ],
+    "skill-sync": [
+      "skill-system-installer"
+    ],
+    "skill-bootstrap": [
+      "skill-system-installer"
+    ],
+    "memory-search": [
+      "skill-system-memory"
+    ],
+    "memory-store": [
+      "skill-system-memory"
+    ],
+    "memory-flush": [
+      "skill-system-memory"
+    ],
+    "memory-health": [
+      "skill-system-memory"
+    ],
+    "memory-types": [
+      "skill-system-memory"
+    ],
+    "memory-auto-write": [
+      "skill-system-memory"
+    ],
+    "memory-doctor": [
+      "skill-system-memory"
+    ],
+    "skill-policy-check": [
+      "skill-system-postgres"
+    ],
+    "skill-run-log": [
+      "skill-system-postgres"
+    ],
+    "skill-graph": [
+      "skill-system-postgres"
+    ],
+    "skill-refresh-control": [
+      "skill-system-postgres"
+    ],
+    "skill-rule-model": [
+      "skill-system-postgres"
+    ],
+    "skill-project-graph": [
+      "skill-system-postgres"
+    ],
+    "skill-projection-engine": [
+      "skill-system-postgres"
+    ],
+    "review-generate": [
+      "skill-system-review"
+    ],
+    "review-startup": [
+      "skill-system-review"
+    ],
+    "review-plan-to-bundle": [
+      "skill-system-review"
+    ],
+    "review-write-inbox": [
+      "skill-system-review"
+    ],
+    "skill-discover": [
+      "skill-system-router"
+    ],
+    "skill-execute": [
+      "skill-system-router"
+    ],
+    "skill-chain": [
+      "skill-system-router"
+    ],
+    "index-rebuild": [
+      "skill-system-router"
+    ],
+    "skill-improvement-report": [
+      "skill-system-router"
+    ],
+    "workflow-route": [
+      "skill-system-router"
+    ],
+    "session-guard": [
+      "skill-system-router"
+    ],
+    "soul-profile-load": [
+      "skill-system-soul"
+    ],
+    "soul-profile-list": [
+      "skill-system-soul"
+    ],
+    "tkt-init": [
+      "skill-system-tkt"
+    ],
+    "tkt-create-bundle": [
+      "skill-system-tkt"
+    ],
+    "tkt-claim": [
+      "skill-system-tkt"
+    ],
+    "tkt-update": [
+      "skill-system-tkt"
+    ],
+    "tkt-add": [
+      "skill-system-tkt"
+    ],
+    "tkt-status": [
+      "skill-system-tkt"
+    ],
+    "tkt-close": [
+      "skill-system-tkt"
+    ],
+    "tkt-review": [
+      "skill-system-tkt"
+    ],
+    "tkt-list": [
+      "skill-system-tkt"
+    ],
+    "tkt-express": [
+      "skill-system-tkt"
+    ],
+    "tkt-roadmap-transition": [
+      "skill-system-tkt"
+    ],
+    "tkt-roadmap-status": [
+      "skill-system-tkt"
+    ],
+    "tkt-intake": [
+      "skill-system-tkt"
+    ],
+    "tkt-claim-db": [
+      "skill-system-tkt"
+    ],
+    "tkt-block": [
+      "skill-system-tkt"
+    ],
+    "tkt-close-db": [
+      "skill-system-tkt"
+    ],
+    "tkt-check-open": [
+      "skill-system-tkt"
+    ],
+    "tkt-claim-summary": [
+      "skill-system-tkt"
+    ],
+    "tkt-session-loop": [
+      "skill-system-tkt"
+    ],
+    "tkt-refresh-new": [
+      "skill-system-tkt"
+    ],
+    "tkt-refresh-inbox": [
+      "skill-system-tkt"
+    ],
+    "tkt-startup-flow": [
+      "skill-system-tkt"
+    ],
+    "tkt-integrator-closure": [
+      "skill-system-tkt"
+    ],
+    "tkt-check-scope": [
+      "skill-system-tkt"
+    ],
+    "pm-interpret": [
+      "skill-system-tkt"
+    ],
+    "pm-roadmap": [
+      "skill-system-tkt"
+    ],
+    "tmux-route": [
+      "skill-system-tmux"
+    ],
+    "tmux-session-manage": [
+      "skill-system-tmux"
+    ],
+    "tmux-capture": [
+      "skill-system-tmux"
+    ],
+    "tmux-reclaim": [
+      "skill-system-tmux"
+    ],
+    "tmux-error-workaround": [
+      "skill-system-tmux"
+    ],
+    "workflow-plan": [
+      "skill-system-workflow"
+    ],
+    "workflow-visualize": [
+      "skill-system-workflow"
+    ],
+    "workflow-list-recipes": [
+      "skill-system-workflow"
+    ]
+  }
+}

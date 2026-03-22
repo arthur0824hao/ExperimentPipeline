@@ -1,0 +1,100 @@
+schema_version: 1
+script_path: "Phase3/tools/watcher.py"
+title: "Auto-Wake Batch Watcher"
+purpose: "Monitors experiment batch completion from the experiments.json snapshot, delays and sends wake notifications to tmux sessions, and stores watcher/error-pattern state with atomic file operations."
+updated_at: "2026-03-13T07:50:00Z"
+inputs:
+  - name: "experiments.json"
+    type: "file"
+    description: "Batch and experiment statuses"
+    required: true
+  - name: "--once/--interval/--delay/--status/--reset"
+    type: "cli_arg"
+    description: "Watcher execution mode"
+    required: false
+  - name: "tmux exp_runner session"
+    type: "config_field"
+    description: "Notification target session"
+    required: false
+outputs:
+  - name: "watcher_state"
+    type: "file"
+    path: "Phase3/tools/.watcher_state.json"
+    description: "Notified batches and pending queue"
+  - name: "error_patterns"
+    type: "file"
+    path: "Phase3/tools/error_patterns.json"
+    description: "Classified batch failures with stats"
+  - name: "watcher_log"
+    type: "file"
+    path: "Phase3/tools/watcher.log"
+    description: "Operational log"
+dependencies:
+  - type: "file"
+    name: "Phase3/registry_io.py"
+    description: "Optional registry lock and load fallback"
+  - type: "service"
+    name: "tmux"
+    description: "display-message and optional send-keys"
+stages:
+  - id: "io-bootstrap"
+    name: "Initialize paths and state"
+    description: "Load watcher state, register signal handlers, and prepare lock helpers."
+    depends_on: []
+    error_paths: []
+  - id: "read-and-analyze-batches"
+    name: "Read registry and summarize batches"
+    description: "Load experiments registry snapshot and compute per-batch done/error/running/ready metrics across both `experiments` and `completed` lists, treating `COMPLETED` as a done terminal state."
+    depends_on: ["io-bootstrap"]
+    error_paths:
+      - condition: "experiments registry unreadable"
+        action: "log warning and skip current cycle"
+  - id: "pending-notification-queue"
+    name: "Queue completed batches with delay"
+    description: "Track first-seen completion and only notify after delay threshold."
+    depends_on: ["read-and-analyze-batches"]
+    error_paths: []
+  - id: "wake-agent-session"
+    name: "Notify tmux session"
+    description: "Display message always; inject stdin only when active pane command is opencode."
+    depends_on: ["pending-notification-queue"]
+    error_paths:
+      - condition: "tmux session missing or command timeout"
+        action: "log warn/error and mark notification failed"
+  - id: "record-error-patterns"
+    name: "Persist error classification"
+    description: "Classify failed experiments and append compact pattern stats."
+    depends_on: ["wake-agent-session"]
+    error_paths: []
+  - id: "loop-singleton-control"
+    name: "Loop mode singleton and safety stop"
+    description: "Acquire watcher.lock, reclaim stale locks, stop after max consecutive failures."
+    depends_on: ["record-error-patterns"]
+    error_paths:
+      - condition: "existing active watcher lock"
+        action: "exit loop mode to avoid duplicate watchers"
+history:
+  - date: "2026-03-13"
+    author: "agent/opencode-gpt5.4"
+    change: "Aligned watcher contract with DB-backed snapshot reality: it now reads both experiments and completed lists, and treats COMPLETED as a successful terminal state."
+  - date: "2026-03-06"
+    author: "agent/opencode-sisyphus-junior"
+    change: "Initial behavior contract generation for auto-wake watcher."
+mermaid: |
+  flowchart TD
+    i1[/experiments.json/]:::input --> s1([Load watcher state]):::stage
+    i2[/CLI mode flags/]:::input --> s2([Analyze batch status]):::stage
+    s1 --> s2
+    s2 --> s3([Manage delayed notification queue]):::stage
+    s3 --> s4([Wake tmux exp_runner session]):::stage
+    s4 --> s5([Update error patterns and save state]):::stage
+    s5 --> s6([Loop singleton + failure guard]):::stage
+    s4 -->|tmux missing/timeout| e1["Log and keep pending"]:::error
+    s6 -->|active watcher lock| e2["Exit to avoid duplicate loops"]:::error
+    s5 --> o1[\".watcher_state.json\"]:::output
+    s5 --> o2[\"error_patterns.json\"]:::output
+    s6 --> o3[\"watcher.log\"]:::output
+    classDef stage fill:#dbeafe,stroke:#3b82f6,stroke-width:2px,color:#1e40af
+    classDef error fill:#fee2e2,stroke:#ef4444,stroke-width:2px,color:#991b1b,stroke-dasharray: 5 5
+    classDef input fill:#f0fdf4,stroke:#22c55e,stroke-width:2px,color:#166534
+    classDef output fill:#fef3c7,stroke:#f59e0b,stroke-width:2px,color:#92400e

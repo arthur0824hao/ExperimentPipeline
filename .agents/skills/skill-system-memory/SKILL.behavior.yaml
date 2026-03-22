@@ -1,0 +1,154 @@
+schema_version: 1
+skill_name: skill-system-memory
+title: skill-system-memory Behavior Contract
+purpose: 'Persistent shared memory for AI agents backed by PostgreSQL. Supports full-text search, trigram matching, optional
+  pgvector, typed sub-tables for soul state, insights, preferences, and evolution ledger reads. Current supported-now runtime
+  surfaces are core memory, typed context reads, evolution ledger access, and compaction logging; projection upserts and behavior
+  graph refresh are capability-gated optional surfaces. The doctor also reports canonical evolution accepted/rejected/task
+  stores once the durable evolution model is present.
+
+  '
+generated_from: SKILL.spec.yaml
+updated_at: '2026-03-13T02:19:44.054980'
+depends_on:
+- skill-system-postgres
+delegates_to: []
+operations:
+- name: search
+  intent: Search memories by natural language query with ranked results
+  inputs:
+  - query
+  - limit
+  - scope
+  outputs:
+  - results
+  constraints:
+  - Must use FTS + trigram scoring
+  - Must respect deleted_at soft delete
+  - Unscoped search returns all scopes and labels each result with scope
+  - When DB is unavailable, may fall back to local pending-file search with explicit warning
+  - When memory schema is missing, returns empty results with explicit warning instead of crashing
+- name: store
+  intent: Store a new memory with auto-deduplication
+  inputs:
+  - memory_type
+  - category
+  - title
+  - tags_csv
+  - importance
+  - scope
+  outputs:
+  - memory_id
+  constraints:
+  - Must deduplicate by content_hash
+  - Must validate memory_type enum
+  - Must persist scope in metadata and use session_id for session scope when available
+  - Typed projection tables must remain query-oriented projections, not canonical authoring sources
+  - When DB is unavailable, may write pending fallback files under .memory/pending instead of crashing
+  - When memory schema is missing, degrades to warning + no-op instead of crashing
+- name: list
+  intent: List memories with optional scope/category filters
+  inputs:
+  - scope
+  - category
+  - limit
+  outputs:
+  - memories
+  constraints:
+  - Must show scope on each listed record
+  - When DB is unavailable, may list pending fallback files instead
+- name: compact
+  intent: Compact duplicate memories within an optional scope
+  inputs:
+  - scope
+  outputs:
+  - compacted_count
+  constraints:
+  - Must soft-delete duplicate content_hash rows while keeping the strongest survivor
+  - When DB is unavailable, must fail closed with a warning instead of crashing
+- name: export
+  intent: Export memories in json or csv format
+  inputs:
+  - format
+  - scope
+  - limit
+  outputs:
+  - export_payload
+  constraints:
+  - Must include scope in exported records
+  - When DB is unavailable, may export pending fallback records instead
+- name: flush
+  intent: Flush locally buffered fallback memory writes into PostgreSQL
+  inputs: []
+  outputs:
+  - flushed_count
+  constraints:
+  - Must read .memory/pending and replay pending writes when DB is available
+  - Must not crash when no pending files exist
+- name: health
+  intent: Inspect the current memory system health metrics
+  inputs: []
+  outputs:
+  - health_metrics
+  constraints:
+  - Must report health using memory_health_check()
+  - Must not modify memory records
+- name: types
+  intent: List the available memory types and their intended usage
+  inputs: []
+  outputs:
+  - memory_types
+  constraints:
+  - Must return the supported memory type set
+  - Must not modify memory records
+- name: auto-write
+  intent: Propose a structured memory write after solving a non-obvious problem
+  inputs: []
+  outputs:
+  - memory_proposal
+  constraints:
+  - Must produce a structured proposal rather than write directly to the database
+  - Must follow the standard memory write template
+- name: doctor
+  intent: Report the live runtime capability model, plugin alignment, target selection, and current support boundaries
+  inputs: []
+  outputs:
+  - doctor_report
+  constraints:
+  - Must classify runtime capabilities as SUPPORTED_NOW, GATED_OPTIONAL, or DEFERRED_UNSUPPORTED with evidence
+  - Must report the active memory target and its source
+  - Must compare live plugin files against the repo source-of-truth
+  - Must report how optional unsupported surfaces are skipped or fail closed
+  - Must report canonical evolution accepted/rejected/task stores and the limited role of agent_memories when the durable
+    evolution model is present
+  - Must report approve/reject transaction status, migration/backfill rerun safety, replay/idempotency status, and the task
+    authority model for evolution writes
+  - Must not silently mutate runtime state unless explicitly asked to sync
+mermaid: "flowchart TD\n  in_0_query[/\"query\"/]:::input\n  in_0_limit[/\"limit\"/]:::input\n  in_1_memory_type[/\"memory_type\"\
+  /]:::input\n  in_1_category[/\"category\"/]:::input\n  in_1_title[/\"title\"/]:::input\n  in_1_tags_csv[/\"tags_csv\"/]:::input\n\
+  \  in_1_importance[/\"importance\"/]:::input\n  op_search([\"search\"]):::stage\n  op_store([\"store\"]):::stage\n  op_health([\"\
+  health\"]):::stage\n  op_types([\"types\"]):::stage\n  op_auto_write([\"auto-write\"]):::stage\n  op_doctor([\"doctor\"\
+  ]):::stage\n  out_0_results[\\\"results\"\\]:::output\n  out_1_memory_id[\\\"memory_id\"\\]:::output\n  out_2_health_metrics[\\\
+  \"health_metrics\"\\]:::output\n  out_3_memory_types[\\\"memory_types\"\\]:::output\n  out_4_memory_proposal[\\\"memory_proposal\"\
+  \\]:::output\n  out_5_doctor_report[\\\"doctor_report\"\\]:::output\n\n  in_0_query --> op_search\n  in_0_limit --> op_search\n\
+  \  in_1_memory_type --> op_store\n  in_1_category --> op_store\n  in_1_title --> op_store\n  in_1_tags_csv --> op_store\n\
+  \  in_1_importance --> op_store\n  op_search --> out_0_results\n  op_store --> out_1_memory_id\n  op_health --> out_2_health_metrics\n\
+  \  op_types --> out_3_memory_types\n  op_auto_write --> out_4_memory_proposal\n  op_doctor --> out_5_doctor_report\n  op_search\
+  \ -->|\"violation\"| err_0_0[\"Must use FTS + trigram scoring\"]:::error\n  op_search -->|\"violation\"| err_0_1[\"Must\
+  \ respect deleted_at soft delete\"]:::error\n  op_store -->|\"violation\"| err_1_0[\"Must deduplicate by content_hash\"\
+  ]:::error\n  op_store -->|\"violation\"| err_1_1[\"Must validate memory_type enum\"]:::error\n  op_store -->|\"violation\"\
+  | err_1_2[\"Typed projection tables must remain quer...\"]:::error\n  op_health -->|\"violation\"| err_2_0[\"Must report\
+  \ health using memory_health_c...\"]:::error\n  op_health -->|\"violation\"| err_2_1[\"Must not modify memory records\"\
+  ]:::error\n  op_types -->|\"violation\"| err_3_0[\"Must return the supported memory type se...\"]:::error\n  op_types -->|\"\
+  violation\"| err_3_1[\"Must not modify memory records\"]:::error\n  op_auto_write -->|\"violation\"| err_4_0[\"Must produce\
+  \ a structured proposal rathe...\"]:::error\n  op_auto_write -->|\"violation\"| err_4_1[\"Must follow the standard memory\
+  \ write te...\"]:::error\n  op_doctor -->|\"violation\"| err_5_0[\"Must classify runtime capabilities as SU...\"]:::error\n\
+  \  op_doctor -->|\"violation\"| err_5_1[\"Must report the active memory target and...\"]:::error\n  op_doctor -->|\"violation\"\
+  | err_5_2[\"Must compare live plugin files against t...\"]:::error\n  op_doctor -->|\"violation\"| err_5_3[\"Must report\
+  \ how optional unsupported sur...\"]:::error\n  op_doctor -->|\"violation\"| err_5_4[\"Must report canonical evolution accepted...\"\
+  ]:::error\n  op_doctor -->|\"violation\"| err_5_5[\"Must report approve/reject transaction s...\"]:::error\n  op_doctor\
+  \ -->|\"violation\"| err_5_6[\"Must not silently mutate runtime state u...\"]:::error\n  dep_skill_system_postgres{{\"skill-system-postgres\"\
+  }}:::dep\n  dep_skill_system_postgres -.->|depends_on| op_search\n\n  classDef stage fill:#dbeafe,stroke:#3b82f6,stroke-width:2px,color:#1e40af\n\
+  \  classDef error fill:#fee2e2,stroke:#ef4444,stroke-width:2px,color:#991b1b,stroke-dasharray: 5 5\n  classDef input fill:#f0fdf4,stroke:#22c55e,stroke-width:2px,color:#166534\n\
+  \  classDef output fill:#fef3c7,stroke:#f59e0b,stroke-width:2px,color:#92400e\n  classDef dep fill:#ede9fe,stroke:#8b5cf6,stroke-width:2px,color:#5b21b6,stroke-dasharray:\
+  \ 5 5"

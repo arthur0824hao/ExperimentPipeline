@@ -1,0 +1,152 @@
+schema_version: 1
+skill_name: skill-system-cli
+description: >
+  Unified CLI entry point for the entire Skill System.
+  Thin dispatcher that routes to existing skill scripts.
+  JSON-first output for agent consumption.
+
+depends_on:
+  - skill-system-router
+  - skill-system-tkt
+  - skill-system-memory
+  - skill-system-installer
+delegates_to:
+  - skill-system-tkt
+  - skill-system-memory
+  - skill-system-installer
+
+operations:
+  - name: init
+    intent: "Bootstrap project structure (config, note, tkt, postgres)"
+    inputs:
+      - name: check
+        type: boolean
+        required: false
+        description: "Only detect, don't create"
+    constraints:
+      - "Idempotent — only create what's missing"
+      - "Must preserve existing project files and only fill missing bootstrap assets"
+    outputs:
+      - name: init_report
+        type: json
+    expected_effects:
+      - type: fs.write
+        description: "Create config/, note/, .tkt/ directories"
+      - type: db.write
+        description: "Optionally create agent_memory DB + schema"
+
+  - name: status
+    intent: "Show global project health"
+    outputs:
+      - name: status_report
+        type: json
+    constraints:
+      - "Must aggregate config, note, tkt, postgres, and skills status in one report"
+    expected_effects:
+      - type: fs.read
+      - type: db.read
+
+  - name: config-get
+    intent: "Read a config value by dot-path"
+    inputs:
+      - name: key
+        type: string
+        required: true
+    outputs:
+      - name: value
+        type: json
+    constraints:
+      - "Must return explicit error when dot-path does not exist"
+    expected_effects:
+      - type: fs.read
+
+  - name: config-set
+    intent: "Set a config value by dot-path"
+    inputs:
+      - name: key
+        type: string
+        required: true
+      - name: value
+        type: string
+        required: true
+    outputs:
+      - name: value
+        type: string
+      - name: file
+        type: string
+    constraints:
+      - "Must persist YAML without dropping unrelated keys"
+    expected_effects:
+      - type: fs.write
+
+  - name: tkt-dispatch
+    intent: "Route to any tkt operation"
+    inputs:
+      - name: args
+        type: string
+        required: false
+        description: "Pass-through TKT subcommand arguments"
+    outputs:
+      - name: payload
+        type: json
+    constraints:
+      - "Must forward arguments to skill-system-tkt without reimplementing ticket logic"
+      - "Must return the downstream JSON payload directly"
+    expected_effects:
+      - type: proc.exec
+
+  - name: mem-dispatch
+    intent: "Route to any memory operation"
+    inputs:
+      - name: args
+        type: string
+        required: false
+        description: "Pass-through memory subcommand arguments"
+    outputs:
+      - name: payload
+        type: json
+    constraints:
+      - "Must forward arguments to skill-system-memory without reimplementing memory logic"
+      - "Must return the downstream JSON payload directly"
+    expected_effects:
+      - type: proc.exec
+
+  - name: install-dispatch
+    intent: "Route to any installer operation"
+    inputs:
+      - name: args
+        type: string
+        required: false
+        description: "Pass-through installer subcommand arguments"
+    outputs:
+      - name: payload
+        type: json
+    constraints:
+      - "Must forward arguments to skill-system-installer without reimplementing install logic"
+      - "Must return the downstream JSON payload directly"
+    expected_effects:
+      - type: proc.exec
+
+acceptance_tests:
+  structural:
+    - id: manifest-valid
+      assert: "manifest exposes init, status, config-get, config-set, tkt-dispatch, mem-dispatch, and install-dispatch"
+    - id: scripts-exist
+      assert: "scripts/sk.py exists"
+    - id: sk-help
+      assert: "sk.py --help shows all domains"
+    - id: domain-help
+      assert: "sk.py tkt --help shows all tkt commands"
+  behavioral:
+    - id: init-idempotent
+      given: "Project already initialized"
+      when: "sk init runs"
+      then: "No files overwritten, report shows 'ok'"
+    - id: config-roundtrip
+      given: "Config file exists"
+      when: "sk config set then sk config get"
+      then: "Get returns the set value"
+    - id: json-contract
+      given: "Any sk command"
+      when: "Command completes"
+      then: "Last line is valid JSON with status field"

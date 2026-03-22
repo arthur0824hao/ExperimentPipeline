@@ -1,0 +1,61 @@
+schema_version: 1
+skill_name: skill-system-workflow
+title: skill-system-workflow Behavior Contract
+purpose: >
+  Pure planning engine. Converts goals into DAGs with Mermaid visualization.
+  Ticket lifecycle operations have moved to skill-system-tkt.
+generated_from: SKILL.spec.yaml
+updated_at: '2026-03-19T07:00:00.000000'
+depends_on: []
+delegates_to: []
+operations:
+  - name: plan
+    intent: Analyze a goal and produce an execution plan as a DAG
+    inputs:
+      - goal
+      - context
+    outputs:
+      - dag
+    constraints:
+      - Must produce parallelizable wave structure
+      - Must respect skill dependency ordering
+  - name: visualize
+    intent: Convert an existing DAG YAML to a Mermaid flowchart
+    inputs:
+      - dag_yaml
+    outputs:
+      - mermaid
+    constraints:
+      - Must apply Mermaid conventions from SKILL.md
+  - name: list-recipes
+    intent: List available workflow recipes
+    inputs: []
+    outputs:
+      - recipes
+    constraints:
+      - Must scan recipes directory
+mermaid: |
+  flowchart TD
+    in_goal[/"goal"/]:::input
+    in_context[/"context"/]:::input
+    in_dag[/"dag_yaml"/]:::input
+
+    op_plan(["plan"]):::stage
+    op_visualize(["visualize"]):::stage
+    op_list(["list-recipes"]):::stage
+
+    out_dag[\"dag"\]:::output
+    out_mermaid[\"mermaid"\]:::output
+    out_recipes[\"recipes"\]:::output
+
+    in_goal --> op_plan
+    in_context --> op_plan
+    in_dag --> op_visualize
+    op_plan --> out_dag
+    op_plan --> out_mermaid
+    op_visualize --> out_mermaid
+    op_list --> out_recipes
+
+    classDef stage fill:#dbeafe,stroke:#3b82f6,stroke-width:2px,color:#1e40af
+    classDef input fill:#f0fdf4,stroke:#22c55e,stroke-width:2px,color:#166534
+    classDef output fill:#fef3c7,stroke:#f59e0b,stroke-width:2px,color:#92400e

@@ -1,0 +1,86 @@
+schema_version: 1
+skill_name: skill-system-workflow
+description: >
+  Pure planning engine. Converts goals into DAGs with Mermaid visualization.
+  Uses reusable recipes for common patterns and dynamic planning for novel goals.
+  Ticket lifecycle operations have moved to skill-system-tkt.
+
+depends_on: []
+delegates_to: []
+
+operations:
+  - name: plan
+    intent: "Analyze a goal and produce an execution plan as a DAG"
+    inputs:
+      - name: goal
+        type: string
+        required: true
+        description: "Goal to plan"
+      - name: context
+        type: string
+        required: false
+        description: "Additional context"
+    outputs:
+      - name: dag
+        type: json
+        description: "DAG execution plan with Mermaid visualization"
+    constraints:
+      - "Must produce parallelizable wave structure"
+      - "Must respect skill dependency ordering"
+    expected_effects:
+      - type: fs.read
+        description: "Read workflow recipes"
+      - type: returns
+        description: "DAG plan"
+
+  - name: visualize
+    intent: "Convert an existing DAG YAML to a Mermaid flowchart"
+    inputs:
+      - name: dag_yaml
+        type: string
+        required: true
+        description: "DAG YAML content"
+    outputs:
+      - name: mermaid
+        type: string
+        description: "Mermaid flowchart string"
+    constraints:
+      - "Must apply Mermaid conventions from SKILL.md"
+    expected_effects:
+      - type: returns
+        description: "Mermaid text"
+
+  - name: list-recipes
+    intent: "List available workflow recipes"
+    inputs: []
+    outputs:
+      - name: recipes
+        type: json
+        description: "Available recipe names and descriptions"
+    constraints:
+      - "Must scan recipes directory"
+    expected_effects:
+      - type: fs.read
+        description: "Read recipes/"
+
+acceptance_tests:
+  structural:
+    - id: manifest-valid
+      assert: "manifest exposes plan, visualize, and list-recipes operations"
+    - id: scripts-exist
+      assert: "plan-and-visualize.md exists in scripts/"
+    - id: no-ticket-ops
+      assert: "no ticket lifecycle operations remain in workflow"
+  behavioral:
+    - id: dag-generation
+      given: "Multi-step goal with dependencies"
+      when: "plan is called"
+      then: "DAG produced with correct dependency edges and Mermaid output"
+    - id: recipe-matching
+      given: "Goal matching a recipe trigger pattern"
+      when: "plan is called"
+      then: "Recipe-based DAG is produced, customized for the goal"
+    - id: dynamic-planning
+      given: "Goal with no matching recipe"
+      when: "plan is called"
+      then: "Custom DAG is generated using prompts/plan-workflow.md"

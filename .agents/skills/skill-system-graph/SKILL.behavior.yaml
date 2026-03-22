@@ -1,0 +1,169 @@
+schema_version: 1
+skill_name: skill-system-graph
+title: skill-system-graph Behavior Contract
+purpose: >
+  Graph navigation skill for the skill system. It parses `SKILL.spec.yaml` files
+  into a dependency graph using only `depends_on` and `delegates_to`, stores the
+  canonical model in PostgreSQL-backed project graph tables, and exposes CLI tools
+  for topology inspection.
+generated_from: SKILL.spec.yaml
+updated_at: '2026-03-20T00:00:00Z'
+depends_on:
+  - skill-system-postgres
+  - skill-system-behavior
+delegates_to: []
+operations:
+  - name: parse-specs
+    intent: Parse all skill SKILL.spec.yaml files into a normalized graph model
+    inputs:
+      - skills_dir
+      - include_invalid
+    outputs:
+      - graph
+      - parse_report
+    constraints:
+      - Must ignore SKILL.behavior.yaml and only parse SKILL.spec.yaml
+      - Must include one outgoing edge per depends_on and one per delegates_to
+      - Must continue on malformed specs when include_invalid is false
+  - name: sync-graph
+    intent: Sync the normalized graph model into PostgreSQL graph tables
+    inputs:
+      - skills_dir
+      - force
+    outputs:
+      - sync_result
+    constraints:
+      - Must be hash-aware and skip unchanged nodes by default
+      - Must remove stale skill nodes that no longer have SKILL.spec.yaml
+      - Must upsert into existing skill graph tables instead of creating new schemas
+  - name: show
+    intent: Display the full skill graph from the current spec-scan graph model
+    inputs:
+      - skills_dir
+      - format
+    outputs:
+      - graph_view
+    constraints:
+      - JSON output must include nodes and edges arrays
+      - Must read directly from `SKILL.spec.yaml` files instead of persisted graph tables
+      - Text output should remain human readable and complete
+  - name: neighbors
+    intent: List direct neighbor skills for a target skill
+    inputs:
+      - skill_name
+      - format
+    outputs:
+      - neighbors
+    constraints:
+      - Must include both outgoing and incoming neighbors
+      - Missing skill names must return empty arrays with an explicit status
+  - name: path
+    intent: Find the shortest dependency path between two skills
+    inputs:
+      - from_skill
+      - to_skill
+      - max_depth
+      - format
+    outputs:
+      - path_result
+    constraints:
+      - Must return explicit not-found status when no path exists
+      - Must terminate on max_depth and avoid cycles
+  - name: impact
+    intent: Find all transitive dependents for one skill
+    inputs:
+      - skill_name
+      - max_depth
+      - format
+    outputs:
+      - impact_result
+    constraints:
+      - Must traverse incoming `depends_on` and `delegates_to` edges
+      - Must return stable order for deterministic text output
+      - Must avoid cycles and deep traversal hangs
+  - name: refresh
+    intent: Rebuild graph from specs and refresh persistence in one command
+    inputs:
+      - skills_dir
+      - force
+      - format
+    outputs:
+      - refresh_result
+    constraints:
+      - Must be parse-specs + sync-graph in one command
+      - Must surface parsed spec count alongside sync counters in the same result
+mermaid: |
+  flowchart TD
+    in_0_skills_dir[/"skills_dir"/]:::input
+    in_0_include_invalid[/"include_invalid"/]:::input
+    in_1_skills_dir[/"skills_dir"/]:::input
+    in_1_force[/"force"/]:::input
+    in_2_skills_dir[/"skills_dir"/]:::input
+    in_2_format[/"format"/]:::input
+    in_3_skill_name[/"skill_name"/]:::input
+    in_3_format[/"format"/]:::input
+    in_4_from_skill[/"from_skill"/]:::input
+    in_4_to_skill[/"to_skill"/]:::input
+    in_4_max_depth[/"max_depth"/]:::input
+    in_4_format[/"format"/]:::input
+    in_5_skill_name[/"skill_name"/]:::input
+    in_5_max_depth[/"max_depth"/]:::input
+    in_5_format[/"format"/]:::input
+    in_6_skills_dir[/"skills_dir"/]:::input
+    in_6_force[/"force"/]:::input
+    in_6_format[/"format"/]:::input
+
+    op_parse_specs(["parse-specs"]):::stage
+    op_sync_graph(["sync-graph"]):::stage
+    op_show(["show"]):::stage
+    op_neighbors(["neighbors"]):::stage
+    op_path(["path"]):::stage
+    op_impact(["impact"]):::stage
+    op_refresh(["refresh"]):::stage
+
+    out_0_graph["graph"]:::output
+    out_0_parse_report["parse_report"]:::output
+    out_1_sync_result["sync_result"]:::output
+    out_2_graph_view["graph_view"]:::output
+    out_3_neighbors["neighbors"]:::output
+    out_4_path_result["path_result"]:::output
+    out_5_impact_result["impact_result"]:::output
+    out_6_refresh_result["refresh_result"]:::output
+
+    in_0_skills_dir --> op_parse_specs
+    in_0_include_invalid --> op_parse_specs
+    in_1_skills_dir --> op_sync_graph
+    in_1_force --> op_sync_graph
+    in_2_skills_dir --> op_show
+    in_2_format --> op_show
+    in_3_skill_name --> op_neighbors
+    in_3_format --> op_neighbors
+    in_4_from_skill --> op_path
+    in_4_to_skill --> op_path
+    in_4_max_depth --> op_path
+    in_4_format --> op_path
+    in_5_skill_name --> op_impact
+    in_5_max_depth --> op_impact
+    in_5_format --> op_impact
+    in_6_skills_dir --> op_refresh
+    in_6_force --> op_refresh
+    in_6_format --> op_refresh
+
+    op_parse_specs --> out_0_graph
+    op_parse_specs --> out_0_parse_report
+    op_sync_graph --> out_1_sync_result
+    op_show --> out_2_graph_view
+    op_neighbors --> out_3_neighbors
+    op_path --> out_4_path_result
+    op_impact --> out_5_impact_result
+    op_refresh --> out_6_refresh_result
+
+    dep_skill_system_postgres{{"skill-system-postgres"}}:::dep
+    dep_skill_system_behavior{{"skill-system-behavior"}}:::dep
+    dep_skill_system_postgres -.->|depends_on| op_parse_specs
+    dep_skill_system_behavior -.->|depends_on| op_parse_specs
+
+    classDef stage fill:#dbeafe,stroke:#3b82f6,stroke-width:2px,color:#1e40af
+    classDef input fill:#f0fdf4,stroke:#22c55e,stroke-width:2px,color:#166534
+    classDef output fill:#fef3c7,stroke:#f59e0b,stroke-width:2px,color:#92400e
+    classDef dep fill:#ede9fe,stroke:#8b5cf6,stroke-width:2px,color:#5b21b6,stroke-dasharray: 5 5

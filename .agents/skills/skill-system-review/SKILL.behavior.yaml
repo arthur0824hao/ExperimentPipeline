@@ -1,0 +1,90 @@
+schema_version: 1
+skill_name: skill-system-review
+title: skill-system-review Behavior Contract
+purpose: 'Bridge between Prometheus review/planning flows and the TKT roadmap, bundle, and review inbox lifecycle. Builds
+  structured review prompts, translates plans into TKT bundle commands, and writes review feedback back into TKT intake.
+
+  '
+generated_from: SKILL.spec.yaml
+updated_at: '2026-03-20T23:38:56.734633'
+depends_on:
+- skill-system-tkt
+delegates_to: []
+operations:
+- name: generate-review-prompt
+  intent: Assemble structured review context from a completed or active ticket
+  inputs:
+  - ticket_id
+  outputs:
+  - review_context
+  - prometheus_prompt
+  constraints:
+  - Must include roadmap summary plus bundle review context when available
+  - Missing filesystem bundle must still return a DB-only fallback prompt
+- name: generate-startup-review-prompt
+  intent: Build startup overview for Prometheus review sessions
+  inputs: []
+  outputs:
+  - roadmap_summary
+  - bundles
+  - prometheus_prompt
+  constraints:
+  - Must summarize roadmap stage and active bundles in one payload
+- name: plan-to-bundle
+  intent: Convert Prometheus plan markdown into TKT bundle creation commands
+  inputs:
+  - plan_file
+  outputs:
+  - goal
+  - tickets
+  - tkt_commands
+  constraints:
+  - Must parse headings and checkboxes into deterministic ticket candidates
+  - Must preserve dependency markers as depends_on metadata when present
+  - Must preserve category, effort, source, wave, skills, and QA metadata when detected
+  - Must allow express routing for tiny plans without filename mentions when they have no dependencies or effort metadata
+  - Must emit route-consistent commands for express vs bundle outputs
+- name: generate-dispatch
+  intent: Generate a worker dispatch prompt from bundle ticket state
+  inputs:
+  - bundle
+  - tickets
+  outputs:
+  - dispatch
+  constraints:
+  - Must read bundle ticket metadata and group tickets into waves
+  - Without --tickets it must emit only currently open worker tickets
+  - Must include one-line summaries and effort estimates in the human-readable output
+- name: write-review-inbox
+  intent: Write Prometheus review feedback into the Review Agent Inbox format
+  inputs:
+  - input_file
+  outputs:
+  - inbox_path
+  - tickets_written
+  constraints:
+  - Must append Review Agent Inbox content without clobbering unrelated note_tasks sections
+  - Output must match parse_review_agent_inbox expected format
+mermaid: "flowchart TD\n  in_0_ticket_id[/\"ticket_id\"/]:::input\n  in_2_plan_file[/\"plan_file\"/]:::input\n  in_3_input_file[/\"\
+  input_file\"/]:::input\n  op_generate_review_prompt([\"generate-review-prompt\"]):::stage\n  op_generate_startup_review_prompt([\"\
+  generate-startup-review-prompt\"]):::stage\n  op_plan_to_bundle([\"plan-to-bundle\"]):::stage\n  op_write_review_inbox([\"\
+  write-review-inbox\"]):::stage\n  out_0_review_context[\\\"review_context\"\\]:::output\n  out_0_prometheus_prompt[\\\"\
+  prometheus_prompt\"\\]:::output\n  out_1_roadmap_summary[\\\"roadmap_summary\"\\]:::output\n  out_1_bundles[\\\"bundles\"\
+  \\]:::output\n  out_1_prometheus_prompt[\\\"prometheus_prompt\"\\]:::output\n  out_2_goal[\\\"goal\"\\]:::output\n  out_2_tickets[\\\
+  \"tickets\"\\]:::output\n  out_2_tkt_commands[\\\"tkt_commands\"\\]:::output\n  out_3_inbox_path[\\\"inbox_path\"\\]:::output\n\
+  \  out_3_tickets_written[\\\"tickets_written\"\\]:::output\n\n  in_0_ticket_id --> op_generate_review_prompt\n  in_2_plan_file\
+  \ --> op_plan_to_bundle\n  in_3_input_file --> op_write_review_inbox\n  op_generate_review_prompt --> out_0_review_context\n\
+  \  op_generate_review_prompt --> out_0_prometheus_prompt\n  op_generate_startup_review_prompt --> out_1_roadmap_summary\n\
+  \  op_generate_startup_review_prompt --> out_1_bundles\n  op_generate_startup_review_prompt --> out_1_prometheus_prompt\n\
+  \  op_plan_to_bundle --> out_2_goal\n  op_plan_to_bundle --> out_2_tickets\n  op_plan_to_bundle --> out_2_tkt_commands\n\
+  \  op_write_review_inbox --> out_3_inbox_path\n  op_write_review_inbox --> out_3_tickets_written\n  op_generate_review_prompt\
+  \ -->|\"violation\"| err_0_0[\"Must include roadmap summary plus bundle...\"]:::error\n  op_generate_review_prompt -->|\"\
+  violation\"| err_0_1[\"Missing filesystem bundle must still ret...\"]:::error\n  op_generate_startup_review_prompt -->|\"\
+  violation\"| err_1_0[\"Must summarize roadmap stage and active ...\"]:::error\n  op_plan_to_bundle -->|\"violation\"| err_2_0[\"\
+  Must parse headings and checkboxes into ...\"]:::error\n  op_plan_to_bundle -->|\"violation\"| err_2_1[\"Must preserve dependency\
+  \ markers as depe...\"]:::error\n  op_write_review_inbox -->|\"violation\"| err_3_0[\"Must append Review Agent Inbox content\
+  \ w...\"]:::error\n  op_write_review_inbox -->|\"violation\"| err_3_1[\"Output must match parse_review_agent_inb...\"]:::error\n\
+  \  dep_skill_system_tkt{{\"skill-system-tkt\"}}:::dep\n  dep_skill_system_tkt -.->|depends_on| op_generate_review_prompt\n\
+  \n  classDef stage fill:#dbeafe,stroke:#3b82f6,stroke-width:2px,color:#1e40af\n  classDef error fill:#fee2e2,stroke:#ef4444,stroke-width:2px,color:#991b1b,stroke-dasharray:\
+  \ 5 5\n  classDef input fill:#f0fdf4,stroke:#22c55e,stroke-width:2px,color:#166534\n  classDef output fill:#fef3c7,stroke:#f59e0b,stroke-width:2px,color:#92400e\n\
+  \  classDef dep fill:#ede9fe,stroke:#8b5cf6,stroke-width:2px,color:#5b21b6,stroke-dasharray: 5 5"

@@ -1,0 +1,231 @@
+schema_version: 1
+skill_name: skill-system-behavior
+description: >
+  BDD-style behavior specification engine for the skill system.
+  Defines, validates, and verifies skill behavior specs. Generates
+  behavior contracts (Mermaid DAG) and builds skill dependency graphs.
+
+depends_on:
+  - skill-system-postgres
+delegates_to: []
+
+operations:
+  - name: create-spec
+    intent: "Scaffold a new SKILL.spec.yaml from the schema template"
+    inputs:
+      - name: skill_name
+        type: string
+        required: true
+        description: "Skill identifier (kebab-case)"
+      - name: skill_dir
+        type: path
+        required: true
+        description: "Target skill directory"
+    outputs:
+      - name: spec_file
+        type: file
+        description: "Generated SKILL.spec.yaml skeleton"
+    constraints:
+      - "Must not overwrite existing SKILL.spec.yaml"
+      - "Must follow spec-v1 schema shape"
+    expected_effects:
+      - type: fs.write
+        description: "Write SKILL.spec.yaml to skill directory"
+
+  - name: validate-spec
+    intent: "Validate a SKILL.spec.yaml against the v1 schema"
+    inputs:
+      - name: spec_path
+        type: path
+        required: true
+        description: "Path to SKILL.spec.yaml"
+    outputs:
+      - name: validation_result
+        type: json
+        description: "{status: PASS|FAIL, violations: string[]}"
+    constraints:
+      - "Must check all required fields: schema_version, skill_name, description, operations"
+      - "Must validate operation structure: name, intent, inputs/outputs, constraints"
+      - "Must validate depends_on/delegates_to as lists of strings if present"
+    expected_effects:
+      - type: fs.read
+        description: "Read spec YAML file"
+      - type: returns
+        description: "Validation result JSON"
+
+  - name: verify-structural
+    intent: "Run structural acceptance tests against a built skill"
+    inputs:
+      - name: skill_dir
+        type: path
+        required: true
+        description: "Skill directory to verify"
+    outputs:
+      - name: verification_result
+        type: json
+        description: "{status: PASS|FAIL, results: [{id, status, detail}]}"
+    constraints:
+      - "Must check manifest ↔ spec operation consistency"
+      - "Must verify all entrypoint scripts exist on disk"
+    expected_effects:
+      - type: fs.read
+        description: "Read SKILL.spec.yaml, SKILL.md, and script files"
+      - type: returns
+        description: "Verification result JSON"
+
+  - name: generate-contract
+    intent: "Generate SKILL.behavior.yaml (Mermaid DAG) from a completed spec"
+    inputs:
+      - name: skill_dir
+        type: path
+        required: true
+        description: "Skill directory containing SKILL.spec.yaml"
+    outputs:
+      - name: contract_file
+        type: file
+        description: "Generated SKILL.behavior.yaml with Mermaid DAG"
+    constraints:
+      - "Must include dependency edges (depends_on/delegates_to) in Mermaid DAG"
+      - "Must include all operations, inputs, outputs, and constraint error paths"
+    expected_effects:
+      - type: fs.read
+        description: "Read SKILL.spec.yaml"
+      - type: fs.write
+        description: "Write SKILL.behavior.yaml"
+
+  - name: coverage-gate
+    intent: "Scan a project directory for scripts/modules that lack behavior specs, reporting coverage gaps"
+    inputs:
+      - name: project_dir
+        type: path
+        required: true
+        description: "Root directory to scan"
+      - name: patterns
+        type: string
+        required: false
+        description: "Comma-separated glob patterns (default: **/*.py,**/*.sh)"
+        default: "**/*.py,**/*.sh"
+      - name: exclude
+        type: string
+        required: false
+        description: "Comma-separated patterns to exclude (default: test_*,__pycache__,.*)"
+        default: "test_*,__pycache__,.*"
+    outputs:
+      - name: coverage_report
+        type: json
+        description: "{covered: [{script, spec}], uncovered: [script], coverage_pct: float}"
+    constraints:
+      - "Must not modify any files"
+      - "Must match scripts to behavior specs by naming convention or explicit link"
+      - "Must support custom inclusion and exclusion patterns"
+      - "Must return coverage percentage as uncovered/total ratio"
+    expected_effects:
+      - type: fs.read
+        description: "Read project files and behavior spec files"
+      - type: returns
+        description: "Coverage report JSON"
+
+  - name: build-graph
+    intent: "Parse all SKILL.spec.yaml files to build a skill dependency graph and output Mermaid DAG"
+    inputs:
+      - name: skills_dir
+        type: path
+        required: false
+        description: "Root directory to scan for skills (default: ./skills)"
+        default: "./skills"
+      - name: output_format
+        type: string
+        required: false
+        description: "Output format: mermaid, json, or sql (default: mermaid)"
+        default: "mermaid"
+      - name: db_write
+        type: boolean
+        required: false
+        description: "Write graph to Postgres skill_graph tables"
+        default: false
+    outputs:
+      - name: graph
+        type: json
+        description: "{nodes: [{id, description, capabilities}], edges: [{from, to, type}], mermaid: string}"
+    constraints:
+      - "Must scan all SKILL.spec.yaml files recursively"
+      - "Must extract depends_on and delegates_to edges"
+      - "Must extract capabilities from skills-index.json if available"
+      - "Must produce valid Mermaid flowchart for ecosystem visualization"
+      - "SQL output must be compatible with skill_graph_nodes/skill_graph_edges tables"
+    expected_effects:
+      - type: fs.read
+        description: "Read all SKILL.spec.yaml files and skills-index.json"
+      - type: db.write
+        description: "Insert/upsert graph nodes and edges into Postgres (when db_write=true)"
+      - type: returns
+        description: "Graph data in requested format"
+
+  - name: refresh-projections
+    intent: "Refresh behavior projection tables from canonical SKILL.spec.yaml files"
+    inputs:
+      - name: skills_dir
+        type: path
+        required: false
+        description: "Root directory to scan for skills (default: ./skills)"
+        default: "./skills"
+      - name: output_format
+        type: string
+        required: false
+        description: "Output format: json or sql (default: json)"
+        default: "json"
+    outputs:
+      - name: projection_bundle
+        type: json
+        description: "{sources, nodes, edges, snapshots} or SQL to refresh behavior_* tables"
+    constraints:
+      - "Must treat SKILL.spec.yaml files as the canonical source"
+      - "Must produce behavior_sources, behavior_nodes, behavior_edges, and behavior_snapshots projections"
+      - "SQL output must be compatible with the phase-1 Postgres-first behavior_* tables"
+    expected_effects:
+      - type: fs.read
+        description: "Read SKILL.spec.yaml files recursively"
+      - type: returns
+        description: "Projection bundle or SQL refresh statements"
+
+acceptance_tests:
+  structural:
+    - id: manifest-valid
+      assert: "manifest exposes create-spec, validate-spec, verify-structural, generate-contract, coverage-gate, build-graph, and refresh-projections operations"
+    - id: scripts-exist
+      assert: "validate_spec.py, verify_structural.py, generate_contract.py, coverage_gate.py, build_graph.py, and refresh_behavior_projections.py exist in scripts/"
+    - id: schema-exists
+      assert: "schema/spec-v1.yaml exists with depends_on/delegates_to and tested_by fields"
+  behavioral:
+    - id: spec-validation-pass
+      given: "Valid SKILL.spec.yaml with all required fields"
+      when: "validate-spec is called"
+      then: "Result status is PASS with empty violations"
+    - id: spec-validation-fail-missing
+      given: "SKILL.spec.yaml missing operations field"
+      when: "validate-spec is called"
+      then: "Result status is FAIL with violation about missing operations"
+    - id: tested-by-validation
+      given: "SKILL.spec.yaml with tested_by fields in behavioral tests"
+      when: "validate-spec is called"
+      then: "tested_by values accepted as valid strings"
+    - id: coverage-gate-scan
+      given: "Project directory with 5 Python scripts, 3 have behavior specs"
+      when: "coverage-gate is called"
+      then: "Report shows 60% coverage, lists 2 uncovered scripts"
+    - id: coverage-gate-excludes
+      given: "Project with test_*.py files and __pycache__"
+      when: "coverage-gate is called with default excludes"
+      then: "test files and pycache are excluded from coverage calculation"
+    - id: graph-build-mermaid
+      given: "Skills directory with 3+ specs containing depends_on/delegates_to"
+      when: "build-graph is called with output_format=mermaid"
+      then: "Output contains valid Mermaid flowchart with dependency edges"
+    - id: graph-build-json
+      given: "Skills directory with specs"
+      when: "build-graph is called with output_format=json"
+      then: "Output contains nodes array and edges array with correct structure"
+    - id: refresh-projections-bundle
+      given: "Skills directory with SKILL.spec.yaml files"
+      when: "refresh-projections is called with output_format=json"
+      then: "Output contains sources, nodes, edges, and snapshots arrays for behavior_* projections"

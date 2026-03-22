@@ -1,0 +1,110 @@
+schema_version: 1
+skill_name: skill-system-cli
+title: skill-system-cli Behavior Contract
+purpose: 'Unified CLI entry point for the entire Skill System. Thin dispatcher that routes to existing skill scripts. JSON-first
+  output for agent consumption.
+
+  '
+generated_from: SKILL.spec.yaml
+updated_at: '2026-03-21T00:10:10.142983'
+depends_on:
+- skill-system-router
+- skill-system-tkt
+- skill-system-memory
+- skill-system-installer
+delegates_to:
+- skill-system-tkt
+- skill-system-memory
+- skill-system-installer
+operations:
+- name: init
+  intent: Bootstrap project structure (config, note, tkt, postgres)
+  inputs:
+  - check
+  outputs:
+  - init_report
+  constraints:
+  - Idempotent — only create what's missing
+  - Must preserve existing project files and only fill missing bootstrap assets
+- name: status
+  intent: Show global project health
+  inputs: []
+  outputs:
+  - status_report
+  constraints:
+  - Must aggregate config, note, tkt, postgres, and skills status in one report
+- name: config-get
+  intent: Read a config value by dot-path
+  inputs:
+  - key
+  outputs:
+  - value
+  constraints:
+  - Must return explicit error when dot-path does not exist
+- name: config-set
+  intent: Set a config value by dot-path
+  inputs:
+  - key
+  - value
+  outputs:
+  - value
+  - file
+  constraints:
+  - Must persist YAML without dropping unrelated keys
+- name: tkt-dispatch
+  intent: Route to any tkt operation
+  inputs:
+  - args
+  outputs:
+  - payload
+  constraints:
+  - Must forward arguments to skill-system-tkt without reimplementing ticket logic
+  - Must return the downstream JSON payload directly
+- name: mem-dispatch
+  intent: Route to any memory operation
+  inputs:
+  - args
+  outputs:
+  - payload
+  constraints:
+  - Must forward arguments to skill-system-memory without reimplementing memory logic
+  - Must return the downstream JSON payload directly
+- name: install-dispatch
+  intent: Route to any installer operation
+  inputs:
+  - args
+  outputs:
+  - payload
+  constraints:
+  - Must forward arguments to skill-system-installer without reimplementing install logic
+  - Must return the downstream JSON payload directly
+mermaid: "flowchart TD\n  in_0_check[/\"check\"/]:::input\n  in_2_key[/\"key\"/]:::input\n  in_3_key[/\"key\"/]:::input\n\
+  \  in_3_value[/\"value\"/]:::input\n  in_4_args[/\"args\"/]:::input\n  in_5_args[/\"args\"/]:::input\n  in_6_args[/\"args\"\
+  /]:::input\n  op_init([\"init\"]):::stage\n  op_status([\"status\"]):::stage\n  op_config_get([\"config-get\"]):::stage\n\
+  \  op_config_set([\"config-set\"]):::stage\n  op_tkt_dispatch([\"tkt-dispatch\"]):::stage\n  op_mem_dispatch([\"mem-dispatch\"\
+  ]):::stage\n  op_install_dispatch([\"install-dispatch\"]):::stage\n  out_0_init_report[\\\"init_report\"\\]:::output\n \
+  \ out_1_status_report[\\\"status_report\"\\]:::output\n  out_2_value[\\\"value\"\\]:::output\n  out_3_value[\\\"value\"\\\
+  ]:::output\n  out_3_file[\\\"file\"\\]:::output\n  out_4_payload[\\\"payload\"\\]:::output\n  out_5_payload[\\\"payload\"\
+  \\]:::output\n  out_6_payload[\\\"payload\"\\]:::output\n\n  in_0_check --> op_init\n  in_2_key --> op_config_get\n  in_3_key\
+  \ --> op_config_set\n  in_3_value --> op_config_set\n  in_4_args --> op_tkt_dispatch\n  in_5_args --> op_mem_dispatch\n\
+  \  in_6_args --> op_install_dispatch\n  op_init --> out_0_init_report\n  op_status --> out_1_status_report\n  op_config_get\
+  \ --> out_2_value\n  op_config_set --> out_3_value\n  op_config_set --> out_3_file\n  op_tkt_dispatch --> out_4_payload\n\
+  \  op_mem_dispatch --> out_5_payload\n  op_install_dispatch --> out_6_payload\n  op_init -->|\"violation\"| err_0_0[\"Idempotent\
+  \ — only create what's missing\"]:::error\n  op_init -->|\"violation\"| err_0_1[\"Must preserve existing project files and...\"\
+  ]:::error\n  op_status -->|\"violation\"| err_1_0[\"Must aggregate config, note, tkt, postgr...\"]:::error\n  op_config_get\
+  \ -->|\"violation\"| err_2_0[\"Must return explicit error when dot-path...\"]:::error\n  op_config_set -->|\"violation\"\
+  | err_3_0[\"Must persist YAML without dropping unrel...\"]:::error\n  op_tkt_dispatch -->|\"violation\"| err_4_0[\"Must\
+  \ forward arguments to skill-system-t...\"]:::error\n  op_tkt_dispatch -->|\"violation\"| err_4_1[\"Must return the downstream\
+  \ JSON payload ...\"]:::error\n  op_mem_dispatch -->|\"violation\"| err_5_0[\"Must forward arguments to skill-system-m...\"\
+  ]:::error\n  op_mem_dispatch -->|\"violation\"| err_5_1[\"Must return the downstream JSON payload ...\"]:::error\n  op_install_dispatch\
+  \ -->|\"violation\"| err_6_0[\"Must forward arguments to skill-system-i...\"]:::error\n  op_install_dispatch -->|\"violation\"\
+  | err_6_1[\"Must return the downstream JSON payload ...\"]:::error\n  dep_skill_system_router{{\"skill-system-router\"}}:::dep\n\
+  \  dep_skill_system_router -.->|depends_on| op_init\n  dep_skill_system_tkt{{\"skill-system-tkt\"}}:::dep\n  dep_skill_system_tkt\
+  \ -.->|depends_on| op_init\n  dep_skill_system_memory{{\"skill-system-memory\"}}:::dep\n  dep_skill_system_memory -.->|depends_on|\
+  \ op_init\n  dep_skill_system_installer{{\"skill-system-installer\"}}:::dep\n  dep_skill_system_installer -.->|depends_on|\
+  \ op_init\n  op_install_dispatch -.->|delegates_to| dlg_skill_system_tkt\n  dlg_skill_system_tkt{{\"skill-system-tkt\"}}:::dep\n\
+  \  op_install_dispatch -.->|delegates_to| dlg_skill_system_memory\n  dlg_skill_system_memory{{\"skill-system-memory\"}}:::dep\n\
+  \  op_install_dispatch -.->|delegates_to| dlg_skill_system_installer\n  dlg_skill_system_installer{{\"skill-system-installer\"\
+  }}:::dep\n\n  classDef stage fill:#dbeafe,stroke:#3b82f6,stroke-width:2px,color:#1e40af\n  classDef error fill:#fee2e2,stroke:#ef4444,stroke-width:2px,color:#991b1b,stroke-dasharray:\
+  \ 5 5\n  classDef input fill:#f0fdf4,stroke:#22c55e,stroke-width:2px,color:#166534\n  classDef output fill:#fef3c7,stroke:#f59e0b,stroke-width:2px,color:#92400e\n\
+  \  classDef dep fill:#ede9fe,stroke:#8b5cf6,stroke-width:2px,color:#5b21b6,stroke-dasharray: 5 5"

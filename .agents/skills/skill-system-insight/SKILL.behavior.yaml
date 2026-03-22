@@ -1,0 +1,128 @@
+schema_version: 1
+skill_name: skill-system-insight
+title: skill-system-insight Behavior Contract
+purpose: >
+  Unified observe-and-evolve engine. Extracts per-session facets,
+  maintains a dual-matrix soul state, and version-evolves soul profiles
+  and workflow recipes with auditability, safety constraints, and rollback.
+generated_from: SKILL.spec.yaml
+updated_at: '2026-03-19T06:00:00.000000'
+depends_on:
+  - skill-system-memory
+  - skill-system-postgres
+delegates_to:
+  - skill-system-soul
+  - skill-system-workflow
+operations:
+  - name: extract-facets
+    intent: Extract a per-session facet from transcript
+    inputs:
+      - session_id
+      - user
+    outputs:
+      - facet
+    constraints:
+      - Rate limited to 3 per 24h per user
+  - name: update-matrix
+    intent: Update dual matrix from stored facet with confidence gating
+    inputs:
+      - user
+    outputs:
+      - state
+    constraints:
+      - Requires 3+ similar observations before changing values
+  - name: synthesize-profile
+    intent: Regenerate Soul profile from matrix and recent facets with versioned snapshot
+    inputs:
+      - user
+    outputs:
+      - profile
+    constraints:
+      - Must use recent facets and current matrix
+      - Must create versioned snapshot
+  - name: evolve-soul
+    intent: Evolve soul profile from accumulated insight data
+    inputs:
+      - user
+    outputs:
+      - snapshot
+    constraints:
+      - Max 1 evolution pass per day per user
+      - Must create versioned snapshot before applying changes
+      - Must preserve rollback capability
+      - Changes > 0.5 drift require user approval
+  - name: evolve-recipes
+    intent: Evolve workflow recipes based on effectiveness data
+    inputs:
+      - user
+    outputs:
+      - snapshot
+    constraints:
+      - Max 1 evolution pass per day per user
+      - Must create versioned snapshot
+      - Requires 3+ observations per recipe change
+  - name: list-versions
+    intent: List all evolution snapshots for a user
+    inputs:
+      - user
+      - target
+    outputs:
+      - versions
+    constraints:
+      - Most recent first
+  - name: rollback
+    intent: Restore a previous evolution version
+    inputs:
+      - user
+      - version_tag
+    outputs:
+      - result
+    constraints:
+      - Must verify version exists before rollback
+      - Must create a new snapshot recording the rollback
+mermaid: |
+  flowchart TD
+    subgraph observe ["Phase 1: OBSERVE"]
+      in_session[/"session_id"/]:::input
+      in_user[/"user"/]:::input
+      op_extract(["extract-facets"]):::stage
+      op_matrix(["update-matrix"]):::stage
+      op_synth(["synthesize-profile"]):::stage
+      in_session --> op_extract
+      in_user --> op_extract
+      op_extract --> op_matrix
+      op_matrix -->|"synthesis trigger"| op_synth
+    end
+
+    subgraph evolve ["Phase 2: EVOLVE"]
+      op_evolve_soul(["evolve-soul"]):::stage
+      op_evolve_recipes(["evolve-recipes"]):::stage
+      op_list(["list-versions"]):::stage
+      op_rollback(["rollback"]):::stage
+      in_vtag[/"version_tag"/]:::input
+      in_vtag --> op_rollback
+    end
+
+    op_synth -->|"accumulated data"| op_evolve_soul
+    op_synth -->|"accumulated data"| op_evolve_recipes
+
+    op_extract -->|"violation"| err_rate["Rate limited 3/24h"]:::error
+    op_matrix -->|"violation"| err_conf["Requires 3+ observations"]:::error
+    op_evolve_soul -->|"violation"| err_drift["Drift > 0.5 needs approval"]:::error
+    op_evolve_soul -->|"violation"| err_evolve_rate["Max 1/day"]:::error
+
+    dep_memory{{"skill-system-memory"}}:::dep
+    dep_postgres{{"skill-system-postgres"}}:::dep
+    dep_soul{{"skill-system-soul"}}:::dep
+    dep_workflow{{"skill-system-workflow"}}:::dep
+
+    dep_memory -.->|depends_on| op_extract
+    dep_postgres -.->|depends_on| op_extract
+    op_synth -.->|delegates_to| dep_soul
+    op_evolve_recipes -.->|delegates_to| dep_workflow
+
+    classDef stage fill:#dbeafe,stroke:#3b82f6,stroke-width:2px,color:#1e40af
+    classDef error fill:#fee2e2,stroke:#ef4444,stroke-width:2px,color:#991b1b,stroke-dasharray: 5 5
+    classDef input fill:#f0fdf4,stroke:#22c55e,stroke-width:2px,color:#166534
+    classDef output fill:#fef3c7,stroke:#f59e0b,stroke-width:2px,color:#92400e
+    classDef dep fill:#ede9fe,stroke:#8b5cf6,stroke-width:2px,color:#5b21b6,stroke-dasharray: 5 5

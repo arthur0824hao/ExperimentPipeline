@@ -1,0 +1,61 @@
+schema_version: 1
+script_path: "Phase3/templates/train_window_ensemble.py"
+title: "Window Ensemble Train Template"
+purpose: "Template train.py for window-based ensembles: runs gate smoke test and delegates full training to train_window_ensemble with config-only customization."
+updated_at: "2026-03-06T00:00:00Z"
+inputs:
+  - name: "CONFIG section"
+    type: "file"
+    description: "Experiment name, feature list, windows, architectures, hyperparameters"
+    required: true
+  - name: "PHASE3_GATE/GATE_BATCH_SIZE"
+    type: "env_var"
+    description: "Gate mode toggles and smoke batch size"
+    required: false
+outputs:
+  - name: "training_artifacts"
+    type: "side_effect"
+    description: "Produced by preprocess_lib.train_utils.train_window_ensemble"
+dependencies:
+  - type: "file"
+    name: "Phase3/preprocess_lib/train_utils.py"
+    description: "Core training and result saving implementation"
+  - type: "file"
+    name: "Phase3/preprocess_lib/feature_bank.py"
+    description: "Data loading with selected features"
+stages:
+  - id: "prepare-runtime"
+    name: "Resolve paths and imports"
+    description: "Set PHASE3_DIR/EXPERIMENT_DIR, extend sys.path, import shared train utilities."
+    depends_on: []
+    error_paths: []
+  - id: "gate-smoke-test"
+    name: "Run minimal gate validation"
+    description: "Load features, run one validation batch through GraphSAGE, and fail on NaN/Inf logits."
+    depends_on: ["prepare-runtime"]
+    error_paths:
+      - condition: "data missing or logits invalid"
+        action: "raise and fail gate"
+  - id: "dispatch-main-training"
+    name: "Call train_window_ensemble"
+    description: "Load configured data and forward all config to shared train_window_ensemble API."
+    depends_on: ["gate-smoke-test"]
+    error_paths:
+      - condition: "feature files or model setup invalid"
+        action: "raise and stop training"
+history:
+  - date: "2026-03-06"
+    author: "agent/opencode-sisyphus-junior"
+    change: "Initial behavior contract generation for window ensemble template."
+mermaid: |
+  flowchart TD
+    i1[/Template CONFIG/]:::input --> s1([Prepare runtime and imports]):::stage
+    i2[/Gate env vars/]:::input --> s2([Gate smoke test]):::stage
+    s1 --> s2
+    s2 --> s3([Dispatch train_window_ensemble]):::stage
+    s2 -->|NaN/Inf or missing data| e1["Fail gate"]:::error
+    s3 --> o1[\"training artifacts via train_utils\"]:::output
+    classDef stage fill:#dbeafe,stroke:#3b82f6,stroke-width:2px,color:#1e40af
+    classDef error fill:#fee2e2,stroke:#ef4444,stroke-width:2px,color:#991b1b,stroke-dasharray: 5 5
+    classDef input fill:#f0fdf4,stroke:#22c55e,stroke-width:2px,color:#166534
+    classDef output fill:#fef3c7,stroke:#f59e0b,stroke-width:2px,color:#92400e

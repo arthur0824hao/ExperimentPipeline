@@ -1,0 +1,142 @@
+schema_version: 2
+title: "Behavior Specification"
+
+required_fields:
+  - schema_version
+  - spec_id
+  - description
+  - nodes
+
+shape:
+  schema_version: "integer (2)"
+  spec_id: "string (stable identifier for this behavior spec)"
+  spec_kind: "enum (optional): skill | project | component | runtime"
+  description: "string (1-3 sentences: what this spec covers and why)"
+
+  metadata:
+    owner: "string (optional)"
+    version: "string (optional, e.g. 0.1.0)"
+    tags: "list[string] (optional)"
+
+  nodes:
+    - id: "string (node identifier, unique within spec)"
+      type: "enum: skill | script | doc | config | service | table | workflow | runtime | other"
+      path: "string (optional, repository-relative path)"
+      description: "string"
+      behaviors:
+        - name: "string (behavior id, kebab-case recommended)"
+          intent: "string (WHY this behavior exists)"
+          inputs:
+            - name: "string"
+              type: "enum: string | number | boolean | path | json | list | map | any"
+              required: "boolean"
+              description: "string"
+              default: "any (optional)"
+          outputs:
+            - name: "string"
+              type: "enum: markdown | json | file | side_effect | text | metric | any"
+              description: "string"
+          constraints:
+            - "string (invariant that MUST hold — violation = bug)"
+          expected_effects:
+            - type: "enum: returns | fs.read | fs.write | proc.exec | db.read | db.write | net.fetch | event.emit | event.consume"
+              description: "string"
+
+  relationships:
+    - from: "string (node id)"
+      to: "string (node id)"
+      type: "enum: depends_on | delegates_to | reads | writes | executes | validates | documents | configures | emits | consumes | owns | references | other"
+      description: "string (optional, relation rationale)"
+
+  acceptance_tests:
+    structural:
+      - id: "string (unique test id)"
+        assert: "string (what to verify)"
+    behavioral:
+      - id: "string (unique test id)"
+        given: "string (precondition/setup)"
+        when: "string (action triggered)"
+        then: "string (expected outcome)"
+        tested_by: "string (optional — test file::test_function)"
+
+  governance:
+    tier: "enum: architecture | behavior | test (optional)"
+    traces_to: "list[string] (optional)"
+
+compatibility:
+  legacy_v1:
+    accepted_schema_version: 1
+    validator_path: "scripts/validate_spec.py"
+    field_mapping:
+      skill_name: "spec_id (for v2 projection)"
+      operations: "nodes[].behaviors (single implicit node type=skill)"
+      depends_on: "relationships[type=depends_on]"
+      delegates_to: "relationships[type=delegates_to]"
+    notes:
+      - "Do not break existing SKILL.spec.yaml contracts."
+      - "v1 remains a first-class compatibility mode until generalized validator support lands."
+
+example:
+  schema_version: 2
+  spec_id: behavior-runtime-sync
+  spec_kind: project
+  description: >
+    Project-level runtime behavior specification that links scripts,
+    configuration, and docs into one verifiable behavior model.
+
+  nodes:
+    - id: runtime-doctor
+      type: script
+      path: skills/skill-system-memory/scripts/runtime_doctor.py
+      description: "Reports runtime capability and alignment status"
+      behaviors:
+        - name: report-runtime-alignment
+          intent: "Expose current runtime capability state with evidence"
+          inputs:
+            - name: target
+              type: string
+              required: false
+              description: "Optional memory target override"
+          outputs:
+            - name: report
+              type: json
+              description: "Runtime doctor report"
+          constraints:
+            - "Must not mutate runtime state unless sync mode is explicitly enabled"
+          expected_effects:
+            - type: fs.read
+              description: "Read runtime config and plugin files"
+            - type: db.read
+              description: "Inspect table readiness"
+            - type: returns
+              description: "Return doctor report"
+
+    - id: runtime-config
+      type: config
+      path: config/memory.yaml
+      description: "Runtime memory system configuration"
+
+    - id: runtime-doc
+      type: doc
+      path: docs/SYSTEM_ARCHITECTURE.md
+      description: "Architecture source for runtime boundaries"
+
+  relationships:
+    - from: runtime-doctor
+      to: runtime-config
+      type: reads
+      description: "Doctor consumes runtime configuration"
+    - from: runtime-doctor
+      to: runtime-doc
+      type: references
+      description: "Doctor output is interpreted against architecture policy"
+
+  acceptance_tests:
+    structural:
+      - id: nodes-present
+        assert: "all referenced relationship endpoints exist in nodes"
+    behavioral:
+      - id: doctor-safe-mode
+        given: "sync mode disabled"
+        when: "report-runtime-alignment runs"
+        then: "output includes capability status and performs no state mutations"

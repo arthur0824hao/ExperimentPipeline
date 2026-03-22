@@ -1,0 +1,262 @@
+schema_version: 1
+skill_name: skill-system-postgres
+description: >
+  Postgres-backed observability, policy store, and skill dependency graph
+  for the skill system. Provides tables for policy profiles, execution runs,
+  step-level events, skill graph (nodes + edges), refresh/control-plane state,
+  canonical rule hierarchy projections, and project architecture graph projections.
+
+depends_on: []
+delegates_to: []
+
+operations:
+  - name: check-policy
+    intent: "Check if a skill's effects are allowed by the active policy profile"
+    inputs:
+      - name: policy_name
+        type: string
+        required: true
+        description: "Policy profile name to check against"
+      - name: effects
+        type: json
+        required: true
+        description: "Array of effect strings to validate"
+    outputs:
+      - name: policy_result
+        type: json
+        description: "{allowed: boolean, blocked_effects: string[]}"
+    constraints:
+      - "Must return blocked_effects list for any denied effects"
+      - "Must handle missing policy profile gracefully"
+    expected_effects:
+      - type: db.read
+        description: "Query policy_profiles table"
+      - type: returns
+        description: "Policy check result"
+
+  - name: log-run
+    intent: "Log a skill execution run for observability"
+    inputs:
+      - name: skill_id
+        type: string
+        required: true
+        description: "Skill identifier"
+      - name: operation
+        type: string
+        required: true
+        description: "Operation name executed"
+      - name: status
+        type: string
+        required: true
+        description: "Run status: succeeded, failed, cancelled"
+      - name: duration_ms
+        type: number
+        required: false
+        description: "Execution duration in milliseconds"
+    outputs:
+      - name: run_id
+        type: json
+        description: "{run_id: number}"
+    constraints:
+      - "Must use skill_system.run_status enum values"
+      - "Must record timestamp automatically"
+    expected_effects:
+      - type: db.write
+        description: "Insert into skill_system.runs and run_events tables"
+
+  - name: migrate-graph
+    intent: "Apply graph schema migration (skill_graph_nodes + skill_graph_edges tables)"
+    inputs:
+      - name: action
+        type: string
+        required: false
+        description: "Migration action: apply or check (default: check)"
+        default: "check"
+    outputs:
+      - name: migration_result
+        type: json
+        description: "{status: applied|already_exists|check_only, tables: string[]}"
+    constraints:
+      - "Must be idempotent (CREATE IF NOT EXISTS)"
+      - "Must not drop or alter existing tables"
+      - "Check action must not modify database"
+    expected_effects:
+      - type: db.read
+        description: "Check if tables exist"
+      - type: db.write
+        description: "Create tables when action=apply"
+
+  - name: migrate-control-plane
+    intent: "Apply refresh/control-plane migration for queued refresh jobs, events, and artifact versions"
+    inputs:
+      - name: action
+        type: string
+        required: false
+        description: "Migration action: apply or check (default: check)"
+        default: "check"
+    outputs:
+      - name: migration_result
+        type: json
+        description: "{status: applied|already_exists|check_only, tables: string[]}"
+    constraints:
+      - "Must be idempotent (CREATE IF NOT EXISTS)"
+      - "Must not drop or alter existing tables"
+      - "Check action must not modify database"
+    expected_effects:
+      - type: db.read
+        description: "Check if refresh/control-plane tables exist"
+      - type: db.write
+        description: "Create refresh/control-plane tables when action=apply"
+
+  - name: migrate-rule-model
+    intent: "Apply canonical rule hierarchy schema for projected rule sets and entries"
+    inputs:
+      - name: action
+        type: string
+        required: false
+        description: "Migration action: apply or check (default: check)"
+        default: "check"
+    outputs:
+      - name: migration_result
+        type: json
+        description: "{status: applied|already_exists|check_only, tables: string[]}"
+    constraints:
+      - "Must be idempotent (CREATE IF NOT EXISTS)"
+      - "Must not drop or alter existing rows destructively"
+      - "Check action must not modify database"
+    expected_effects:
+      - type: db.read
+        description: "Check if rule_sets and rule_entries tables exist"
+      - type: db.write
+        description: "Create canonical rule hierarchy tables when action=apply"
+
+  - name: project-rules
+    intent: "Project canonical rule hierarchy from PostgreSQL into deterministic markdown surfaces"
+    inputs:
+      - name: write_files
+        type: boolean
+        required: false
+        description: "Whether to write markdown projections into note/"
+    outputs:
+      - name: rule_model
+        type: json
+        description: "{rule_sets, merge_priority, source_paths}"
+      - name: written_files
+        type: json
+        description: "List of projection paths written by the command"
+    constraints:
+      - "Must keep merge priority deterministic: skill_system -> project -> compat"
+      - "Must derive projected markdown from PostgreSQL rows, not manual free-form editing"
+      - "Must produce note/skill_system_rules.md, note/project_rules.md, and note/compat_rules.md when writing files"
+    expected_effects:
+      - type: db.read
+        description: "Read canonical rule_sets and rule_entries rows"
+      - type: db.write
+        description: "Upsert canonical rule_sets and rule_entries from source documents"
+      - type: fs.write
+        description: "Write deterministic rule projection markdown files"
+
+  - name: migrate-project-graph
+    intent: "Apply canonical project architecture graph schema"
+    inputs:
+      - name: action
+        type: string
+        required: false
+        description: "Migration action: apply or check (default: check)"
+        default: "check"
+    outputs:
+      - name: migration_result
+        type: json
+        description: "{status: applied|already_exists|check_only, tables: string[]}"
+    constraints:
+      - "Must be idempotent (CREATE IF NOT EXISTS)"
+      - "Must not drop or alter existing rows destructively"
+      - "Check action must not modify database"
+    expected_effects:
+      - type: db.read
+        description: "Check if project_nodes and project_edges tables exist"
+      - type: db.write
+        description: "Create canonical project graph tables when action=apply"
+
+  - name: project-architecture
+    intent: "Sync canonical project architecture graph into PostgreSQL and deterministic markdown projection"
+    inputs:
+      - name: write_file
+        type: boolean
+        required: false
+        description: "Whether to write note/architecture_map.md after syncing"
+    outputs:
+      - name: architecture_graph
+        type: json
+        description: "{node_count, edge_count, layer_map}"
+      - name: written_file
+        type: string
+        description: "Path to the architecture markdown projection"
+    constraints:
+      - "Must parse skills/*, note/*, review/*, and spec/* into a deterministic graph"
+      - "Must emit Runtime Layers, Skill Graph, Document Graph, and Workflow Graph sections"
+      - "Must derive note/architecture_map.md from PostgreSQL-backed project graph rows"
+    expected_effects:
+      - type: db.read
+        description: "Read canonical project_nodes and project_edges rows"
+      - type: db.write
+        description: "Upsert canonical project graph rows from repo structure"
+      - type: fs.write
+        description: "Write deterministic architecture_map markdown"
+
+  - name: run-projection-engine
+    intent: "Write deterministic PostgreSQL-backed markdown projections with managed blocks"
+    inputs: []
+    outputs:
+      - name: written_files
+        type: json
+        description: "List of markdown surfaces refreshed by the engine"
+    constraints:
+      - "Must use <!-- GENERATED_START --> and <!-- GENERATED_END --> managed blocks"
+      - "Must preserve manual text outside managed blocks"
+      - "Must be idempotent across repeated runs with unchanged PostgreSQL state"
+    expected_effects:
+      - type: db.read
+        description: "Read canonical rule and project graph models from PostgreSQL"
+      - type: fs.write
+        description: "Refresh markdown projection targets with managed blocks"
+
+acceptance_tests:
+  structural:
+    - id: manifest-valid
+      assert: "manifest exposes check-policy, log-run, migrate-graph, migrate-control-plane, migrate-rule-model, project-rules, migrate-project-graph, project-architecture, and run-projection-engine operations"
+    - id: scripts-exist
+      assert: "init.sql, migrate-v2.sql, migrate-v3-graph.sql, migrate-v4-control-plane.sql, migrate-v5-rule-model.sql, migrate-v6-project-graph.sql, scripts/rule_projection.py, scripts/architecture_graph.py, and scripts/projection_engine.py exist"
+  behavioral:
+    - id: graph-tables-idempotent
+      given: "Graph tables already exist in database"
+      when: "migrate-graph is called with action=apply"
+      then: "Migration completes without error, tables unchanged"
+    - id: graph-schema-complete
+      given: "Fresh database with init.sql applied"
+      when: "migrate-v3-graph.sql is applied"
+      then: "skill_graph_nodes and skill_graph_edges tables created with proper indexes"
+    - id: control-plane-schema-complete
+      given: "Database with base postgres schema applied"
+      when: "migrate-v4-control-plane.sql is applied"
+      then: "refresh_jobs, refresh_job_events, and artifact_versions tables exist with required indexes and enums"
+    - id: rule-model-schema-complete
+      given: "Database with base postgres schema applied"
+      when: "migrate-v5-rule-model.sql is applied"
+      then: "rule_sets and rule_entries tables exist with deterministic uniqueness constraints"
+    - id: rule-projection-deterministic
+      given: "Canonical rule documents are available in the repo"
+      when: "project-rules runs twice against the same PostgreSQL content"
+      then: "The generated note rule projections are byte-identical across both runs"
+    - id: project-graph-schema-complete
+      given: "Database with base postgres schema applied"
+      when: "migrate-v6-project-graph.sql is applied"
+      then: "project_nodes and project_edges tables exist with relation indexes"
+    - id: project-architecture-projection-complete
+      given: "Repo structure contains skills, note, review, and spec files"
+      when: "project-architecture runs"
+      then: "note/architecture_map.md contains Runtime Layers, Skill Graph, Document Graph, and Workflow Graph sections"
+    - id: projection-engine-managed-blocks
+      given: "Projected markdown targets already contain manual text outside generated sections"
+      when: "run-projection-engine runs twice"
+      then: "Managed blocks refresh deterministically while manual text outside the blocks remains intact"

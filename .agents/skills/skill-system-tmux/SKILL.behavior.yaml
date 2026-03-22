@@ -1,0 +1,50 @@
+schema_version: 1
+skill_name: skill-system-tmux
+title: skill-system-tmux Behavior Contract
+purpose: 'Tmux execution support for long-running and persistent commands. Routes commands between direct bash and tmux based
+  on expected duration.
+
+  '
+generated_from: SKILL.spec.yaml
+updated_at: '2026-03-09T12:08:25.644375'
+depends_on: []
+delegates_to: []
+operations:
+- name: route-command
+  intent: Decide whether a command should use direct bash or tmux
+  inputs:
+  - command
+  - estimated_duration
+  outputs:
+  - result
+  constraints:
+  - Must route to tmux if estimated duration exceeds 60s
+  - Must create unique session names with oc- prefix
+- name: reclaim-resources
+  intent: Cleanup stale agent tmux sessions and orphaned processes
+  inputs:
+  - scope
+  outputs:
+  - cleanup_report
+  constraints:
+  - Must only kill oc-* prefixed sessions by default
+- name: manage-session
+  intent: Create, list, check, capture, or kill tmux sessions
+  inputs:
+  - action
+  - session_name
+  outputs:
+  - result
+  constraints:
+  - Must preserve non-agent infrastructure sessions unless explicitly requested
+mermaid: "flowchart TD\n  in_0_command[/\"command\"/]:::input\n  in_0_estimated_duration[/\"estimated_duration\"/]:::input\n\
+  \  in_1_scope[/\"scope\"/]:::input\n  op_route_command([\"route-command\"]):::stage\n  op_reclaim_resources([\"reclaim-resources\"\
+  ]):::stage\n  out_0_result[\\\"result\"\\]:::output\n  out_1_cleanup_report[\\\"cleanup_report\"\\]:::output\n\n  in_0_command\
+  \ --> op_route_command\n  in_0_estimated_duration --> op_route_command\n  in_1_scope --> op_reclaim_resources\n  op_route_command\
+  \ --> out_0_result\n  op_reclaim_resources --> out_1_cleanup_report\n  op_route_command -->|\"violation\"| err_0_0[\"Must\
+  \ route to tmux if estimated duration...\"]:::error\n  op_route_command -->|\"violation\"| err_0_1[\"Must create unique\
+  \ session names with oc...\"]:::error\n  op_reclaim_resources -->|\"violation\"| err_1_0[\"Must only kill oc-* prefixed\
+  \ sessions by...\"]:::error\n\n  classDef stage fill:#dbeafe,stroke:#3b82f6,stroke-width:2px,color:#1e40af\n  classDef error\
+  \ fill:#fee2e2,stroke:#ef4444,stroke-width:2px,color:#991b1b,stroke-dasharray: 5 5\n  classDef input fill:#f0fdf4,stroke:#22c55e,stroke-width:2px,color:#166534\n\
+  \  classDef output fill:#fef3c7,stroke:#f59e0b,stroke-width:2px,color:#92400e\n  classDef dep fill:#ede9fe,stroke:#8b5cf6,stroke-width:2px,color:#5b21b6,stroke-dasharray:\
+  \ 5 5"

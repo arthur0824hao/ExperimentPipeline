@@ -1,0 +1,135 @@
+schema_version: 1
+skill_name: skill-system-review
+description: >
+  Bridge between Prometheus review/planning flows and the TKT roadmap, bundle,
+  and review inbox lifecycle. Builds structured review prompts, translates plans
+  into TKT bundle commands, and writes review feedback back into TKT intake.
+
+depends_on:
+  - skill-system-tkt
+delegates_to: []
+
+operations:
+  - name: generate-review-prompt
+    intent: "Assemble structured review context from a completed or active ticket"
+    inputs:
+      - name: ticket_id
+        type: string
+        required: true
+    outputs:
+      - name: review_context
+        type: json
+      - name: prometheus_prompt
+        type: string
+    constraints:
+      - "Must include roadmap summary plus bundle review context when available"
+      - "Missing filesystem bundle must still return a DB-only fallback prompt"
+    expected_effects:
+      - type: fs.read
+      - type: returns
+
+  - name: generate-startup-review-prompt
+    intent: "Build startup overview for Prometheus review sessions"
+    outputs:
+      - name: roadmap_summary
+        type: json
+      - name: bundles
+        type: json
+      - name: prometheus_prompt
+        type: string
+    constraints:
+      - "Must summarize roadmap stage and active bundles in one payload"
+    expected_effects:
+      - type: fs.read
+      - type: returns
+
+  - name: plan-to-bundle
+    intent: "Convert Prometheus plan markdown into TKT bundle creation commands"
+    inputs:
+      - name: plan_file
+        type: string
+        required: true
+    outputs:
+      - name: goal
+        type: string
+      - name: route
+        type: string
+      - name: tickets
+        type: json
+      - name: tkt_commands
+        type: json
+    constraints:
+      - "Must parse headings and checkboxes into deterministic ticket candidates"
+      - "Must preserve dependency markers as depends_on metadata when present"
+      - "Must preserve category, effort, source, wave, skills, and QA metadata when detected"
+      - "Must allow express routing for tiny plans without filename mentions when they have no dependencies or effort metadata"
+      - "Must emit route-consistent commands for express vs bundle outputs"
+    expected_effects:
+      - type: fs.read
+      - type: returns
+
+  - name: generate-dispatch
+    intent: "Generate a worker dispatch prompt from bundle ticket state"
+    inputs:
+      - name: bundle
+        type: string
+        required: true
+      - name: tickets
+        type: string
+        required: false
+    outputs:
+      - name: dispatch
+        type: json
+    constraints:
+      - "Must read bundle ticket metadata and group tickets into waves"
+      - "Without --tickets it must emit only currently open worker tickets"
+      - "Must include one-line summaries and effort estimates in the human-readable output"
+    expected_effects:
+      - type: fs.read
+      - type: returns
+
+  - name: write-review-inbox
+    intent: "Write Prometheus review feedback into the Review Agent Inbox format"
+    inputs:
+      - name: input_file
+        type: string
+        required: true
+    outputs:
+      - name: inbox_path
+        type: string
+      - name: tickets_written
+        type: number
+    constraints:
+      - "Must append Review Agent Inbox content without clobbering unrelated note_tasks sections"
+      - "Output must match parse_review_agent_inbox expected format"
+    expected_effects:
+      - type: fs.read
+      - type: fs.write
+
+acceptance_tests:
+  structural:
+    - id: manifest-valid
+      assert: "manifest exposes generate-review-prompt, generate-startup-review-prompt, plan-to-bundle, generate-dispatch, and write-review-inbox"
+    - id: scripts-exist
+      assert: "scripts/review_prompt.py exists"
+  behavioral:
+    - id: bundle-review-context
+      given: "A bundle contains completed tickets and review.yaml"
+      when: "generate-review-prompt is called"
+      then: "The output contains bundle review context, roadmap summary, and a Prometheus prompt"
+    - id: startup-overview
+      given: "Roadmap and bundles exist on disk"
+      when: "generate-startup-review-prompt is called"
+      then: "The output summarizes roadmap status and active bundles"
+    - id: markdown-plan-conversion
+      given: "A Prometheus plan markdown file with headings and checkboxes"
+      when: "plan-to-bundle is called"
+      then: "The output contains ticket candidates and executable TKT commands"
+    - id: review-inbox-write
+      given: "A JSON review payload with discussion_points and next_actions"
+      when: "write-review-inbox is called"
+      then: "The Review Agent Inbox section is appended in TKT-ingestible format"
+    - id: dispatch-wave-ordering
+      given: "A bundle with open tickets and depends_on relationships"
+      when: "generate-dispatch is called"
+      then: "The output groups tickets into dependency-respecting waves"

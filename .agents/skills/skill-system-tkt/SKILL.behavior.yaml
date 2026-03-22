@@ -1,0 +1,337 @@
+schema_version: 1
+skill_name: skill-system-tkt
+title: skill-system-tkt Behavior Contract
+purpose: 'Canonical ticket lifecycle engine for multi-agent orchestration. Filesystem bundles for project-level work management,
+  DB-backed durable tickets for session-level lifecycle. Single source of truth for all ticket operations.
+
+  '
+generated_from: SKILL.spec.yaml
+updated_at: '2026-03-20T23:50:45.794877'
+depends_on:
+- skill-system-memory
+delegates_to: []
+operations:
+- name: init-roadmap
+  intent: Initialize .tkt/ directory and roadmap.yaml
+  inputs:
+  - project
+  outputs:
+  - roadmap_path
+  constraints:
+  - Creates .tkt/ at project root
+- name: create-bundle
+  intent: PM Agent creates TKT bundle from user intent
+  inputs:
+  - goal
+  - context
+  - track
+  - source_plan
+  - worktree
+  - carryover
+  outputs:
+  - bundle
+  constraints:
+  - 2-6 worker tickets per bundle (see config/tkt.yaml)
+  - worktree creates .worktrees/B-NNN and persists worktree_path/worktree_branch when requested
+  - carryover imports tickets from an existing carryover.yaml
+- name: claim
+  intent: Claim a filesystem ticket within a bundle
+  inputs:
+  - bundle
+  - ticket
+  - agent
+  outputs:
+  - ticket
+  constraints:
+  - Must refuse claim unless ticket is open or blocked
+- name: update
+  intent: Update a filesystem ticket status and result summary
+  inputs:
+  - bundle
+  - ticket
+  - status
+  - summary
+  - evidence
+  - evidence_file
+  - reason
+  outputs:
+  - ticket
+  constraints:
+  - Status must be one of the configured filesystem ticket states
+  - Status done requires evidence or evidence_file
+  - Status blocked requires reason
+  - Invalid filesystem state transitions must fail
+- name: add
+  intent: Add a filesystem worker ticket with structured metadata
+  inputs:
+  - bundle
+  - title
+  - description
+  - category
+  - effort_estimate
+  - skills
+  - wave
+  - qa_scenarios
+  - depends_on
+  - source_plan
+  - source_ticket_index
+  - acceptance
+  outputs:
+  - ticket
+  constraints:
+  - Must persist structured metadata to the filesystem ticket YAML
+  - skills and qa_scenarios are list metadata; wave is optional numeric metadata
+- name: express
+  intent: Manage express tickets without requiring a bundle
+  inputs:
+  - action
+  - title
+  - acceptance
+  - category
+  - effort_estimate
+  - wave
+  - source_plan
+  - source_ticket_index
+  - ticket_id
+  - agent
+  - files_changed
+  - evidence
+  - evidence_file
+  outputs:
+  - ticket
+  constraints:
+  - Must support create, list, claim, and close subflows for express tickets
+  - Close requires evidence or evidence_file
+  - Close with files_changed > 3 auto-upgrades into a bundle worker ticket
+- name: bundle-status
+  intent: Show bundle status with all tickets
+  inputs:
+  - bundle
+  outputs:
+  - status
+  constraints:
+  - Must include all ticket states for the requested bundle
+- name: close-bundle
+  intent: Close bundle after all worker TKTs done/failed
+  inputs:
+  - bundle
+  - merge
+  outputs:
+  - result
+  constraints:
+  - All worker TKTs must be done or failed
+  - Audit ticket must be claimed and done before bundle close
+  - Audit ticket must not be claimed by the same agent as any worker ticket
+  - review.yaml must auto-fill evidence_summary and acceptance_results
+  - acceptance failures generate carryover.yaml and carryover_count output
+  - worktree-backed bundles must be clean before close and may merge/remove on request
+  - Must run structural validation and optional close_gate command before closure
+  - Must evaluate command-based acceptance criteria before closure
+- name: list-bundles
+  intent: List all bundles and their status
+  inputs: []
+  outputs:
+  - bundles
+  constraints:
+  - Must include bundle identifiers and current status summaries
+- name: roadmap-transition
+  intent: Transition roadmap to a new stage with gate checks
+  inputs:
+  - stage
+  - reason
+  - force
+  outputs:
+  - transition
+  constraints:
+  - Must reject invalid roadmap stages unless explicitly forced by policy
+- name: roadmap-status
+  intent: Show roadmap stage, bundle summary, and allowed transitions
+  inputs: []
+  outputs:
+  - roadmap
+  constraints:
+  - Must report current stage and allowed next stages
+- name: generate-review
+  intent: Generate review bundle post-closure
+  inputs:
+  - bundle
+  outputs:
+  - review
+  constraints:
+  - Must only run after bundle closure artifacts exist
+- name: intake-ticket
+  intent: Create or sync durable ticket from note_tasks intake
+  inputs:
+  - ticket_id
+  - title
+  - from_note_tasks
+  outputs:
+  - ticket
+  constraints:
+  - Must support note/note_tasks.md as intake surface
+  - Must persist task_provenance for downstream filtering
+- name: list-tickets
+  intent: List durable workflow tickets
+  inputs:
+  - unresolved_only
+  - batch_id
+  outputs:
+  - tickets
+  constraints:
+  - Must support unresolved_only and batch_id filtering
+- name: claim-ticket
+  intent: Claim a ticket for the current session
+  inputs:
+  - ticket_id
+  - session_id
+  outputs:
+  - ticket
+  constraints:
+  - One session may hold at most one active claimed ticket
+  - Claim must be transactional and conflict-safe
+- name: block-ticket
+  intent: Mark a ticket as blocked
+  inputs:
+  - ticket_id
+  - reason
+  outputs: []
+  constraints:
+  - Block must fail unless ticket is claimed by same session
+- name: close-ticket
+  intent: Close the currently claimed ticket
+  inputs:
+  - session_id
+  - ticket_id
+  - resolution
+  outputs: []
+  constraints:
+  - Must run refresh-new-tasks first
+  - Integrator closure refused if new claimable tasks exist
+- name: check-open-tickets
+  intent: Report unresolved tickets
+  inputs:
+  - session_id
+  outputs:
+  - report
+  constraints:
+  - Must report unresolved durable tickets in a machine-readable summary
+- name: claim-summary
+  intent: Report batch/session claim ownership with policy snapshot
+  inputs:
+  - session_id
+  - batch_id
+  outputs: []
+  constraints:
+  - Must include collaboration policy, method laws, subagent playbook
+- name: session-loop
+  intent: Run the legal worker loop for one session
+  inputs:
+  - session_id
+  - batch_id
+  outputs: []
+  constraints:
+  - Must refresh before any claim/stop decision
+  - Must resume owned ticket before claiming new
+- name: refresh-new-tasks
+  intent: 'Re-read note_tasks ### New and ingest new work'
+  inputs:
+  - batch_id
+  outputs:
+  - refresh_status
+  constraints:
+  - Must ingest only newly discovered work items from note_tasks
+- name: refresh-review-inbox
+  intent: Parse review inbox and ingest inbox-derived tickets
+  inputs:
+  - batch_id
+  outputs:
+  - refresh_status
+  constraints:
+  - Must preserve previously ingested review inbox items without duplication
+- name: startup-flow
+  intent: Startup/claim-loop context from zero to review handoff
+  inputs:
+  - session_id
+  outputs:
+  - startup_context
+  constraints:
+  - Must summarize owned tickets, claimable work, and review handoff context
+- name: integrator-closure-report
+  intent: Report whether integrator can legally close the batch
+  inputs:
+  - session_id
+  outputs: []
+  constraints:
+  - Must refuse with CONTINUE_DUE_TO_NEW_TASKS if refresh finds new work
+- name: check-ticket-scope
+  intent: Report if changed files stay inside claimed ticket scope
+  inputs:
+  - ticket_id
+  outputs: []
+  constraints:
+  - Must report CLEAN or SCOPE_BREACH
+mermaid: "flowchart TD\n  in_0_project[/\"project\"/]:::input\n  in_1_goal[/\"goal\"/]:::input\n  in_1_context[/\"context\"\
+  /]:::input\n  in_2_bundle[/\"bundle\"/]:::input\n  in_3_bundle[/\"bundle\"/]:::input\n  in_5_stage[/\"stage\"/]:::input\n\
+  \  in_5_reason[/\"reason\"/]:::input\n  in_5_force[/\"force\"/]:::input\n  in_7_bundle[/\"bundle\"/]:::input\n  in_8_ticket_id[/\"\
+  ticket_id\"/]:::input\n  in_8_title[/\"title\"/]:::input\n  in_8_from_note_tasks[/\"from_note_tasks\"/]:::input\n  in_9_unresolved_only[/\"\
+  unresolved_only\"/]:::input\n  in_9_batch_id[/\"batch_id\"/]:::input\n  in_10_ticket_id[/\"ticket_id\"/]:::input\n  in_10_session_id[/\"\
+  session_id\"/]:::input\n  in_11_ticket_id[/\"ticket_id\"/]:::input\n  in_11_reason[/\"reason\"/]:::input\n  in_12_session_id[/\"\
+  session_id\"/]:::input\n  in_12_ticket_id[/\"ticket_id\"/]:::input\n  in_12_resolution[/\"resolution\"/]:::input\n  in_13_session_id[/\"\
+  session_id\"/]:::input\n  in_14_session_id[/\"session_id\"/]:::input\n  in_14_batch_id[/\"batch_id\"/]:::input\n  in_15_session_id[/\"\
+  session_id\"/]:::input\n  in_15_batch_id[/\"batch_id\"/]:::input\n  in_16_batch_id[/\"batch_id\"/]:::input\n  in_17_batch_id[/\"\
+  batch_id\"/]:::input\n  in_18_session_id[/\"session_id\"/]:::input\n  in_19_session_id[/\"session_id\"/]:::input\n  in_20_ticket_id[/\"\
+  ticket_id\"/]:::input\n  op_init_roadmap([\"init-roadmap\"]):::stage\n  op_create_bundle([\"create-bundle\"]):::stage\n\
+  \  op_bundle_status([\"bundle-status\"]):::stage\n  op_close_bundle([\"close-bundle\"]):::stage\n  op_list_bundles([\"list-bundles\"\
+  ]):::stage\n  op_roadmap_transition([\"roadmap-transition\"]):::stage\n  op_roadmap_status([\"roadmap-status\"]):::stage\n\
+  \  op_generate_review([\"generate-review\"]):::stage\n  op_intake_ticket([\"intake-ticket\"]):::stage\n  op_list_tickets([\"\
+  list-tickets\"]):::stage\n  op_claim_ticket([\"claim-ticket\"]):::stage\n  op_block_ticket([\"block-ticket\"]):::stage\n\
+  \  op_close_ticket([\"close-ticket\"]):::stage\n  op_check_open_tickets([\"check-open-tickets\"]):::stage\n  op_claim_summary([\"\
+  claim-summary\"]):::stage\n  op_session_loop([\"session-loop\"]):::stage\n  op_refresh_new_tasks([\"refresh-new-tasks\"\
+  ]):::stage\n  op_refresh_review_inbox([\"refresh-review-inbox\"]):::stage\n  op_startup_flow([\"startup-flow\"]):::stage\n\
+  \  op_integrator_closure_report([\"integrator-closure-report\"]):::stage\n  op_check_ticket_scope([\"check-ticket-scope\"\
+  ]):::stage\n  out_0_roadmap_path[\\\"roadmap_path\"\\]:::output\n  out_1_bundle[\\\"bundle\"\\]:::output\n  out_2_status[\\\
+  \"status\"\\]:::output\n  out_3_result[\\\"result\"\\]:::output\n  out_4_bundles[\\\"bundles\"\\]:::output\n  out_5_transition[\\\
+  \"transition\"\\]:::output\n  out_6_roadmap[\\\"roadmap\"\\]:::output\n  out_7_review[\\\"review\"\\]:::output\n  out_8_ticket[\\\
+  \"ticket\"\\]:::output\n  out_9_tickets[\\\"tickets\"\\]:::output\n  out_10_ticket[\\\"ticket\"\\]:::output\n  out_13_report[\\\
+  \"report\"\\]:::output\n  out_16_refresh_status[\\\"refresh_status\"\\]:::output\n  out_17_refresh_status[\\\"refresh_status\"\
+  \\]:::output\n  out_18_startup_context[\\\"startup_context\"\\]:::output\n\n  in_0_project --> op_init_roadmap\n  in_1_goal\
+  \ --> op_create_bundle\n  in_1_context --> op_create_bundle\n  in_2_bundle --> op_bundle_status\n  in_3_bundle --> op_close_bundle\n\
+  \  in_5_stage --> op_roadmap_transition\n  in_5_reason --> op_roadmap_transition\n  in_5_force --> op_roadmap_transition\n\
+  \  in_7_bundle --> op_generate_review\n  in_8_ticket_id --> op_intake_ticket\n  in_8_title --> op_intake_ticket\n  in_8_from_note_tasks\
+  \ --> op_intake_ticket\n  in_9_unresolved_only --> op_list_tickets\n  in_9_batch_id --> op_list_tickets\n  in_10_ticket_id\
+  \ --> op_claim_ticket\n  in_10_session_id --> op_claim_ticket\n  in_11_ticket_id --> op_block_ticket\n  in_11_reason -->\
+  \ op_block_ticket\n  in_12_session_id --> op_close_ticket\n  in_12_ticket_id --> op_close_ticket\n  in_12_resolution -->\
+  \ op_close_ticket\n  in_13_session_id --> op_check_open_tickets\n  in_14_session_id --> op_claim_summary\n  in_14_batch_id\
+  \ --> op_claim_summary\n  in_15_session_id --> op_session_loop\n  in_15_batch_id --> op_session_loop\n  in_16_batch_id -->\
+  \ op_refresh_new_tasks\n  in_17_batch_id --> op_refresh_review_inbox\n  in_18_session_id --> op_startup_flow\n  in_19_session_id\
+  \ --> op_integrator_closure_report\n  in_20_ticket_id --> op_check_ticket_scope\n  op_init_roadmap --> out_0_roadmap_path\n\
+  \  op_create_bundle --> out_1_bundle\n  op_bundle_status --> out_2_status\n  op_close_bundle --> out_3_result\n  op_list_bundles\
+  \ --> out_4_bundles\n  op_roadmap_transition --> out_5_transition\n  op_roadmap_status --> out_6_roadmap\n  op_generate_review\
+  \ --> out_7_review\n  op_intake_ticket --> out_8_ticket\n  op_list_tickets --> out_9_tickets\n  op_claim_ticket --> out_10_ticket\n\
+  \  op_check_open_tickets --> out_13_report\n  op_refresh_new_tasks --> out_16_refresh_status\n  op_refresh_review_inbox\
+  \ --> out_17_refresh_status\n  op_startup_flow --> out_18_startup_context\n  op_init_roadmap -->|\"violation\"| err_0_0[\"\
+  Creates .tkt/ at project root\"]:::error\n  op_create_bundle -->|\"violation\"| err_1_0[\"2-6 worker tickets per bundle\
+  \ (see confi...\"]:::error\n  op_bundle_status -->|\"violation\"| err_2_0[\"Must include all ticket states for the r...\"\
+  ]:::error\n  op_close_bundle -->|\"violation\"| err_3_0[\"All worker TKTs must be done or failed\"]:::error\n  op_list_bundles\
+  \ -->|\"violation\"| err_4_0[\"Must include bundle identifiers and curr...\"]:::error\n  op_roadmap_transition -->|\"violation\"\
+  | err_5_0[\"Must reject invalid roadmap stages unles...\"]:::error\n  op_roadmap_status -->|\"violation\"| err_6_0[\"Must\
+  \ report current stage and allowed ne...\"]:::error\n  op_generate_review -->|\"violation\"| err_7_0[\"Must only run after\
+  \ bundle closure artif...\"]:::error\n  op_intake_ticket -->|\"violation\"| err_8_0[\"Must support note/note_tasks.md as\
+  \ intak...\"]:::error\n  op_intake_ticket -->|\"violation\"| err_8_1[\"Must persist task_provenance for downstr...\"]:::error\n\
+  \  op_list_tickets -->|\"violation\"| err_9_0[\"Must support unresolved_only and batch_i...\"]:::error\n  op_claim_ticket\
+  \ -->|\"violation\"| err_10_0[\"One session may hold at most one active ...\"]:::error\n  op_claim_ticket -->|\"violation\"\
+  | err_10_1[\"Claim must be transactional and conflict...\"]:::error\n  op_block_ticket -->|\"violation\"| err_11_0[\"Block\
+  \ must fail unless ticket is claimed...\"]:::error\n  op_close_ticket -->|\"violation\"| err_12_0[\"Must run refresh-new-tasks\
+  \ first\"]:::error\n  op_close_ticket -->|\"violation\"| err_12_1[\"Integrator closure refused if new claima...\"]:::error\n\
+  \  op_check_open_tickets -->|\"violation\"| err_13_0[\"Must report unresolved durable tickets i...\"]:::error\n  op_claim_summary\
+  \ -->|\"violation\"| err_14_0[\"Must include collaboration policy, metho...\"]:::error\n  op_session_loop -->|\"violation\"\
+  | err_15_0[\"Must refresh before any claim/stop decis...\"]:::error\n  op_session_loop -->|\"violation\"| err_15_1[\"Must\
+  \ resume owned ticket before claiming...\"]:::error\n  op_refresh_new_tasks -->|\"violation\"| err_16_0[\"Must ingest only\
+  \ newly discovered work i...\"]:::error\n  op_refresh_review_inbox -->|\"violation\"| err_17_0[\"Must preserve previously\
+  \ ingested review...\"]:::error\n  op_startup_flow -->|\"violation\"| err_18_0[\"Must summarize owned tickets, claimable\
+  \ ...\"]:::error\n  op_integrator_closure_report -->|\"violation\"| err_19_0[\"Must refuse with CONTINUE_DUE_TO_NEW_TAS...\"\
+  ]:::error\n  op_check_ticket_scope -->|\"violation\"| err_20_0[\"Must report CLEAN or SCOPE_BREACH\"]:::error\n  dep_skill_system_memory{{\"\
+  skill-system-memory\"}}:::dep\n  dep_skill_system_memory -.->|depends_on| op_init_roadmap\n\n  classDef stage fill:#dbeafe,stroke:#3b82f6,stroke-width:2px,color:#1e40af\n\
+  \  classDef error fill:#fee2e2,stroke:#ef4444,stroke-width:2px,color:#991b1b,stroke-dasharray: 5 5\n  classDef input fill:#f0fdf4,stroke:#22c55e,stroke-width:2px,color:#166534\n\
+  \  classDef output fill:#fef3c7,stroke:#f59e0b,stroke-width:2px,color:#92400e\n  classDef dep fill:#ede9fe,stroke:#8b5cf6,stroke-width:2px,color:#5b21b6,stroke-dasharray:\
+  \ 5 5"
