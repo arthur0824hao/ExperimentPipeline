@@ -1,0 +1,63 @@
+id: TKT-000
+bundle: B-007
+type: integrate
+title: Integrate and coordinate B-007
+description: 'Coordinate all worker tickets in this bundle.
+
+  Worker scope list:
+
+  - TKT-001: Fix rePipe (p key) selection index mismatch
+
+  - TKT-002: Test rePipe selection correctness
+
+  - TKT-003: Investigate and document DB-JSON sync issue
+
+  - TKT-004: Add DB connection failure guard to DBExperimentsDB.load()
+
+  - TKT-005: Add DB query for all experiments including unclaimed queue
+
+  - TKT-006: Use load_all_for_panel in dashboard rendering
+
+  - TKT-007: Add view_page state to preprocess run_watch
+
+  - TKT-008: Modify _render_watch_panel to support view_page
+
+  - TKT-009: Extend ProgressReporter with metric_history.jsonl
+
+  - TKT-010: Update train_single_model to pass train_loss to progress_callback
+
+  - TKT-011: Create pipeline/archive_card.py module
+
+  - TKT-012: Integrate archive card into archive workflow
+
+  - TKT-013: Add phase, elapsed, stale columns to experiment panel
+
+  - TKT-014: Add val_f1 delta (trend) display
+
+  - TKT-015: Boundary tests for preprocess watch keys
+
+  - TKT-016: Boundary tests for experiment dashboard keys
+
+  Close this ticket when all worker TKTs are done.
+
+  '
+acceptance_criteria:
+- All worker tickets completed or accounted for
+- Outputs integrated and consistent
+status: done
+claimed_by: null
+claimed_at: null
+started_at: null
+completed_at: '2026-03-22T12:55:12Z'
+category: null
+effort_estimate: null
+agent_type: null
+source_plan: null
+source_ticket_index: null
+result:
+  summary: Bundle B-007 integrated and closed
+  artifacts: []
+  notes: null
+  evidence: TKT-001-016 + TKT-A00 all marked done, 17 new tests pass, all files compile
+    clean
+depends_on: []

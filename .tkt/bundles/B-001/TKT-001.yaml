@@ -1,0 +1,33 @@
+ticket_id: TKT-001
+type: worker
+title: Apply skill_system v3 graph migration
+status: done
+claimed_by: sisyphus-main
+category: infra
+effort_estimate: S
+wave: 1
+depends_on: []
+skills:
+- skill-system-postgres
+description: "Apply the v3 graph migration SQL to create skill graph tables in the\
+  \ skill_system schema.\n\n## Steps\n\n1. Read the migration file:\n   - Path: `.agents/skills/skill-system-postgres/migrate-v3-graph.sql`\n\
+  \n2. Run the migration:\n   ```bash\n   psql -d \"ExperimentPipeline-memory\" -v\
+  \ ON_ERROR_STOP=1 -f .agents/skills/skill-system-postgres/migrate-v3-graph.sql\n\
+  \   ```\n   NOTE: Do NOT use `-U postgres`. The database user is `arthur0824hao`\
+  \ (default system user).\n   NOTE: Database name has hyphens — MUST be quoted with\
+  \ double quotes.\n\n3. Verify tables were created:\n   ```bash\n   psql -d \"ExperimentPipeline-memory\"\
+  \ -c \"SELECT tablename FROM pg_tables WHERE schemaname='skill_system' AND tablename\
+  \ LIKE 'skill_graph%';\"\n   ```\n\n## Expected Output\nTwo new tables: `skill_graph_nodes`\
+  \ and `skill_graph_edges` in the `skill_system` schema.\n"
+acceptance:
+- psql query returns skill_graph_nodes and skill_graph_edges
+- Migration command exits with code 0
+result:
+  status: null
+  summary: v3 graph migration applied successfully. Tables skill_graph_nodes and skill_graph_edges
+    created in skill_system schema, plus 2 upsert functions.
+  evidence: 'psql exit code 0. Tables verified: skill_graph_nodes, skill_graph_edges'
+  artifacts: []
+  notes: null
+claimed_at: '2026-03-22T07:29:48Z'
+completed_at: '2026-03-22T07:31:37Z'

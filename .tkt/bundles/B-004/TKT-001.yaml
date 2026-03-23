@@ -1,0 +1,53 @@
+ticket_id: TKT-001
+type: worker
+title: Extract pipeline/gpu.py from experiments.py
+status: done
+claimed_by: sisyphus-main
+category: refactor
+effort_estimate: M
+wave: 1
+depends_on: []
+skills: []
+description: "Extract GPU monitoring and process detection functions from experiments.py\
+  \ into a new\npipeline/gpu.py module. These functions are pure utilities with NO\
+  \ internal dependencies\n(they only use stdlib + subprocess).\n\n## Source File\n\
+  `pipeline/experiments.py`\n\n## Target File\nCreate: `pipeline/gpu.py`\n\n## Functions\
+  \ to MOVE (cut from experiments.py, paste into gpu.py)\n\n1. `_coerce_nvidia_int`\
+  \ — line 554\n2. `_parse_nvidia_query_output` — line 567\n3. `collect_gpu_status_with_error`\
+  \ — line 590\n4. `get_all_gpu_status` — line 549 (calls collect_gpu_status_with_error)\n\
+  5. `get_cpu_load` — line 647\n6. `collect_system_info` — line 662 (calls get_all_gpu_status\
+  \ + get_cpu_load)\n7. `get_gpu_process_count` — line 670\n8. `get_pid_gpu_map` —\
+  \ line 716\n9. `detect_running_experiments_from_gpu_pids` — line 741\n10. `_build_worker_gpu_free_maps`\
+  \ — line 1108\n11. `_best_free_mb_for_worker` — line 1127\n12. `_free_mb_for_worker_gpu`\
+  \ — line 1136\n\n## Required Imports for gpu.py\n```python\nimport os\nimport re\n\
+  import subprocess\nimport logging\nfrom pathlib import Path\nfrom typing import\
+  \ Dict, List, Optional, Tuple, Any\n```\n\n## Steps\n\n1. Create `pipeline/gpu.py`\
+  \ with the functions listed above\n2. Add imports at the top of gpu.py (see above)\n\
+  3. Copy the constants these functions reference:\n   - `EXPERIMENTS_FILE`, `BASE_DIR`\
+  \ (or import from experiments)\n4. In `pipeline/experiments.py`, REPLACE the moved\
+  \ functions with imports:\n   ```python\n   from gpu import (\n       get_all_gpu_status,\
+  \ _coerce_nvidia_int, _parse_nvidia_query_output,\n       collect_gpu_status_with_error,\
+  \ get_cpu_load, collect_system_info,\n       get_gpu_process_count, get_pid_gpu_map,\n\
+  \       detect_running_experiments_from_gpu_pids,\n       _build_worker_gpu_free_maps,\
+  \ _best_free_mb_for_worker,\n       _free_mb_for_worker_gpu,\n   )\n   ```\n5. DELETE\
+  \ the original function bodies from experiments.py\n6. Verify: `cd pipeline && python\
+  \ -c \"from gpu import collect_gpu_status_with_error; print('OK')\"`\n7. Run tests:\
+  \ `cd pipeline && python -m pytest tests/ -v`\n\n## MUST NOT DO\n- Do NOT change\
+  \ any function signatures\n- Do NOT rename any functions\n- Do NOT modify function\
+  \ logic\n- Do NOT change any other files besides experiments.py and the new gpu.py\n\
+  - Do NOT add new dependencies\n"
+acceptance:
+- pipeline/gpu.py exists with all 12 functions
+- Functions are identical to originals (no logic changes)
+- experiments.py imports from gpu.py instead of defining locally
+- cd pipeline && python -c 'from gpu import collect_gpu_status_with_error' succeeds
+- Existing tests still pass
+result:
+  status: null
+  summary: Extracted 12 GPU functions to pipeline/gpu.py. experiments.py imports from
+    gpu.py. Import check passes.
+  evidence: 'python3 -c ''from pipeline.gpu import get_all_gpu_status'': OK'
+  artifacts: []
+  notes: null
+claimed_at: '2026-03-22T07:52:54Z'
+completed_at: '2026-03-22T08:07:33Z'

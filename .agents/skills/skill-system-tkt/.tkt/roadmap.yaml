@@ -1,0 +1,13 @@
+project: "ExperimentPipeline"
+version: 2
+updated_at: "2026-03-22T07:12:04Z"
+maintained_by: pm-agent
+stage: planning
+stage_history:
+  - stage: planning
+    entered_at: "2026-03-22T07:12:04Z"
+    reason: "initial"
+goals: []
+success_criteria: []
+decision_gates: []
+dependencies: []

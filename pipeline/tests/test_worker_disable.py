@@ -17,6 +17,84 @@ import pytest
 # @behavior: db_registry.behavior.yaml#heartbeat-and-health
 
 
+class _MockCursor:
+    def __init__(self, conn_ref):
+        self._conn = conn_ref
+        self._result = None
+        self._fetchall_result = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        pass
+
+    def execute(self, query, params=None):
+        q = (query or "").strip()
+        if "to_regnamespace" in q:
+            self._result = ("exp_registry",)
+        elif "snapshot_as_json" in q:
+            self._result = (
+                json.dumps(
+                    {
+                        "experiments": [],
+                        "archived": [],
+                        "completed": [],
+                        "disabled_workers": list(self._conn._disabled),
+                    }
+                ),
+            )
+        elif "INSERT INTO" in q and "disabled_workers" in q:
+            worker_id = params[0] if params else None
+            if worker_id:
+                self._conn._disabled.add(worker_id)
+            self._result = None
+        elif "DELETE FROM" in q and "disabled_workers" in q:
+            worker_id = params[0] if params else None
+            if worker_id:
+                self._conn._disabled.discard(worker_id)
+            self._result = None
+        elif "SELECT 1 FROM" in q and "disabled_workers" in q:
+            worker_id = params[0] if params else None
+            self._result = (1,) if worker_id in self._conn._disabled else None
+        elif "SELECT" in q and "name" in q and "exp_registry.experiments" in q:
+            self._fetchall_result = [
+                {
+                    "name": "exp1",
+                    "status": "NEEDS_RERUN",
+                    "parent_experiment": "",
+                    "role": "",
+                    "error_type": "",
+                }
+            ]
+            self._result = None
+        else:
+            self._result = None
+
+    def fetchone(self):
+        return self._result
+
+    def fetchall(self):
+        return self._fetchall_result
+
+
+@pytest.fixture
+def mock_db_conn():
+    conn = MagicMock()
+    conn._disabled = set()
+    conn.closed = False
+
+    def make_cursor(**kwargs):
+        return _MockCursor(conn)
+
+    conn.cursor.side_effect = make_cursor
+    conn.__enter__ = MagicMock(return_value=conn)
+    conn.__exit__ = MagicMock(return_value=False)
+
+    with patch("psycopg2.connect", return_value=conn):
+        yield conn
+
+
 # ===========================================================================
 # ExperimentsDB: disable_worker / enable_worker / is_worker_disabled
 # ===========================================================================
@@ -25,7 +103,7 @@ import pytest
 class TestDisableWorker:
     """ExperimentsDB.disable_worker(worker_id) adds worker to disabled_workers list."""
 
-    def test_adds_worker_to_disabled_list(self, mock_experiments_file):
+    def test_adds_worker_to_disabled_list(self, mock_experiments_file, mock_db_conn):
         from experiments import ExperimentsDB
 
         data = {"experiments": [], "archived": []}
@@ -38,7 +116,7 @@ class TestDisableWorker:
         reloaded = db.load()
         assert "minun" in reloaded.get("disabled_workers", [])
 
-    def test_idempotent_does_not_duplicate(self, mock_experiments_file):
+    def test_idempotent_does_not_duplicate(self, mock_experiments_file, mock_db_conn):
         from experiments import ExperimentsDB
 
         data = {"experiments": [], "archived": [], "disabled_workers": ["minun"]}
@@ -51,7 +129,7 @@ class TestDisableWorker:
         reloaded = db.load()
         assert reloaded["disabled_workers"].count("minun") == 1
 
-    def test_can_disable_multiple_workers(self, mock_experiments_file):
+    def test_can_disable_multiple_workers(self, mock_experiments_file, mock_db_conn):
         from experiments import ExperimentsDB
 
         data = {"experiments": [], "archived": []}
@@ -68,7 +146,9 @@ class TestDisableWorker:
 class TestEnableWorker:
     """ExperimentsDB.enable_worker(worker_id) removes worker from disabled_workers list."""
 
-    def test_removes_worker_from_disabled_list(self, mock_experiments_file):
+    def test_removes_worker_from_disabled_list(
+        self, mock_experiments_file, mock_db_conn
+    ):
         from experiments import ExperimentsDB
 
         data = {
@@ -86,7 +166,9 @@ class TestEnableWorker:
         assert "minun" not in reloaded.get("disabled_workers", [])
         assert "plusle" in reloaded.get("disabled_workers", [])
 
-    def test_enabling_already_enabled_returns_true(self, mock_experiments_file):
+    def test_enabling_already_enabled_returns_true(
+        self, mock_experiments_file, mock_db_conn
+    ):
         from experiments import ExperimentsDB
 
         data = {"experiments": [], "archived": []}
@@ -96,7 +178,9 @@ class TestEnableWorker:
         result = db.enable_worker("minun")
         assert result is True
 
-    def test_enable_when_no_disabled_workers_key(self, mock_experiments_file):
+    def test_enable_when_no_disabled_workers_key(
+        self, mock_experiments_file, mock_db_conn
+    ):
         from experiments import ExperimentsDB
 
         data = {"experiments": [], "archived": []}
@@ -316,7 +400,7 @@ class TestRunnerSkipsDisabledWorker:
     """Runner should not pick up experiments when local worker is disabled."""
 
     def test_is_worker_disabled_checked_before_accepting_experiments(
-        self, mock_experiments_file
+        self, mock_experiments_file, mock_db_conn
     ):
         from experiments import ExperimentsDB
 

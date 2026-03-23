@@ -1,0 +1,38 @@
+ticket_id: TKT-004
+type: worker
+title: Extract pipeline/oom.py from experiments.py
+status: done
+claimed_by: sisyphus-main
+category: refactor
+effort_estimate: S
+wave: 1
+depends_on: []
+skills: []
+description: "Extract OOM detection and batch size adjustment functions from experiments.py\n\
+  into pipeline/oom.py.\n\n## Source File\n`pipeline/experiments.py`\n\n## Target\
+  \ File\nCreate: `pipeline/oom.py`\n\n## Functions to MOVE\n\n1. `parse_oom_from_stderr`\
+  \ — line 939\n2. `_coerce_positive_int` — line 405\n3. `_script_env_default` — line\
+  \ 413\n4. `_resolve_batch_overrides` — line 427\n5. `_next_smaller_batches` — line\
+  \ 447\n\n## Required Constants\n- `MIN_RUNTIME_BATCH_SIZE` (line 128)\n- `OOM_RETRY_EST_MEM_BUMP_MB`\
+  \ (line 125)\n- `OOM_EXPECTED_FREE_MARGIN_MB` (line 126)\n\n## Steps\n\n1. Create\
+  \ `pipeline/oom.py` with all 5 functions + constants\n2. In experiments.py, replace\
+  \ with:\n   ```python\n   from oom import (\n       parse_oom_from_stderr, _coerce_positive_int,\n\
+  \       _script_env_default, _resolve_batch_overrides,\n       _next_smaller_batches,\
+  \ MIN_RUNTIME_BATCH_SIZE,\n       OOM_RETRY_EST_MEM_BUMP_MB, OOM_EXPECTED_FREE_MARGIN_MB,\n\
+  \   )\n   ```\n3. Delete originals from experiments.py\n4. Verify: `cd pipeline\
+  \ && python -c \"from oom import parse_oom_from_stderr; print('OK')\"`\n5. Run tests:\
+  \ `cd pipeline && python -m pytest tests/ -v`\n\n## MUST NOT DO\n- Do NOT change\
+  \ function signatures or logic\n- Do NOT modify other files\n"
+acceptance:
+- pipeline/oom.py exists with all 5 functions
+- experiments.py imports from oom.py
+- Existing tests still pass
+result:
+  status: null
+  summary: Extracted 5 OOM functions + 3 constants to pipeline/oom.py. experiments.py
+    imports from oom.py. Import check passes.
+  evidence: 'python3 -c ''from pipeline.oom import parse_oom_from_stderr'': OK'
+  artifacts: []
+  notes: null
+claimed_at: '2026-03-22T07:52:54Z'
+completed_at: '2026-03-22T08:07:38Z'

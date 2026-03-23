@@ -1,0 +1,20 @@
+bundle_id: B-002
+title: "Test Safety Net — db_registry.py Core Coverage"
+goal: >
+  Build unit tests for db_registry.py critical paths: status transitions, claim/fencing,
+  heartbeat lifecycle, experiment management operations. These tests are prerequisites
+  for the module split in B-004/B-005.
+track: stabilization
+stage: closed
+closed_at: "2026-03-22T00:00:00Z"
+created_at: "2026-03-22T07:30:00Z"
+source_plan: ".tkt/roadmap.yaml"
+roadmap_goal: G-002
+tickets:
+  - TKT-000
+  - TKT-001
+  - TKT-002
+  - TKT-003
+  - TKT-004
+  - TKT-005
+  - TKT-A00

@@ -1,0 +1,48 @@
+ticket_id: TKT-002
+type: worker
+title: Extract pipeline/memory_contract.py from experiments.py
+status: done
+claimed_by: sisyphus-main
+category: refactor
+effort_estimate: M
+wave: 1
+depends_on: []
+skills: []
+description: "Extract memory estimation and OOM policy functions from experiments.py\
+  \ into\npipeline/memory_contract.py.\n\n## Source File\n`pipeline/experiments.py`\n\
+  \n## Target File\nCreate: `pipeline/memory_contract.py`\n\n## Functions to MOVE\n\
+  \n1. `_copy_memory_contract` — line 453\n2. `_update_oom_policy_contract` — line\
+  \ 460\n3. `_persist_oom_policy_contract` — line 502\n4. `_should_reestimate_memory_contract`\
+  \ — line 784\n5. `get_memory_contract` — line 800\n6. `format_memory_contract_fields`\
+  \ — line 828\n7. `get_required_mem_mb` — line 866\n\n## Dependencies\nThese functions\
+  \ depend on:\n- `_read_result_payload` (from artifact.py — will be created in TKT-003)\n\
+  - `_memory_estimator` module (lazy import, line 77)\n- `PREPROCESS_LIB_DIR`, `RESULTS_DB_DIR`\
+  \ constants\n\nStrategy: Import from artifact.py if TKT-003 is done first, otherwise\
+  \ keep a local\nreference. Use late imports for circular dependency avoidance:\n\
+  ```python\n# At function call time, not module load time\nfrom artifact import _read_result_payload\n\
+  ```\n\n## Steps\n\n1. Create `pipeline/memory_contract.py` with the 7 functions\n\
+  2. Add necessary imports and constants\n3. Handle the `_memory_estimator` lazy import\
+  \ (copy the import pattern from experiments.py lines 68-77)\n4. In experiments.py,\
+  \ replace with:\n   ```python\n   from memory_contract import (\n       _copy_memory_contract,\
+  \ _update_oom_policy_contract,\n       _persist_oom_policy_contract, _should_reestimate_memory_contract,\n\
+  \       get_memory_contract, format_memory_contract_fields, get_required_mem_mb,\n\
+  \   )\n   ```\n5. Delete original function bodies from experiments.py\n6. Verify\
+  \ imports work: `cd pipeline && python -c \"from memory_contract import get_memory_contract;\
+  \ print('OK')\"`\n7. Run tests: `cd pipeline && python -m pytest tests/ -v`\n\n\
+  ## MUST NOT DO\n- Do NOT change function signatures or logic\n- Do NOT rename functions\n\
+  - Do NOT modify other files besides experiments.py and the new module\n"
+acceptance:
+- pipeline/memory_contract.py exists with all 7 functions
+- experiments.py imports from memory_contract.py
+- Import verification succeeds
+- Existing tests still pass
+result:
+  status: null
+  summary: Extracted 7 memory contract functions to pipeline/memory_contract.py. experiments.py
+    imports from memory_contract.py. Import check passes.
+  evidence: 'python3 -c ''from pipeline.memory_contract import get_memory_contract'':
+    OK'
+  artifacts: []
+  notes: null
+claimed_at: '2026-03-22T07:52:54Z'
+completed_at: '2026-03-22T08:07:35Z'

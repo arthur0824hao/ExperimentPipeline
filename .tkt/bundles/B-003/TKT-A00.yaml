@@ -1,0 +1,20 @@
+ticket_id: TKT-A00
+type: audit
+title: 'Audit B-003: Verify test + spec quality'
+status: done
+claimed_by: sisyphus-audit
+description: "Spot-check B-003 deliverables:\n1. Run full test suite: cd pipeline\
+  \ && python -m pytest tests/ -v --tb=short\n   All tests must pass.\n2. Validate\
+  \ behavior specs:\n   python3 -c \"import yaml; yaml.safe_load(open('pipeline/experiments.behavior.yaml'))\"\
+  \n   python3 -c \"import yaml; yaml.safe_load(open('pipeline/preprocess.behavior.yaml'))\"\
+  \n3. Verify each spec lists ONLY functions that actually exist in the target file.\n\
+  4. Verify no circular dependencies in module dependency graphs.\n"
+claimed_at: '2026-03-22T07:51:52Z'
+completed_at: '2026-03-22T07:52:05Z'
+result:
+  summary: 'Audit passed: 47 tests across 3 test files (test_preprocess_features.py:16,
+    test_preprocess_registration.py:13, test_gpu_allocation.py:18). Both behavior
+    YAMLs valid and verified against source.'
+  artifacts: []
+  notes: null
+  evidence: 'pytest: 47 passed. YAML: OK'

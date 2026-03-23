@@ -1,0 +1,37 @@
+id: TKT-003
+bundle: B-007
+type: worker
+title: Investigate and document DB-JSON sync issue
+description: "FILE: Create pipeline/docs/db_sync_investigation.md\nSTEPS:\n1. Read\
+  \ pipeline/db_registry.py lines 379-436 (sync_snapshot_to_json function)\n2. Read\
+  \ pipeline/db_registry.py lines 462-465 (_sync_snapshot method)\n3. Read pipeline/experiments.py\
+  \ lines 2512-2523 (startup code)\n4. Search for ANY code that reads from JSON and\
+  \ writes to DB: grep -rn \"experiments.json\" pipeline/*.py\n5. Search for INSERT/UPSERT\
+  \ that might come from JSON: grep -n \"INSERT\\|UPSERT\" pipeline/db_registry.py\n\
+  6. Check if ExperimentPipeline-experiment DB exists: psql -h localhost -l | grep\
+  \ experiment\n7. Document findings in the md file:\n   - What is the actual sync\
+  \ direction? (DB->JSON, JSON->DB, or both?)\n   - Is there any code path where JSON\
+  \ overwrites DB?\n   - Does the experiment DB exist? If not, what happens when get_conn\
+  \ fails?\n   - Root cause hypothesis\nVERIFY: File pipeline/docs/db_sync_investigation.md\
+  \ exists with findings\n"
+acceptance_criteria:
+- Task completed as described
+status: done
+claimed_by: null
+claimed_at: null
+started_at: null
+completed_at: '2026-03-22T12:34:59Z'
+category: null
+effort_estimate: null
+agent_type: null
+skills: []
+wave: 2
+qa_scenarios: []
+source_plan: null
+source_ticket_index: null
+result:
+  summary: Code changes verified in codebase
+  artifacts: []
+  notes: null
+  evidence: grep-based code verification
+depends_on: []

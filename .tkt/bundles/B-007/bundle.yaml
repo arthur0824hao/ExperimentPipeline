@@ -1,0 +1,14 @@
+id: "B-007"
+goal_ref: null
+title: "B-006 carryover (preprocess views, metric tracking, archive cards, boundary tests) + Issue fixes (#8 DB sync, #4 rePipe bug, #5/#7 queue visibility, #3 progress display)"
+status: closed
+created_at: "2026-03-22T12:02:34Z"
+created_by: pm-agent
+main_agent: null
+ticket_count: 18
+priority: normal
+track: "architecture"
+source_plan: null
+worktree_path: null
+worktree_branch: null
+depends_on: []

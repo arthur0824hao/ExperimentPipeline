@@ -1,0 +1,101 @@
+ticket_id: TKT-003
+type: worker
+title: Test experiments.py — GPU monitoring + allocation
+status: done
+claimed_by: sisyphus-main
+category: test
+effort_estimate: M
+wave: 1
+depends_on: []
+skills: []
+description: 'Create unit tests for GPU monitoring and memory allocation logic in
+  experiments.py.
+
+  Tests MUST mock subprocess and nvidia-smi — no GPU required.
+
+
+  ## Target File
+
+  Create: `pipeline/tests/test_gpu_allocation.py`
+
+
+  ## What to Test
+
+
+  File: `pipeline/experiments.py`
+
+
+  ### Test Group 1: _parse_nvidia_query_output (line 567)
+
+  - Test parsing nvidia-smi CSV output: "0, 1024, 8192, 10240, 45"
+
+  - Test multi-GPU output (2+ lines)
+
+  - Test malformed output handling
+
+  - Test include_util=True vs False
+
+
+  ### Test Group 2: collect_gpu_status_with_error (line 590)
+
+  - Test successful GPU probe returns (gpus_list, None)
+
+  - Test failed probe returns ([], error_message)
+
+  - Test fallback between nvidia-smi command variants
+
+  - Mock subprocess.check_output
+
+
+  ### Test Group 3: GPUAllocator.allocate (line 2025)
+
+  - Test allocation with sufficient free memory
+
+  - Test allocation denied when insufficient memory
+
+  - Test max_jobs_per_gpu limit enforcement
+
+  - Test warmup overlap rules
+
+  - Test HIGH_MEM_EXCLUSIVE_THRESHOLD_MB threshold
+
+
+  ### Test Group 4: GPUAllocator.release (line 2084)
+
+  - Test release removes job from gpu_jobs tracking
+
+  - Test release of non-existent job (no crash)
+
+
+  ### Test Group 5: get_required_mem_mb (line 866)
+
+  - Test with memory contract est_decision_upper
+
+  - Test with OOM error peak + buffer calculation
+
+  - Test without any memory estimate (returns 0)
+
+
+  ## Verification
+
+  ```bash
+
+  cd pipeline && python -m pytest tests/test_gpu_allocation.py -v
+
+  ```
+
+  '
+acceptance:
+- test_gpu_allocation.py exists in pipeline/tests/
+- Has >= 10 test functions
+- All tests pass
+- Tests mock subprocess.check_output for nvidia-smi
+result:
+  status: null
+  summary: Created test_gpu_allocation.py with 18 tests covering _parse_nvidia_query_output,
+    collect_gpu_status_with_error, GPUAllocator.allocate, GPUAllocator.release, get_required_mem_mb
+  evidence: 'cd pipeline && python -m pytest tests/test_gpu_allocation.py: 18 passed'
+  artifacts: []
+  notes: null
+claimed_at: '2026-03-22T07:46:24Z'
+completed_at: '2026-03-22T07:51:17Z'

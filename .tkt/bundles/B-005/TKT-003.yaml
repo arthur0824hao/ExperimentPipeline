@@ -1,0 +1,31 @@
+ticket_id: TKT-003
+type: worker
+title: Extract pipeline/logger_hybrid.py — HybridLogger class
+status: done
+claimed_by: sisyphus-main
+category: refactor
+effort_estimate: S
+wave: 1
+depends_on: []
+skills: []
+description: "Extract the HybridLogger class from experiments.py into pipeline/logger_hybrid.py.\n\
+  This is a small, self-contained class (~57 lines).\n\n## Source File\n`pipeline/experiments.py`\n\
+  \n## Target File\nCreate: `pipeline/logger_hybrid.py`\n\n## What to MOVE\n\n`HybridLogger`\
+  \ class — lines 3873-3930 (~57 lines)\n\nMethods:\n- `__init__` (line 3874)\n- `log`\
+  \ (line 3886)\n\nInstance variables: filename, permanent_offset\n\n## Dependencies\n\
+  - stdlib only: os, fcntl, time, datetime, pathlib\n- `LOCKS_DIR` constant\n\n##\
+  \ Steps\n\n1. Create `pipeline/logger_hybrid.py`\n2. Move HybridLogger class\n3.\
+  \ Copy LOCKS_DIR constant (or import from experiments)\n4. In experiments.py, replace\
+  \ with:\n   ```python\n   from logger_hybrid import HybridLogger\n   ```\n5. Verify:\
+  \ `cd pipeline && python -c \"from logger_hybrid import HybridLogger; print('OK')\"\
+  `\n6. Run tests: `cd pipeline && python -m pytest tests/ -v`\n\n## MUST NOT DO\n\
+  - Do NOT change method signatures or logic\n"
+acceptance:
+- pipeline/logger_hybrid.py exists with HybridLogger class
+- experiments.py imports from logger_hybrid
+- Existing tests still pass
+result:
+  status: null
+  summary: null
+  evidence: null
+claimed_at: '2026-03-22T08:08:47Z'

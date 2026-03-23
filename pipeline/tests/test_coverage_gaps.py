@@ -1,14 +1,96 @@
 #!/usr/bin/env python3
-import pytest
 import json
-from pathlib import Path
-from unittest.mock import patch, MagicMock
 from datetime import datetime
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from experiments import ExperimentsDB as RuntimeExperimentsDB
 
 
 LEGACY_JSON_DB_ONLY = RuntimeExperimentsDB.__name__ != "DBExperimentsDB"
+
+
+class _MockCursor:
+    rowcount = 1
+
+    def __init__(self, conn_ref=None):
+        self._conn = conn_ref
+        self._result = None
+        self._fetchall_result = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        pass
+
+    def execute(self, query, params=None):
+        q = (query or "").strip()
+        if "to_regnamespace" in q:
+            self._result = ("exp_registry",)
+        elif "snapshot_as_json" in q:
+            self._result = (
+                json.dumps(
+                    {
+                        "experiments": [],
+                        "archived": [],
+                        "completed": [],
+                        "disabled_workers": list(self._conn._disabled),
+                    }
+                ),
+            )
+        elif "INSERT INTO" in q and "disabled_workers" in q:
+            worker_id = params[0] if params else None
+            if worker_id:
+                self._conn._disabled.add(worker_id)
+            self._result = None
+        elif "DELETE FROM" in q and "disabled_workers" in q:
+            worker_id = params[0] if params else None
+            if worker_id:
+                self._conn._disabled.discard(worker_id)
+            self._result = None
+        elif "SELECT 1 FROM" in q and "disabled_workers" in q:
+            worker_id = params[0] if params else None
+            self._result = (1,) if worker_id in self._conn._disabled else None
+        elif "SELECT" in q and "name" in q and "exp_registry.experiments" in q:
+            self._fetchall_result = [
+                {
+                    "name": "exp1",
+                    "status": "NEEDS_RERUN",
+                    "parent_experiment": "",
+                    "role": "",
+                    "error_type": "",
+                }
+            ]
+            self._result = None
+        else:
+            self._result = None
+
+    def fetchone(self):
+        return self._result
+
+    def fetchall(self):
+        return self._fetchall_result
+
+
+@pytest.fixture
+def mock_db_conn():
+    conn = MagicMock()
+    conn._disabled = set()
+    conn.closed = False
+    conn.rowcount = 1
+
+    def make_cursor(**kwargs):
+        return _MockCursor(conn)
+
+    conn.cursor.side_effect = make_cursor
+    conn.__enter__ = MagicMock(return_value=conn)
+    conn.__exit__ = MagicMock(return_value=False)
+
+    with patch("psycopg2.connect", return_value=conn):
+        yield conn
 
 
 class TestExperimentsDBLoadEdgeCases:
@@ -28,20 +110,27 @@ class TestExperimentsDBLoadEdgeCases:
 
 
 class TestGetGpuProcessCountEdgeCases:
+    @patch("gpu.subprocess.check_output")
     @patch("subprocess.check_output")
-    def test_handles_empty_lines(self, mock_output):
+    def test_handles_empty_lines(self, mock_global, mock_gpu):
         from experiments import get_gpu_process_count
 
-        mock_output.side_effect = ["GPU-UUID-1, 1234\n\n", "0, GPU-UUID-1\n\n"]
+        mock_global.side_effect = ["GPU-UUID-1, 1234, 1024MiB\n\n", "0, GPU-UUID-1\n\n"]
+        mock_gpu.side_effect = ["GPU-UUID-1, 1234, 1024MiB\n\n", "0, GPU-UUID-1\n\n"]
         counts = get_gpu_process_count()
         assert counts[0] == 1
 
+    @patch("gpu.subprocess.check_output")
     @patch("subprocess.check_output")
-    def test_handles_invalid_parts(self, mock_output):
+    def test_handles_invalid_parts(self, mock_global, mock_gpu):
         from experiments import get_gpu_process_count
 
-        mock_output.side_effect = [
-            "GPU-UUID-1, 1234\nshortline",
+        mock_global.side_effect = [
+            "GPU-UUID-1, 1234, 1024MiB\nshortline",
+            "0, GPU-UUID-1\ninvalid",
+        ]
+        mock_gpu.side_effect = [
+            "GPU-UUID-1, 1234, 1024MiB\nshortline",
             "0, GPU-UUID-1\ninvalid",
         ]
         counts = get_gpu_process_count()
@@ -49,19 +138,23 @@ class TestGetGpuProcessCountEdgeCases:
 
 
 class TestGetPidGpuMapEdgeCases:
+    @patch("gpu.subprocess.check_output")
     @patch("subprocess.check_output")
-    def test_handles_empty_lines(self, mock_output):
+    def test_handles_empty_lines(self, mock_global, mock_gpu):
         from experiments import get_pid_gpu_map
 
-        mock_output.return_value = "1234, 5000\n\n5678, 8000"
+        mock_global.return_value = "1234, 5000\n\n5678, 8000"
+        mock_gpu.return_value = "1234, 5000\n\n5678, 8000"
         result = get_pid_gpu_map()
         assert 1234 in result
 
+    @patch("gpu.subprocess.check_output")
     @patch("subprocess.check_output")
-    def test_handles_short_lines(self, mock_output):
+    def test_handles_short_lines(self, mock_global, mock_gpu):
         from experiments import get_pid_gpu_map
 
-        mock_output.return_value = "1234, 5000\njust_one"
+        mock_global.return_value = "1234, 5000\njust_one"
+        mock_gpu.return_value = "1234, 5000\njust_one"
         result = get_pid_gpu_map()
         assert 1234 in result
 
@@ -77,11 +170,11 @@ class TestUpdateLockPidException:
 
 class TestClusterManagerLoadMachinesException:
     def test_handles_invalid_json(self, temp_dir):
-        from experiments import ClusterManager
+        from cluster import ClusterManager
 
         machines_file = temp_dir / "machines.json"
         machines_file.write_text("not json {{")
-        with patch("experiments.MACHINES_FILES", [machines_file]):
+        with patch("cluster.MACHINES_FILES", [machines_file]):
             cm = ClusterManager()
             assert cm.machines == {}
 
@@ -94,20 +187,20 @@ class TestClusterManagerHeartbeatEdgeCases:
 
         hb_file = temp_heartbeats_dir / "bad.json"
         hb_file.write_text("not json")
-        with patch("experiments.MACHINES_FILES", [temp_machines_file]):
-            with patch("experiments.HEARTBEATS_DIR", temp_heartbeats_dir):
+        with patch("cluster.MACHINES_FILES", [temp_machines_file]):
+            with patch("cluster.HEARTBEATS_DIR", temp_heartbeats_dir):
                 cm = ClusterManager()
                 status = cm.get_cluster_status()
                 assert "node1" in status
 
 
 class TestClusterManagerStopNodeException:
-    @patch("subprocess.run")
+    @patch("cluster.subprocess.run")
     def test_handles_exception(self, mock_run, temp_machines_file):
         from experiments import ClusterManager
 
         mock_run.side_effect = Exception("connection failed")
-        with patch("experiments.MACHINES_FILES", [temp_machines_file]):
+        with patch("cluster.MACHINES_FILES", [temp_machines_file]):
             cm = ClusterManager()
             ok, msg = cm.stop_node("node1")
             assert ok is False
@@ -115,12 +208,12 @@ class TestClusterManagerStopNodeException:
 
 
 class TestClusterManagerStartNodeException:
-    @patch("subprocess.run")
+    @patch("cluster.subprocess.run")
     def test_handles_generic_exception(self, mock_run, temp_machines_file):
         from experiments import ClusterManager
 
         mock_run.side_effect = Exception("unknown error")
-        with patch("experiments.MACHINES_FILES", [temp_machines_file]):
+        with patch("cluster.MACHINES_FILES", [temp_machines_file]):
             cm = ClusterManager()
             ok, msg = cm.start_node("node1")
             assert ok is False
@@ -449,13 +542,21 @@ class TestCheckStaleLocksEdgeCases:
 
 
 class TestRunExperimentProcessOOM:
-    @patch("experiments.mark_error")
-    @patch("experiments.mark_running")
-    @patch("experiments.update_lock_pid")
+    @patch("worker.mark_error")
+    @patch("worker.mark_running")
+    @patch("worker.update_lock_pid")
     @patch("subprocess.Popen")
-    @patch("experiments.parse_oom_from_stderr")
+    @patch("worker.parse_oom_from_stderr")
     def test_oom_with_high_peak_marks_true_oom(
-        self, mock_parse, mock_popen, mock_lock, mock_running, mock_error, db, temp_dir
+        self,
+        mock_parse,
+        mock_popen,
+        mock_lock,
+        mock_running,
+        mock_error,
+        db,
+        mock_db_conn,
+        temp_dir,
     ):
         from experiments import run_experiment_process, OOM_THRESHOLD_MB
 
@@ -464,7 +565,7 @@ class TestRunExperimentProcessOOM:
         (exp_dir / "train.py").write_text("exit(1)")
 
         mock_process = MagicMock()
-        mock_process.poll.side_effect = [None, 1]
+        mock_process.poll.side_effect = iter([None, 1, 1, 1, 1, 1])
         mock_process.pid = 12345
         mock_popen.return_value = mock_process
 
@@ -475,16 +576,27 @@ class TestRunExperimentProcessOOM:
 
         logger = MagicMock()
 
-        with patch("experiments.BASE_DIR", temp_dir):
-            with patch("experiments.LOGS_DIR", logs_dir):
-                with patch(
-                    "experiments.get_pid_gpu_map",
-                    return_value={12345: OOM_THRESHOLD_MB + 1000},
-                ):
-                    with patch("time.sleep"):
-                        run_experiment_process(
-                            {"name": "oom_exp"}, "worker1", 0, logger, db
-                        )
+        db.get_run_id = MagicMock(return_value="run_oom_123")
+        db.update_experiment = MagicMock()
+
+        def mark_error_side_effect(
+            db, name, kind, msg, is_oom_flag=None, peak_mb=None, run_id=None
+        ):
+            return True
+
+        mock_error.side_effect = mark_error_side_effect
+
+        with patch("worker.BASE_DIR", temp_dir):
+            with patch("worker.LOGS_DIR", logs_dir):
+                with patch("worker.OOM_THRESHOLD_MB", 1000):
+                    with patch(
+                        "gpu.get_pid_gpu_map",
+                        return_value={12345: OOM_THRESHOLD_MB + 1000},
+                    ):
+                        with patch("time.sleep"):
+                            run_experiment_process(
+                                {"name": "oom_exp"}, "worker1", 0, logger, db
+                            )
 
         args = mock_error.call_args
         assert args[0][2] == "OOM"
@@ -492,12 +604,19 @@ class TestRunExperimentProcessOOM:
             len(args[0]) > 4 and args[0][4] is True
         )
 
-    @patch("experiments.mark_error")
-    @patch("experiments.mark_running")
-    @patch("experiments.update_lock_pid")
+    @patch("worker.mark_error")
+    @patch("worker.mark_running")
+    @patch("worker.update_lock_pid")
     @patch("subprocess.Popen")
     def test_failed_with_stderr_content(
-        self, mock_popen, mock_lock, mock_running, mock_error, db, temp_dir
+        self,
+        mock_popen,
+        mock_lock,
+        mock_running,
+        mock_error,
+        db,
+        mock_db_conn,
+        temp_dir,
     ):
         from experiments import run_experiment_process
 
@@ -515,12 +634,10 @@ class TestRunExperimentProcessOOM:
 
         logger = MagicMock()
 
-        with patch("experiments.BASE_DIR", temp_dir):
-            with patch("experiments.LOGS_DIR", logs_dir):
-                with patch(
-                    "experiments.parse_oom_from_stderr", return_value=(False, False, 0)
-                ):
-                    with patch("experiments.get_pid_gpu_map", return_value={}):
+        with patch("worker.BASE_DIR", temp_dir):
+            with patch("worker.LOGS_DIR", logs_dir):
+                with patch("oom.parse_oom_from_stderr", return_value=(False, False, 0)):
+                    with patch("gpu.get_pid_gpu_map", return_value={}):
                         with patch("time.sleep"):
                             run_experiment_process(
                                 {"name": "fail_exp"}, "worker1", 0, logger, db
@@ -531,12 +648,12 @@ class TestRunExperimentProcessOOM:
 
 
 class TestRunExperimentProcessResultFile:
-    @patch("experiments.mark_done")
-    @patch("experiments.mark_running")
-    @patch("experiments.update_lock_pid")
+    @patch("worker.mark_done")
+    @patch("worker.mark_running")
+    @patch("worker.update_lock_pid")
     @patch("subprocess.Popen")
     def test_reads_result_file(
-        self, mock_popen, mock_lock, mock_running, mock_done, db, temp_dir
+        self, mock_popen, mock_lock, mock_running, mock_done, db, mock_db_conn, temp_dir
     ):
         from experiments import run_experiment_process
 
@@ -560,10 +677,10 @@ class TestRunExperimentProcessResultFile:
 
         logger = MagicMock()
 
-        with patch("experiments.BASE_DIR", temp_dir):
-            with patch("experiments.LOGS_DIR", logs_dir):
-                with patch("experiments.RESULTS_DB_DIR", results_dir):
-                    with patch("experiments.get_pid_gpu_map", return_value={}):
+        with patch("worker.BASE_DIR", temp_dir):
+            with patch("worker.LOGS_DIR", logs_dir):
+                with patch("worker.RESULTS_DB_DIR", results_dir):
+                    with patch("gpu.get_pid_gpu_map", return_value={}):
                         with patch("time.sleep"):
                             run_experiment_process(
                                 {"name": "success_exp"}, "worker1", 0, logger, db

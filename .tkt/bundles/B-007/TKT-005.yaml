@@ -1,0 +1,51 @@
+id: TKT-005
+bundle: B-007
+type: worker
+title: Add DB query for all experiments including unclaimed queue
+description: "FILE: pipeline/db_registry.py\nPROBLEM: The current load() returns experiments\
+  \ via snapshot_as_json() which may not include all NEEDS_RERUN entries. Need a dedicated\
+  \ method.\nADD new method to DBExperimentsDB class (after load() method, around\
+  \ line ~510):\n  def load_all_for_panel(self) -> List[Dict[str, Any]]:\n      \"\
+  \"\"Load ALL experiments from DB for panel display, including unclaimed queue entries.\"\
+  \"\"\n      try:\n          with get_conn(self.dsn) as conn:\n              with\
+  \ conn.cursor() as cur:\n                  cur.execute(\n                      \"\
+  SELECT name, status, preferred_worker, extra, display_order, \"\n              \
+  \        \"parent_experiment, peak_memory_mb, started_at, claimed_at \"\n      \
+  \                \"FROM exp_registry.experiments \"\n                      \"ORDER\
+  \ BY display_order NULLS LAST, name\"\n                  )\n                  rows\
+  \ = cur.fetchall()\n                  result = []\n                  for row in\
+  \ rows:\n                      exp = {\"name\": row[0], \"status\": row[1] or \"\
+  NEEDS_RERUN\"}\n                      if row[2]: exp[\"preferred_worker\"] = row[2]\n\
+  \                      if row[3] and isinstance(row[3], dict):\n               \
+  \           exp.update(row[3])\n                      if row[4] is not None: exp[\"\
+  display_order\"] = row[4]\n                      if row[5]: exp[\"parent_experiment\"\
+  ] = row[5]\n                      if row[6]: exp[\"peak_memory_mb\"] = row[6]\n\
+  \                      if row[7]: exp[\"started_at\"] = row[7].isoformat() if hasattr(row[7],\
+  \ \"isoformat\") else str(row[7])\n                      if row[8]: exp[\"claimed_at\"\
+  ] = row[8].isoformat() if hasattr(row[8], \"isoformat\") else str(row[8])\n    \
+  \                  result.append(exp)\n                  return result\n      except\
+  \ Exception as e:\n          print(f\"[DBExperimentsDB] load_all_for_panel error:\
+  \ {e}\")\n          return []\nNOTE: This is a single SELECT - atomic by nature.\n\
+  VERIFY: grep -n \"def load_all_for_panel\" pipeline/db_registry.py shows the new\
+  \ method\n"
+acceptance_criteria:
+- Task completed as described
+status: done
+claimed_by: null
+claimed_at: null
+started_at: null
+completed_at: '2026-03-22T12:34:59Z'
+category: null
+effort_estimate: null
+agent_type: null
+skills: []
+wave: 3
+qa_scenarios: []
+source_plan: null
+source_ticket_index: null
+result:
+  summary: Code changes verified in codebase
+  artifacts: []
+  notes: null
+  evidence: grep-based code verification
+depends_on: []

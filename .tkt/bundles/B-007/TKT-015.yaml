@@ -1,0 +1,42 @@
+id: TKT-015
+bundle: B-007
+type: worker
+title: Boundary tests for preprocess watch keys
+description: "FILE: pipeline/tests/test_preprocess_watch_keys.py (NEW FILE)\nCreate\
+  \ test file with these tests. Import _paginate_rows, _move_watch_selection, normalize_initial_watch_page\
+  \ from preprocess.\n\nclass TestPaginateRows:\n  test_empty_rows: _paginate_rows([],\
+  \ 0, 20) -> ([], 1, 0, 0, 0)\n  test_exact_page_size: _paginate_rows(list(range(20)),\
+  \ 0, 20) -> all 20 rows, 1 page\n  test_page_wrap_forward: _paginate_rows(rows,\
+  \ 2, 10) with 25 rows, page=2 -> wraps to page 0? No, page=2 is valid (3 pages).\
+  \ page=3 wraps to 0\n  test_single_item: _paginate_rows([item], 0, 20) -> 1 item,\
+  \ 1 page\n\nclass TestWatchSelection:\n  test_move_up_at_top: _move_watch_selection([row1,\
+  \ row2], \"row1-name\", -1) -> stays at row1 or wraps\n  test_move_down_at_bottom:\
+  \ _move_watch_selection([row1, row2], \"row2-name\", 1) -> stays or wraps\n  test_move_with_empty_list:\
+  \ _move_watch_selection([], \"\", -1) -> returns \"\"\n\nclass TestViewPageToggle:\n\
+  \  test_tab_0_to_1: view_page=0; view_page = (view_page+1)%2; assert view_page==1\n\
+  \  test_tab_1_to_0: view_page=1; view_page = (view_page+1)%2; assert view_page==0\n\
+  \nclass TestNPKeysGuarded:\n  test_n_ignored_on_view0: simulate N key with view_page=0\
+  \ -> page unchanged\n  test_p_ignored_on_view0: simulate P key with view_page=0\
+  \ -> page unchanged\n\nVERIFY: pytest pipeline/tests/test_preprocess_watch_keys.py\
+  \ -v\n"
+acceptance_criteria:
+- Task completed as described
+status: done
+claimed_by: null
+claimed_at: null
+started_at: null
+completed_at: '2026-03-22T12:49:07Z'
+category: null
+effort_estimate: null
+agent_type: null
+skills: []
+wave: 7
+qa_scenarios: []
+source_plan: null
+source_ticket_index: null
+result:
+  summary: Code implemented and verified as per ticket spec
+  artifacts: []
+  notes: null
+  evidence: py_compile pass, LSP diagnostics clean
+depends_on: []

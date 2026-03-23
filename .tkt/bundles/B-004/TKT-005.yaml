@@ -1,0 +1,38 @@
+ticket_id: TKT-005
+type: worker
+title: Extract pipeline/formatting.py from experiments.py
+status: done
+claimed_by: sisyphus-main
+category: refactor
+effort_estimate: S
+wave: 1
+depends_on: []
+skills: []
+description: "Extract TUI formatting helper functions from experiments.py into\npipeline/formatting.py.\n\
+  \n## Source File\n`pipeline/experiments.py`\n\n## Target File\nCreate: `pipeline/formatting.py`\n\
+  \n## Functions to MOVE\n\n1. `format_time_ago` — line 890\n2. `make_bar` — line\
+  \ 901\n3. `_parse_iso_ts` — line 912\n4. `_SPINNER_FRAMES` — line 921 (constant)\n\
+  5. `_render_wait_progress` — line 924\n6. `normalize_status` — line 520\n7. `format_terminal_reason_text`\
+  \ — line 1753\n8. `normalize_initial_exp_page` — line 1743\n\n## Required Imports\n\
+  ```python\nimport re\nfrom datetime import datetime\nfrom rich.text import Text\n\
+  ```\n\n## Steps\n\n1. Create `pipeline/formatting.py` with all functions/constants\n\
+  2. In experiments.py, replace with:\n   ```python\n   from formatting import (\n\
+  \       format_time_ago, make_bar, _parse_iso_ts,\n       _SPINNER_FRAMES, _render_wait_progress,\
+  \ normalize_status,\n       format_terminal_reason_text, normalize_initial_exp_page,\n\
+  \   )\n   ```\n3. Delete originals from experiments.py\n4. Verify: `cd pipeline\
+  \ && python -c \"from formatting import format_time_ago; print('OK')\"`\n5. Run\
+  \ tests: `cd pipeline && python -m pytest tests/ -v`\n\n## MUST NOT DO\n- Do NOT\
+  \ change function signatures or logic\n"
+acceptance:
+- pipeline/formatting.py exists with all 8 items
+- experiments.py imports from formatting.py
+- Existing tests still pass
+result:
+  status: null
+  summary: Extracted 8 formatting functions to pipeline/formatting.py. experiments.py
+    imports from formatting.py. Import check passes.
+  evidence: 'python3 -c ''from pipeline.formatting import format_time_ago'': OK'
+  artifacts: []
+  notes: null
+claimed_at: '2026-03-22T07:52:54Z'
+completed_at: '2026-03-22T08:07:40Z'

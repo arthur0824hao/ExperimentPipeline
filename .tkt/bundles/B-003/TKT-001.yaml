@@ -1,0 +1,101 @@
+ticket_id: TKT-001
+type: worker
+title: Test preprocess.py — feature generation + gate validation
+status: done
+claimed_by: sisyphus-main
+category: test
+effort_estimate: M
+wave: 1
+depends_on: []
+skills: []
+description: 'Create unit tests for preprocess.py feature generation and gate validation.
+
+  Tests MUST mock file I/O and subprocess calls — no live environment required.
+
+
+  ## Target File
+
+  Create: `pipeline/tests/test_preprocess_features.py`
+
+
+  ## What to Test
+
+
+  File: `pipeline/preprocess.py`
+
+
+  ### Test Group 1: generate_single_feature (line 782)
+
+  - Test dispatching to FEATURE_GENERATORS dict (line 765)
+
+  - Test handling of unknown feature name (should log warning, return False)
+
+  - Test feature recipe mode (when recipe dict provided instead of generator)
+
+  - Test successful generation returns True
+
+
+  ### Test Group 2: collect_missing_tasks (line 846)
+
+  - Test with all features available (returns empty list)
+
+  - Test with some features missing (returns missing names)
+
+  - Test deduplication of missing features across experiments
+
+
+  ### Test Group 3: collect_feature_jobs (line 859)
+
+  - Test normalization of raw feature job dicts
+
+  - Test filtering out already-available features
+
+  - Test job dict structure validation
+
+
+  ### Test Group 4: run_experiment_gate (line 353)
+
+  - Test gate pass when test file exists and passes
+
+  - Test gate fail when test fails
+
+  - Test gate skip when no test file found
+
+  - Test gate with memory contract validation
+
+  - Mock subprocess.run for pytest execution
+
+
+  ### Test Group 5: is_experiment_ready (line 483)
+
+  - Test experiment ready when all required features exist
+
+  - Test experiment not ready when features missing
+
+  - Test with empty feature list (always ready)
+
+
+  ## Verification
+
+  ```bash
+
+  cd pipeline && python -m pytest tests/test_preprocess_features.py -v
+
+  ```
+
+  '
+acceptance:
+- test_preprocess_features.py exists in pipeline/tests/
+- Has >= 10 test functions
+- All tests pass
+- Tests mock file I/O and subprocess
+result:
+  status: null
+  summary: Created test_preprocess_features.py with 16 tests covering generate_single_feature,
+    collect_missing_tasks, collect_feature_jobs, run_experiment_gate, is_experiment_ready
+  evidence: 'cd pipeline && python -m pytest tests/test_preprocess_features.py: 16
+    passed'
+  artifacts: []
+  notes: null
+claimed_at: '2026-03-22T07:46:23Z'
+completed_at: '2026-03-22T07:51:09Z'

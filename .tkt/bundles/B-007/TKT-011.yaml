@@ -1,0 +1,71 @@
+id: TKT-011
+bundle: B-007
+type: worker
+title: Create pipeline/archive_card.py module
+description: "FILE: pipeline/archive_card.py (NEW FILE)\nCreate this EXACT file:\n\
+  \n```python\n\"\"\"Archive card generator - reads metric_history.jsonl and produces\
+  \ matplotlib charts.\"\"\"\nimport json\nimport os\nfrom pathlib import Path\nfrom\
+  \ typing import Dict, List, Optional, Any\n\nBASE_DIR = Path(__file__).parent.absolute()\n\
+  \n\ndef _read_history(experiment_dir: str) -> List[Dict[str, Any]]:\n  history_file\
+  \ = os.path.join(experiment_dir, \"metric_history.jsonl\")\n  entries: List[Dict[str,\
+  \ Any]] = []\n  if not os.path.exists(history_file):\n      return entries\n  try:\n\
+  \      with open(history_file, \"r\") as f:\n          for line in f:\n        \
+  \      line = line.strip()\n              if line:\n                  entries.append(json.loads(line))\n\
+  \  except Exception:\n      pass\n  return entries\n\n\ndef get_metric_summary(exp_name:\
+  \ str, exp_dir: Optional[str] = None) -> Dict[str, Dict[str, Any]]:\n  if exp_dir\
+  \ is None:\n      exp_dir = str(BASE_DIR / \"experiments\" / exp_name)\n  entries\
+  \ = _read_history(exp_dir)\n  if not entries:\n      return {}\n  skip_keys = {\"\
+  epoch\", \"total_epochs\", \"timestamp\", \"phase\", \"experiment\"}\n  metric_names\
+  \ = set()\n  for entry in entries:\n      for k in entry:\n          if k not in\
+  \ skip_keys and isinstance(entry[k], (int, float)):\n              metric_names.add(k)\n\
+  \  summary: Dict[str, Dict[str, Any]] = {}\n  for metric in sorted(metric_names):\n\
+  \      values = [entry[metric] for entry in entries if metric in entry and isinstance(entry[metric],\
+  \ (int, float))]\n      if values:\n          summary[metric] = {\n            \
+  \  \"min\": round(min(values), 4),\n              \"max\": round(max(values), 4),\n\
+  \              \"final\": round(values[-1], 4),\n              \"mean\": round(sum(values)\
+  \ / len(values), 4),\n              \"epochs_count\": len(values),\n          }\n\
+  \  return summary\n\n\ndef generate_archive_card(exp_name: str, exp_dir: Optional[str]\
+  \ = None, output_path: Optional[str] = None) -> Optional[str]:\n  if exp_dir is\
+  \ None:\n      exp_dir = str(BASE_DIR / \"experiments\" / exp_name)\n  entries =\
+  \ _read_history(exp_dir)\n  if not entries:\n      return None\n  if output_path\
+  \ is None:\n      output_path = os.path.join(exp_dir, \"archive_card.png\")\n  skip_keys\
+  \ = {\"epoch\", \"total_epochs\", \"timestamp\", \"phase\", \"experiment\"}\n  metric_names\
+  \ = []\n  for entry in entries:\n      for k in entry:\n          if k not in skip_keys\
+  \ and isinstance(entry[k], (int, float)) and k not in metric_names:\n          \
+  \    metric_names.append(k)\n  if not metric_names:\n      return None\n  try:\n\
+  \      import matplotlib\n      matplotlib.use(\"Agg\")\n      import matplotlib.pyplot\
+  \ as plt\n  except ImportError:\n      return None\n  num_metrics = len(metric_names)\n\
+  \  fig, axes = plt.subplots(num_metrics, 1, figsize=(10, 3 * num_metrics), squeeze=False)\n\
+  \  fig.suptitle(exp_name, fontsize=14, fontweight=\"bold\")\n  for i, metric in\
+  \ enumerate(metric_names):\n      ax = axes[i][0]\n      epochs = [entry.get(\"\
+  epoch\", j + 1) for j, entry in enumerate(entries) if metric in entry and isinstance(entry[metric],\
+  \ (int, float))]\n      values = [entry[metric] for entry in entries if metric in\
+  \ entry and isinstance(entry[metric], (int, float))]\n      if epochs and values:\n\
+  \          ax.plot(epochs, values, marker=\".\", markersize=3, linewidth=1)\n  \
+  \        ax.set_ylabel(metric)\n          ax.grid(True, alpha=0.3)\n          if\
+  \ i == num_metrics - 1:\n              ax.set_xlabel(\"Epoch\")\n  plt.tight_layout()\n\
+  \  os.makedirs(os.path.dirname(output_path) or \".\", exist_ok=True)\n  plt.savefig(output_path,\
+  \ dpi=100, bbox_inches=\"tight\")\n  plt.close(fig)\n  return output_path\n```\n\
+  VERIFY: python3 -c \"import sys; sys.path.insert(0,'pipeline'); from archive_card\
+  \ import get_metric_summary, generate_archive_card; print('OK')\"\n"
+acceptance_criteria:
+- Task completed as described
+status: done
+claimed_by: null
+claimed_at: null
+started_at: null
+completed_at: '2026-03-22T12:49:07Z'
+category: null
+effort_estimate: null
+agent_type: null
+skills: []
+wave: 5
+qa_scenarios: []
+source_plan: null
+source_ticket_index: null
+result:
+  summary: Code implemented and verified as per ticket spec
+  artifacts: []
+  notes: null
+  evidence: py_compile pass, LSP diagnostics clean
+depends_on: []

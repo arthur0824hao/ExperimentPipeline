@@ -1,0 +1,44 @@
+bundle: B-005
+generated_at: '2026-03-22T08:44:03Z'
+generated_by: main-agent
+summary: Bundle B-005 completed
+tickets_completed: 8
+tickets_failed: 0
+evidence_summary:
+- ticket_id: null
+  title: 'Integrate B-005: Module split phase 2'
+  evidence: null
+- ticket_id: null
+  title: Extract pipeline/cluster.py — ClusterManager class
+  evidence: null
+- ticket_id: null
+  title: Extract pipeline/allocator.py — GPUAllocator class
+  evidence: null
+- ticket_id: null
+  title: Extract pipeline/logger_hybrid.py — HybridLogger class
+  evidence: null
+- ticket_id: null
+  title: Extract pipeline/worker.py — run_experiment_process + helpers
+  evidence: null
+- ticket_id: null
+  title: Extract pipeline/health.py — orphan reaping + self-healing
+  evidence: null
+- ticket_id: null
+  title: Final verification — experiments.py import cleanup + line count
+  evidence: null
+- ticket_id: null
+  title: 'Audit B-005: Final module split verification'
+  evidence: null
+acceptance_results:
+  passed: 0
+  failed: 0
+  skipped: 0
+  by_ticket: []
+  failures: []
+audit_result:
+  checked_items: []
+  findings: []
+  quality_score: null
+  evidence: null
+discussion_points: []
+next_actions: []

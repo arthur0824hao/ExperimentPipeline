@@ -787,7 +787,7 @@ def main() -> int:
     p_store.add_argument("title", nargs="?")
     p_store.add_argument("tags_csv", nargs="?", default="")
     p_store.add_argument("importance", nargs="?", type=float, default=5)
-    p_store.add_argument("--type", "memory_type_opt")
+    p_store.add_argument("--type", dest="memory_type_opt")
     p_store.add_argument("--category", dest="category_opt")
     p_store.add_argument("--title", dest="title_opt")
     p_store.add_argument("--tags", dest="tags_opt", default="")

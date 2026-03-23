@@ -1,0 +1,38 @@
+id: TKT-016
+bundle: B-007
+type: worker
+title: Boundary tests for experiment dashboard keys
+description: "FILE: pipeline/tests/test_dashboard_key_boundaries.py (NEW FILE)\nImport\
+  \ make_dashboard from test_dashboard_keys.py (or create equivalent helper).\n\n\
+  class TestExpSelectionBoundaries:\n  test_w_at_top_stays_at_0:\n      dashboard\
+  \ with 3 exps, selected_exp_idx=0\n      handle_key(\"w\") -> selected_exp_idx still\
+  \ 0\n  test_s_at_bottom_stays:\n      dashboard with 3 exps, selected_exp_idx=2\n\
+  \      handle_key(\"s\") -> selected_exp_idx still 2\n  test_ws_with_empty_experiments:\n\
+  \      dashboard with 0 exps\n      handle_key(\"w\") -> no crash\n      handle_key(\"\
+  s\") -> no crash\n\nclass TestPageBoundaries:\n  test_N_wraps_at_last_page:\n  \
+  \    Set exp_page to last page -> handle_key(\"N\") -> wraps to 0\n  test_P_wraps_at_first_page:\n\
+  \      Set exp_page to 0 -> handle_key(\"P\") -> wraps to last\n\nclass TestTwoStepKeyBoundaries:\n\
+  \  test_esc_cancels_scope:\n      handle_key(\"S\") then handle_key(chr(27)) ->\
+  \ scope cancelled, no action\n\nVERIFY: pytest pipeline/tests/test_dashboard_key_boundaries.py\
+  \ -v\n"
+acceptance_criteria:
+- Task completed as described
+status: done
+claimed_by: null
+claimed_at: null
+started_at: null
+completed_at: '2026-03-22T12:49:08Z'
+category: null
+effort_estimate: null
+agent_type: null
+skills: []
+wave: 7
+qa_scenarios: []
+source_plan: null
+source_ticket_index: null
+result:
+  summary: Code implemented and verified as per ticket spec
+  artifacts: []
+  notes: null
+  evidence: py_compile pass, LSP diagnostics clean
+depends_on: []

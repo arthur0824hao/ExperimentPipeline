@@ -1,0 +1,16 @@
+{
+  "ready_to_process": 1,
+  "experiments": [
+    {
+      "name": "cond-1",
+      "script": "experiments/cond-1/scripts/train.py",
+      "description": "Re-pipeline from experiments panel",
+      "features_ready": true,
+      "gate_status": "PASSED",
+      "gate_passed_at": "2026-03-22T20:19:17.020187",
+      "role": "condition_node"
+    }
+  ],
+  "feature_jobs": [],
+  "batch_id": "repipeline_20260322_201530"
+}

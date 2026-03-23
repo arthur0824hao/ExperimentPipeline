@@ -1,0 +1,52 @@
+id: TKT-008
+bundle: B-007
+type: worker
+title: Modify _render_watch_panel to support view_page
+description: "FILE: pipeline/preprocess.py\nLOCATION: _render_watch_panel function\
+  \ (line 1473)\nCHANGE 1 - Add view_page parameter (line 1474):\n  OLD: def _render_watch_panel(page:\
+  \ int, page_size: int, selected_name: str = \"\", status_msg: str = \"\")\n  NEW:\
+  \ def _render_watch_panel(page: int, page_size: int, selected_name: str = \"\",\
+  \ status_msg: str = \"\", view_page: int = 0)\nCHANGE 2 - Add view indicator to\
+  \ header (around line 1552, add after the existing Time line):\n  Add a new line\
+  \ to the header Group:\n      Text.from_markup(f\"[cyan]View[/]: {'Operations' if\
+  \ view_page == 0 else 'Feature Bank'}  [white]|[/]  [dim]Tab[/] to switch\")\nCHANGE\
+  \ 3 - Modify layout[\"main\"] construction (lines 1571-1584):\n  Replace the entire\
+  \ if/else block with:\n  if view_page == 0:\n      # Operations view: Ready Queue\
+  \ + Experiments Snapshot only\n      ops_ready_height = max(10, main_height // 2)\n\
+  \      ops_snapshot_height = main_height - ops_ready_height\n      layout[\"main\"\
+  ].split_column(\n          Layout(name=\"ready\", size=ops_ready_height),\n    \
+  \      Layout(name=\"snapshot\", size=ops_snapshot_height),\n      )\n  else:\n\
+  \      # Feature Bank view: full height\n      layout[\"main\"].split_column(\n\
+  \          Layout(name=\"features\", size=main_height),\n      )\nCHANGE 4 - Guard\
+  \ feature table rendering (lines 1601-1653):\n  Wrap the entire feature_table +\
+  \ feature_summary + layout[\"features\"].update(...) block with:\n  if view_page\
+  \ == 1:\n      ... (existing feature table code)\nCHANGE 5 - Guard ready + snapshot\
+  \ rendering (lines 1655-1771):\n  Wrap ready_table + snapshot_table + layout[\"\
+  ready\"].update + layout[\"snapshot\"].update with:\n  if view_page == 0:\n    \
+  \  ... (existing ready + snapshot code)\nCHANGE 6 - Update footer controls (line\
+  \ 1773-1774):\n  if view_page == 0:\n      controls_line = Text.from_markup(\"[dim]W/S[/]:Exp\
+  \ Select  [dim]Tab[/]:Feature Bank  [dim][a]All [S]Selected -> [v]Archive [c]Clear\
+  \ [Esc]Cancel[/]  [dim]Q[/]:Quit\")\n  else:\n      controls_line = Text.from_markup(\"\
+  [dim]N/P[/]:Feature Page  [dim]Tab[/]:Operations  [dim]Q[/]:Quit\")\nVERIFY: python3\
+  \ pipeline/preprocess.py --watch --dry-run should work without errors.\n"
+acceptance_criteria:
+- Task completed as described
+status: done
+claimed_by: null
+claimed_at: null
+started_at: null
+completed_at: '2026-03-22T12:40:03Z'
+category: null
+effort_estimate: null
+agent_type: null
+skills: []
+wave: 4
+qa_scenarios: []
+source_plan: null
+source_ticket_index: null
+result:
+  summary: Layout guard + content guards + footer controls verified
+  artifacts: []
+  notes: null
+  evidence: python3 pipeline/preprocess.py --watch --dry-run OK
+depends_on: []

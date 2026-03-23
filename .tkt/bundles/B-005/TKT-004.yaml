@@ -1,0 +1,48 @@
+ticket_id: TKT-004
+type: worker
+title: Extract pipeline/worker.py — run_experiment_process + helpers
+status: done
+claimed_by: sisyphus-main
+category: refactor
+effort_estimate: L
+wave: 2
+depends_on:
+- TKT-001
+- TKT-002
+- TKT-003
+skills: []
+description: "Extract the experiment worker process execution function from experiments.py.\n\
+  This is the core function that runs a single experiment and handles OOM retries.\n\
+  It is the LARGEST single function (~410 lines).\n\n## Source File\n`pipeline/experiments.py`\n\
+  \n## Target File\nCreate: `pipeline/worker.py`\n\n## Functions to MOVE\n\n1. `run_experiment_process`\
+  \ — lines 4400-4810 (~410 lines)\n2. `mark_running` — line 4363 (thin wrapper)\n\
+  3. `mark_done` — line 4369 (thin wrapper)\n4. `mark_error` — line 4374 (thin wrapper)\n\
+  5. `update_lock_pid` — line 4392 (thin wrapper)\n6. `release_distributed_lock` —\
+  \ line 4396 (thin wrapper)\n7. `_clean_experiment_artifacts` — line 347\n8. `_clear_runtime_markers`\
+  \ — line 386\n9. `get_key` — line 4814\n\n## Dependencies (import from other new\
+  \ modules)\n- From gpu.py: `get_pid_gpu_map`, `detect_running_experiments_from_gpu_pids`\n\
+  - From memory_contract.py: `_copy_memory_contract`, `_update_oom_policy_contract`,\
+  \ `_persist_oom_policy_contract`\n- From oom.py: `parse_oom_from_stderr`, `_resolve_batch_overrides`,\
+  \ `_next_smaller_batches`\n- From artifact.py: `_read_result_payload`, `_read_resource_usage`,\
+  \ `_best_error_peak_mb`, `update_running_peak`\n- From formatting.py: `normalize_status`\n\
+  - From db_registry.py: `DBExperimentsDB`\n- Constants: many GPU/OOM/memory constants\n\
+  \n## Steps\n\n1. Create `pipeline/worker.py`\n2. Move all 9 functions listed above\n\
+  3. Add imports from the modules created in B-004 (gpu, memory_contract, oom, artifact,\
+  \ formatting)\n4. In experiments.py, replace with:\n   ```python\n   from worker\
+  \ import (\n       run_experiment_process, mark_running, mark_done, mark_error,\n\
+  \       update_lock_pid, release_distributed_lock,\n       _clean_experiment_artifacts,\
+  \ _clear_runtime_markers, get_key,\n   )\n   ```\n5. Verify: `cd pipeline && python\
+  \ -c \"from worker import run_experiment_process; print('OK')\"`\n6. Run tests:\
+  \ `cd pipeline && python -m pytest tests/ -v`\n\n## MUST NOT DO\n- Do NOT change\
+  \ any function logic\n- Do NOT simplify the OOM retry loop\n- Do NOT modify error\
+  \ handling paths\n"
+acceptance:
+- pipeline/worker.py exists with all 9 functions
+- run_experiment_process logic is identical to original
+- experiments.py imports from worker
+- Existing tests still pass
+result:
+  status: null
+  summary: null
+  evidence: null
+claimed_at: '2026-03-22T08:14:39Z'

@@ -1,0 +1,36 @@
+id: TKT-012
+bundle: B-007
+type: worker
+title: Integrate archive card into archive workflow
+description: "FILE: pipeline/experiments.py\nLOCATION: exp_archive action handler\
+  \ (line ~964-972)\nCHANGE - Add archive card generation BEFORE the archive call.\
+  \ Find the block:\n  if action_type == \"exp_archive\":\n      name = str(request.get(\"\
+  name\", \"\"))\n      ...\n      return f\"{'✓' if ok else '✗'} Archive {name}\"\
+  \nInsert card generation right before the archive_fn call:\n  # Generate archive\
+  \ card (best-effort, never blocks archive)\n  try:\n      from archive_card import\
+  \ generate_archive_card, get_metric_summary\n      card_path = generate_archive_card(name)\n\
+  \      metric_summary = get_metric_summary(name)\n  except Exception:\n      card_path\
+  \ = None\n      metric_summary = {}\nThe archive_fn and _archive_experiment_via_script\
+  \ calls remain unchanged.\nArchive card failure must NOT prevent archiving.\nVERIFY:\
+  \ Read pipeline/experiments.py around line 964. Confirm the try/except block exists.\n"
+acceptance_criteria:
+- Task completed as described
+status: done
+claimed_by: null
+claimed_at: null
+started_at: null
+completed_at: '2026-03-22T12:49:07Z'
+category: null
+effort_estimate: null
+agent_type: null
+skills: []
+wave: 5
+qa_scenarios: []
+source_plan: null
+source_ticket_index: null
+result:
+  summary: Code implemented and verified as per ticket spec
+  artifacts: []
+  notes: null
+  evidence: py_compile pass, LSP diagnostics clean
+depends_on: []

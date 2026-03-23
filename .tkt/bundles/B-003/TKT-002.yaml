@@ -1,0 +1,103 @@
+ticket_id: TKT-002
+type: worker
+title: Test preprocess.py — registration + ready queue flow
+status: done
+claimed_by: sisyphus-main
+category: test
+effort_estimate: M
+wave: 1
+depends_on: []
+skills: []
+description: 'Create unit tests for the experiment registration and ready queue consumption
+  flow.
+
+  Tests MUST mock DB and file I/O — no live environment required.
+
+
+  ## Target File
+
+  Create: `pipeline/tests/test_preprocess_registration.py`
+
+
+  ## What to Test
+
+
+  File: `pipeline/preprocess.py`
+
+
+  ### Test Group 1: _load_ready_queue_data (line 1157)
+
+  - Test loading valid ready.json with experiments and feature_jobs
+
+  - Test default values when fields missing
+
+  - Test empty file handling
+
+  - Test invalid JSON handling (should return safe defaults)
+
+
+  ### Test Group 2: _build_ready_queue_entry (line 1243)
+
+  - Test building queue entry from experiment config
+
+  - Test that all required keys are present in output
+
+  - Test optional key handling (priority, feature_recipes, etc.)
+
+
+  ### Test Group 3: consume_ready_queue_registration_handoff (line 1397)
+
+  - Test consuming queued experiments and registering them in DB
+
+  - Test deduplication (skip already-registered experiments)
+
+  - Test batch_id assignment
+
+  - Test staged experiments are properly consumed from ready.json
+
+  - Mock: DBExperimentsDB, file reads/writes
+
+
+  ### Test Group 4: _insert_registered_configs (line 1317)
+
+  - Test inserting experiment configs into PostgreSQL
+
+  - Test queue_order calculation
+
+  - Test memory_contract propagation
+
+  - Test env_overrides storage in extra JSONB
+
+
+  ### Test Group 5: move_completed_experiments (line 886) (from preprocess.py)
+
+  - Test moving DONE experiments from active to completed list
+
+  - Test that non-DONE experiments stay in active
+
+
+  ## Verification
+
+  ```bash
+
+  cd pipeline && python -m pytest tests/test_preprocess_registration.py -v
+
+  ```
+
+  '
+acceptance:
+- test_preprocess_registration.py exists in pipeline/tests/
+- Has >= 10 test functions
+- All tests pass
+- Tests mock DB and file I/O
+result:
+  status: null
+  summary: Created test_preprocess_registration.py with 13 tests covering _load_ready_queue_data,
+    _build_ready_queue_entry, consume_ready_queue_registration_handoff, _insert_registered_configs,
+    move_completed_experiments
+  evidence: 'cd pipeline && python -m pytest tests/test_preprocess_registration.py:
+    13 passed'
+  artifacts: []
+  notes: null
+claimed_at: '2026-03-22T07:46:23Z'
+completed_at: '2026-03-22T07:51:14Z'

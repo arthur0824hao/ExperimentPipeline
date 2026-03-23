@@ -1,0 +1,85 @@
+id: TKT-011
+bundle: "B-006"
+type: worker
+title: "Integrate archive card into archive workflow + DB storage"
+description: |
+  CONTEXT: Wire archive_card.generate_archive_card() into the archive path so charts are generated before archiving to DB.
+
+DEPENDS ON: TKT-010
+
+FILES TO EDIT:
+  1. pipeline/experiments.py — _archive_experiment_via_script() (line 286) and maybe_archive_completed() (line 2680)
+  2. pipeline/db_registry.py — archive_experiment_to_db() (line 1973)
+
+CHANGE 1 — experiments.py: Generate archive card before archive (line ~964, exp_archive action):
+  When action_type == 'exp_archive':
+    from archive_card import generate_archive_card, get_metric_summary
+    card_path = generate_archive_card(name)
+    summary = get_metric_summary(name)
+    # Attach summary to exp data before archiving
+    if summary:
+        exp_data['metric_summary'] = summary
+    if card_path:
+        exp_data['archive_card_path'] = str(card_path)
+
+CHANGE 2 — experiments.py: Same for auto_archive in maybe_archive_completed() (line ~2680):
+  Before calling archive, generate the card and attach metric_summary.
+
+CHANGE 3 — db_registry.py: archive_experiment_to_db() (line 1973):
+  The exp_data dict already gets stored as JSONB. If metric_summary is present, it will be stored automatically.
+  No schema change needed — JSONB is schemaless.
+  
+  BUT: Make the archive operation atomic. Wrap card generation + DB insert in a try block:
+    1. Generate card (file I/O)
+    2. Build exp_data with summary
+    3. INSERT to DB (single statement, already atomic)
+    If card generation fails, still archive without card (degrade gracefully).
+
+CHANGE 4 — pipeline/worker.py: In _clean_experiment_artifacts() (line ~106):
+  Do NOT clean metric_history.jsonl and archive_card.png during rerun cleanup.
+  Add these to the preserve list. They should only be deleted when the experiment directory is fully removed.
+  Actually — metric_history.jsonl SHOULD be cleaned on rerun (fresh training = fresh history).
+  archive_card.png SHOULD be cleaned on rerun.
+  So no change needed for clean — both files live in exp_dir which gets cleaned.
+
+DB ATOMICITY CONSTRAINT:
+  - archive_experiment_to_db already uses a single INSERT — inherently atomic
+  - Card generation is pre-archive I/O, not part of the transaction
+  - If DB insert fails after card generation, card file remains (harmless orphan)
+  - If card generation fails, archive proceeds without card (graceful degradation)
+
+MUST NOT:
+  - Make archive fail if card generation fails
+  - Change archive_experiment_to_db() SQL (it's already correct)
+  - Import archive_card at module top level (lazy import to avoid matplotlib load time)
+
+VERIFY: Mock an experiment with metric_history.jsonl, trigger archive, verify:
+  1. archive_card.png exists in exp dir
+  2. DB record contains metric_summary
+  3. Archive still works if metric_history.jsonl is missing
+acceptance_criteria:
+  - "Task completed as described"
+status: done
+claimed_by: null
+claimed_at: null
+started_at: null
+completed_at: null
+category: null
+effort_estimate: null
+agent_type: null
+skills: []
+wave: 3
+qa_scenarios: 
+  - "Archive with history generates card + stores summary in DB"
+  - "Archive without history still works (graceful degradation)"
+  - "DB record contains metric_summary JSONB field"
+  - "archive_card.png is created before DB insert"
+source_plan: null
+source_ticket_index: null
+result:
+  summary: null
+  artifacts: []
+  notes: null
+  evidence: null
+depends_on: 
+  - "TKT-010"

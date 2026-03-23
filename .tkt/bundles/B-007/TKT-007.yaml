@@ -1,0 +1,46 @@
+id: TKT-007
+bundle: B-007
+type: worker
+title: Add view_page state to preprocess run_watch
+description: "FILE: pipeline/preprocess.py\nLOCATION: run_watch() function (line 1836)\n\
+  CHANGE 1 - Add view_page variable after line 1838 (selected_name = \"\"):\n  view_page\
+  \ = 0  # 0=Operations, 1=Feature Bank\nCHANGE 2 - Pass view_page to _render_watch_panel\
+  \ at line ~1862:\n  OLD: panel, total_pages, page = _render_watch_panel(page, page_size,\
+  \ selected_name, status_msg)\n  NEW: panel, total_pages, page = _render_watch_panel(page,\
+  \ page_size, selected_name, status_msg, view_page=view_page)\nCHANGE 3 - Add Tab\
+  \ key BEFORE the N/P handling (insert after line 1873, before line 1874):\n  if\
+  \ key == \"\\t\":\n      view_page = (view_page + 1) % 2\n      continue\nCHANGE\
+  \ 4 - Guard N/P to view_page==1 only (lines 1874-1877):\n  OLD:\n      if key_lower\
+  \ == \"n\":\n          page = (page + 1) % max(total_pages, 1)\n      elif key_lower\
+  \ == \"p\":\n          page = (page - 1) % max(total_pages, 1)\n  NEW:\n      if\
+  \ key_lower == \"n\" and view_page == 1:\n          page = (page + 1) % max(total_pages,\
+  \ 1)\n      elif key_lower == \"p\" and view_page == 1:\n          page = (page\
+  \ - 1) % max(total_pages, 1)\nCHANGE 5 - Guard W/S to view_page==0 only (lines 1878-1881):\n\
+  \  OLD:\n      elif key_lower == \"w\":\n          selected_name = _move_watch_selection(snapshot_rows,\
+  \ selected_name, -1)\n      elif key == \"s\":\n          selected_name = _move_watch_selection(snapshot_rows,\
+  \ selected_name, 1)\n  NEW:\n      elif key_lower == \"w\" and view_page == 0:\n\
+  \          selected_name = _move_watch_selection(snapshot_rows, selected_name, -1)\n\
+  \      elif key == \"s\" and view_page == 0:\n          selected_name = _move_watch_selection(snapshot_rows,\
+  \ selected_name, 1)\nVERIFY: grep -n \"view_page\" pipeline/preprocess.py should\
+  \ show the new variable and guards.\n"
+acceptance_criteria:
+- Task completed as described
+status: done
+claimed_by: null
+claimed_at: null
+started_at: null
+completed_at: '2026-03-22T12:40:03Z'
+category: null
+effort_estimate: null
+agent_type: null
+skills: []
+wave: 4
+qa_scenarios: []
+source_plan: null
+source_ticket_index: null
+result:
+  summary: view_page state + Tab/N/P/W/S guards verified in code
+  artifacts: []
+  notes: null
+  evidence: grep view_page pipeline/preprocess.py
+depends_on: []

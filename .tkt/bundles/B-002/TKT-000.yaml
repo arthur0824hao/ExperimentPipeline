@@ -1,0 +1,19 @@
+ticket_id: TKT-000
+type: integrate
+title: 'Integrate B-002: db_registry.py test coverage'
+status: done
+claimed_by: sisyphus-main
+description: 'Coordinate test writing. Verify all worker tickets complete. Run full
+  test suite: cd pipeline && python -m pytest tests/ -v All tests must pass.
+
+  '
+acceptance:
+- python -m pytest tests/ -v exits with 0 from pipeline/ directory
+- At least 5 new test files or significant additions to existing test files
+claimed_at: '2026-03-22T07:45:37Z'
+completed_at: '2026-03-22T07:45:54Z'
+result:
+  summary: Bundle B-002 integrated and closed
+  artifacts: []
+  notes: null
+  evidence: All 5 worker tickets done, audit passed, 69 tests pass

@@ -1,0 +1,210 @@
+spec_version: "1.0"
+target: "pipeline/experiments.py"
+purpose: "Module boundary contracts for experiments.py decomposition"
+
+modules:
+  gpu:
+    file: "pipeline/gpu.py"
+    description: "GPU monitoring, nvidia-smi parsing, process detection"
+    public_api:
+      - get_all_gpu_status
+      - collect_gpu_status_with_error
+      - collect_system_info
+      - get_gpu_process_count
+      - get_pid_gpu_map
+      - detect_running_experiments_from_gpu_pids
+    internal:
+      - _coerce_nvidia_int
+      - _parse_nvidia_query_output
+      - get_cpu_load
+      - _build_worker_gpu_free_maps
+      - _best_free_mb_for_worker
+      - _free_mb_for_worker_gpu
+    dependencies: []
+
+  memory_contract:
+    file: "pipeline/memory_contract.py"
+    description: "Memory estimation, OOM policy contract management"
+    public_api:
+      - get_memory_contract
+      - format_memory_contract_fields
+      - get_required_mem_mb
+    internal:
+      - _should_fallback_memory_estimator_import
+      - _should_reestimate_memory_contract
+      - _copy_memory_contract
+      - _update_oom_policy_contract
+      - _persist_oom_policy_contract
+    dependencies:
+      - artifact
+
+  artifact:
+    file: "pipeline/artifact.py"
+    description: "Experiment artifact and result file operations"
+    public_api:
+      - update_running_peak
+      - get_experiment_progress
+      - get_completed_result_summary
+    internal:
+      - _load_json_dict
+      - _artifact_timestamp
+      - _failed_timestamp
+      - _artifact_is_fresh
+      - _stderr_is_empty
+      - _read_resource_usage
+      - _read_result_payload
+      - _coerce_completed_result
+      - _coerce_float
+      - _coerce_int
+      - _extract_peak_from_payload
+      - _best_error_peak_mb
+    dependencies: []
+
+  oom:
+    file: "pipeline/oom.py"
+    description: "OOM parsing and dynamic batch fallback"
+    public_api:
+      - parse_oom_from_stderr
+    internal:
+      - _resolve_batch_overrides
+      - _next_smaller_batches
+      - _script_env_default
+      - _coerce_positive_int
+    dependencies: []
+
+  formatting:
+    file: "pipeline/formatting.py"
+    description: "TUI formatting and status normalization helpers"
+    public_api:
+      - format_time_ago
+      - make_bar
+      - normalize_status
+      - format_terminal_reason_text
+      - normalize_initial_exp_page
+    internal:
+      - _parse_iso_ts
+      - _SPINNER_FRAMES
+      - _render_wait_progress
+    dependencies: []
+
+  terminal_state:
+    file: "pipeline/terminal_state.py"
+    description: "Terminal reason normalization and artifact truth reconciliation"
+    public_api:
+      - get_terminal_reason
+      - reconcile_terminal_artifacts
+    internal:
+      - _build_terminal_metadata
+      - _build_canonical_result
+      - _artifact_truth_mismatch
+      - _get_db_terminal_reason
+    dependencies:
+      - artifact
+      - formatting
+
+  condition:
+    file: "pipeline/condition.py"
+    description: "Condition nodes and staged matrix synthesis"
+    public_api:
+      - RUNTIME_CONDITION_NODES
+      - RUNTIME_STAGED_MATRIX
+    internal:
+      - _normalize_name_list
+      - _load_condition_nodes_from_runtime
+      - _load_staged_matrix_entries
+      - _resolve_gate_evidence_status
+      - _build_condition_node_rows
+      - _build_staged_matrix_rows
+    dependencies:
+      - formatting
+
+  ready_queue:
+    file: "pipeline/ready_queue.py"
+    description: "Ready queue handoff and registry insertion workflow"
+    public_api:
+      - consume_ready_queue_registration_handoff
+    internal:
+      - _is_truthy_flag
+      - _load_ready_queue_data
+      - _save_json_atomic
+      - _archive_experiment_via_script
+      - _delete_experiment_from_registry
+      - _build_ready_queue_entry
+      - _enqueue_repipeline_ready
+      - _is_feature_ready_for_runner
+      - _insert_registered_configs
+    dependencies: []
+
+  cluster:
+    file: "pipeline/cluster.py"
+    description: "Multi-node SSH cluster lifecycle manager"
+    public_api:
+      - ClusterManager
+    internal: []
+    dependencies:
+      - artifact
+      - formatting
+
+  allocator:
+    file: "pipeline/allocator.py"
+    description: "GPU memory-aware scheduling and formal slot serialization"
+    public_api:
+      - GPUAllocator
+      - enforce_formal_slot_serialization
+    internal: []
+    dependencies:
+      - gpu
+      - artifact
+
+  health:
+    file: "pipeline/health.py"
+    description: "Runner/process health checks, stale detection, and conflict healing"
+    public_api:
+      - cleanup_on_startup
+      - enforce_running_pid_registration
+      - reap_orphan_runner_processes
+      - reap_orphan_training_processes
+      - check_stale_locks
+      - self_heal_heartbeat_worker_conflicts
+      - check_zombie_processes
+      - process_remote_termination_requests
+    internal:
+      - _get_active_runner_pids_from_db
+      - _kill_local_pid_tree
+      - _extract_exp_name_from_cmd
+    dependencies:
+      - formatting
+
+  worker:
+    file: "pipeline/worker.py"
+    description: "Experiment execution lifecycle, run fencing, and retry handling"
+    public_api:
+      - run_experiment_process
+      - mark_running
+      - mark_done
+      - mark_error
+    internal:
+      - update_lock_pid
+      - release_distributed_lock
+      - _clean_experiment_artifacts
+      - _clear_runtime_markers
+    dependencies:
+      - gpu
+      - memory_contract
+      - oom
+      - artifact
+      - terminal_state
+
+  logging:
+    file: "pipeline/logging.py"
+    description: "Runner log sink with best-effort lock discipline"
+    public_api:
+      - HybridLogger
+    internal: []
+    dependencies: []
+
+cross_cutting:
+  - "UnifiedDashboard stays in experiments.py for now"
+  - "main() and scheduler_loop stay in experiments.py"
+  - "Input/TTY handling (get_key) stays in experiments.py"
+  - "Constants (STATUS_*, paths, thresholds) stay in experiments.py"

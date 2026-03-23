@@ -1,0 +1,39 @@
+id: TKT-001
+bundle: B-007
+type: worker
+title: Fix rePipe (p key) selection index mismatch
+description: "FILE: pipeline/experiments.py\nPROBLEM: At line ~2223, the p key handler\
+  \ reads panel_experiments[self.selected_exp_idx]. But _panel_exp_rows can change\
+  \ between renders (DB data refresh) while selected_exp_idx is stale. This causes\
+  \ rePipe to target the wrong experiment.\nFIX: Change the p key handler (line ~2223-2238)\
+  \ to use self.selected_exp_name instead of index lookup:\nOLD (line ~2225): selected_exp\
+  \ = panel_experiments[self.selected_exp_idx]\nNEW: Replace the entire block with\
+  \ name-based lookup:\n  name = self.selected_exp_name\n  if not name:\n      self.set_message(\"\
+  No experiment selected\")\n      return True\n  exp_payload = next((e for e in panel_experiments\
+  \ if e.get(\"name\") == name), None)\n  if exp_payload is None:\n      self.set_message(f\"\
+  Experiment {name} not found\")\n      return True\n  if self._is_non_actionable_row(exp_payload):\n\
+  \      self.set_message(\"Condition node is display-only\")\n      return True\n\
+  \  self._enqueue_action({\"type\": \"exp_repipeline\", \"name\": name, \"exp_payload\"\
+  : dict(exp_payload)}, f\"Re-pipeline {name}\")\nVERIFY: Read pipeline/experiments.py\
+  \ around line 2223. Confirm the p key now uses name-based lookup.\n"
+acceptance_criteria:
+- Task completed as described
+status: done
+claimed_by: null
+claimed_at: null
+started_at: null
+completed_at: '2026-03-22T12:34:58Z'
+category: null
+effort_estimate: null
+agent_type: null
+skills: []
+wave: 1
+qa_scenarios: []
+source_plan: null
+source_ticket_index: null
+result:
+  summary: Code changes verified in codebase
+  artifacts: []
+  notes: null
+  evidence: grep-based code verification
+depends_on: []

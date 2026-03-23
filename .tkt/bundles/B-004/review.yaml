@@ -1,0 +1,47 @@
+bundle: B-004
+generated_at: '2026-03-22T08:08:17Z'
+generated_by: main-agent
+summary: Bundle B-004 completed
+tickets_completed: 8
+tickets_failed: 0
+evidence_summary:
+- ticket_id: null
+  title: 'Integrate B-004: Module split phase 1'
+  evidence: All workers done, audit passed, 6 modules created
+- ticket_id: null
+  title: Extract pipeline/gpu.py from experiments.py
+  evidence: 'python3 -c ''from pipeline.gpu import get_all_gpu_status'': OK'
+- ticket_id: null
+  title: Extract pipeline/memory_contract.py from experiments.py
+  evidence: 'python3 -c ''from pipeline.memory_contract import get_memory_contract'':
+    OK'
+- ticket_id: null
+  title: Extract pipeline/artifact.py from experiments.py
+  evidence: 'python3 -c ''from pipeline.artifact import get_completed_result_summary'':
+    OK'
+- ticket_id: null
+  title: Extract pipeline/oom.py from experiments.py
+  evidence: 'python3 -c ''from pipeline.oom import parse_oom_from_stderr'': OK'
+- ticket_id: null
+  title: Extract pipeline/formatting.py from experiments.py
+  evidence: 'python3 -c ''from pipeline.formatting import format_time_ago'': OK'
+- ticket_id: null
+  title: Extract pipeline/condition.py from experiments.py
+  evidence: 'python3 -c ''from pipeline.condition import RUNTIME_CONDITION_NODES'':
+    OK'
+- ticket_id: null
+  title: 'Audit B-004: Verify module extraction correctness'
+  evidence: pytest 116 passed, all module imports OK
+acceptance_results:
+  passed: 0
+  failed: 0
+  skipped: 0
+  by_ticket: []
+  failures: []
+audit_result:
+  checked_items: []
+  findings: []
+  quality_score: null
+  evidence: null
+discussion_points: []
+next_actions: []

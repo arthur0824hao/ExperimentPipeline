@@ -1,0 +1,116 @@
+[2026-03-22T07:12:20Z] INIT project=ExperimentPipeline
+[2026-03-22T07:24:42Z] ROADMAP_TRANSITION from=planning to=active reason="5 bundles created (B-001 through B-005), roadmap goals defined, ready for coder execution" track=all
+[2026-03-22T07:29:49Z] TICKET_CLAIMED bundle=B-001 ticket=TKT-001 agent=sisyphus-main role=worker
+[2026-03-22T07:29:50Z] TICKET_CLAIMED bundle=B-001 ticket=TKT-002 agent=sisyphus-main role=worker
+[2026-03-22T07:29:51Z] TICKET_CLAIMED bundle=B-001 ticket=TKT-003 agent=sisyphus-main role=worker
+[2026-03-22T07:31:37Z] TICKET_UPDATED bundle=B-001 ticket=TKT-001 status=done
+[2026-03-22T07:31:39Z] TICKET_UPDATED bundle=B-001 ticket=TKT-002 status=done
+[2026-03-22T07:32:58Z] TICKET_UPDATED bundle=B-001 ticket=TKT-003 status=done
+[2026-03-22T07:33:03Z] TICKET_CLAIMED bundle=B-001 ticket=TKT-A00 agent=sisyphus-audit role=audit
+[2026-03-22T07:33:14Z] TICKET_UPDATED bundle=B-001 ticket=TKT-A00 status=done
+[2026-03-22T07:33:19Z] TICKET_CLAIMED bundle=B-001 ticket=TKT-000 agent=sisyphus-main role=main
+[2026-03-22T07:33:25Z] TICKET_UPDATED bundle=B-001 ticket=TKT-000 status=done
+[2026-03-22T07:37:07Z] BUNDLE_CLOSED bundle=B-001 done=5 failed=0
+[2026-03-22T07:37:44Z] TICKET_CLAIMED bundle=B-002 ticket=TKT-001 agent=sisyphus-main role=worker
+[2026-03-22T07:37:44Z] TICKET_CLAIMED bundle=B-002 ticket=TKT-002 agent=sisyphus-main role=worker
+[2026-03-22T07:37:44Z] TICKET_CLAIMED bundle=B-002 ticket=TKT-003 agent=sisyphus-main role=worker
+[2026-03-22T07:37:44Z] TICKET_CLAIMED bundle=B-002 ticket=TKT-004 agent=sisyphus-main role=worker
+[2026-03-22T07:37:44Z] TICKET_CLAIMED bundle=B-002 ticket=TKT-005 agent=sisyphus-main role=worker
+[2026-03-22T07:45:24Z] TICKET_UPDATED bundle=B-002 ticket=TKT-001 status=done
+[2026-03-22T07:45:26Z] TICKET_UPDATED bundle=B-002 ticket=TKT-002 status=done
+[2026-03-22T07:45:28Z] TICKET_UPDATED bundle=B-002 ticket=TKT-003 status=done
+[2026-03-22T07:45:30Z] TICKET_UPDATED bundle=B-002 ticket=TKT-004 status=done
+[2026-03-22T07:45:32Z] TICKET_UPDATED bundle=B-002 ticket=TKT-005 status=done
+[2026-03-22T07:45:37Z] TICKET_CLAIMED bundle=B-002 ticket=TKT-A00 agent=sisyphus-audit role=audit
+[2026-03-22T07:45:38Z] TICKET_CLAIMED bundle=B-002 ticket=TKT-000 agent=sisyphus-main role=main
+[2026-03-22T07:45:46Z] TICKET_UPDATED bundle=B-002 ticket=TKT-A00 status=done
+[2026-03-22T07:45:48Z] TICKET_UPDATED bundle=B-002 ticket=TKT-000 status=done
+[2026-03-22T07:45:54Z] BUNDLE_CLOSED bundle=B-002 done=7 failed=0
+[2026-03-22T07:46:23Z] TICKET_CLAIMED bundle=B-003 ticket=TKT-001 agent=sisyphus-main role=worker
+[2026-03-22T07:46:24Z] TICKET_CLAIMED bundle=B-003 ticket=TKT-002 agent=sisyphus-main role=worker
+[2026-03-22T07:46:24Z] TICKET_CLAIMED bundle=B-003 ticket=TKT-003 agent=sisyphus-main role=worker
+[2026-03-22T07:46:24Z] TICKET_CLAIMED bundle=B-003 ticket=TKT-004 agent=sisyphus-main role=worker
+[2026-03-22T07:46:24Z] TICKET_CLAIMED bundle=B-003 ticket=TKT-005 agent=sisyphus-main role=worker
+[2026-03-22T07:51:09Z] TICKET_UPDATED bundle=B-003 ticket=TKT-001 status=done
+[2026-03-22T07:51:22Z] TICKET_UPDATED bundle=B-003 ticket=TKT-002 status=done
+[2026-03-22T07:51:25Z] TICKET_UPDATED bundle=B-003 ticket=TKT-003 status=done
+[2026-03-22T07:51:25Z] TICKET_UPDATED bundle=B-003 ticket=TKT-005 status=done
+[2026-03-22T07:51:25Z] TICKET_UPDATED bundle=B-003 ticket=TKT-004 status=done
+[2026-03-22T07:51:52Z] TICKET_CLAIMED bundle=B-003 ticket=TKT-A00 agent=sisyphus-audit role=audit
+[2026-03-22T07:51:53Z] TICKET_CLAIMED bundle=B-003 ticket=TKT-000 agent=sisyphus-main role=main
+[2026-03-22T07:52:05Z] TICKET_UPDATED bundle=B-003 ticket=TKT-A00 status=done
+[2026-03-22T07:52:07Z] TICKET_UPDATED bundle=B-003 ticket=TKT-000 status=done
+[2026-03-22T07:52:22Z] BUNDLE_CLOSED bundle=B-003 done=7 failed=0
+[2026-03-22T07:52:54Z] TICKET_CLAIMED bundle=B-004 ticket=TKT-001 agent=sisyphus-main role=worker
+[2026-03-22T07:52:54Z] TICKET_CLAIMED bundle=B-004 ticket=TKT-002 agent=sisyphus-main role=worker
+[2026-03-22T07:52:54Z] TICKET_CLAIMED bundle=B-004 ticket=TKT-003 agent=sisyphus-main role=worker
+[2026-03-22T07:52:54Z] TICKET_CLAIMED bundle=B-004 ticket=TKT-004 agent=sisyphus-main role=worker
+[2026-03-22T07:52:54Z] TICKET_CLAIMED bundle=B-004 ticket=TKT-005 agent=sisyphus-main role=worker
+[2026-03-22T07:52:55Z] TICKET_CLAIMED bundle=B-004 ticket=TKT-006 agent=sisyphus-main role=worker
+[2026-03-22T08:07:35Z] TICKET_UPDATED bundle=B-004 ticket=TKT-001 status=done
+[2026-03-22T08:07:35Z] TICKET_UPDATED bundle=B-004 ticket=TKT-002 status=done
+[2026-03-22T08:07:37Z] TICKET_UPDATED bundle=B-004 ticket=TKT-003 status=done
+[2026-03-22T08:07:39Z] TICKET_UPDATED bundle=B-004 ticket=TKT-004 status=done
+[2026-03-22T08:07:40Z] TICKET_UPDATED bundle=B-004 ticket=TKT-005 status=done
+[2026-03-22T08:07:42Z] TICKET_UPDATED bundle=B-004 ticket=TKT-006 status=done
+[2026-03-22T08:07:50Z] TICKET_CLAIMED bundle=B-004 ticket=TKT-A00 agent=sisyphus-audit role=audit
+[2026-03-22T08:07:52Z] TICKET_CLAIMED bundle=B-004 ticket=TKT-000 agent=sisyphus-main role=main
+[2026-03-22T08:08:04Z] TICKET_UPDATED bundle=B-004 ticket=TKT-A00 status=done
+[2026-03-22T08:08:06Z] TICKET_UPDATED bundle=B-004 ticket=TKT-000 status=done
+[2026-03-22T08:08:17Z] BUNDLE_CLOSED bundle=B-004 done=8 failed=0
+[2026-03-22T08:08:47Z] TICKET_CLAIMED bundle=B-005 ticket=TKT-001 agent=sisyphus-main role=worker
+[2026-03-22T08:08:47Z] TICKET_CLAIMED bundle=B-005 ticket=TKT-002 agent=sisyphus-main role=worker
+[2026-03-22T08:08:47Z] TICKET_CLAIMED bundle=B-005 ticket=TKT-003 agent=sisyphus-main role=worker
+[2026-03-22T08:14:39Z] TICKET_CLAIMED bundle=B-005 ticket=TKT-004 agent=sisyphus-main role=worker
+[2026-03-22T08:14:40Z] TICKET_CLAIMED bundle=B-005 ticket=TKT-005 agent=sisyphus-main role=worker
+[2026-03-22T08:43:29Z] BUNDLE_CLOSED bundle=B-005 done=8 failed=0
+[2026-03-22T08:44:03Z] BUNDLE_CLOSED bundle=B-005 done=8 failed=0
+[2026-03-22T10:10:05Z] BUNDLE_CREATED id=B-006 goal="Fix 20 Pre-existing Test Failures (13 in test_dashboard_keys.py + 7 in test_worker_disable.py)"
+[2026-03-22T10:10:17Z] TICKET_ADDED bundle=B-006 ticket=TKT-001 title="Fix TestCleanExperimentArtifacts — patch worker.py constants"
+[2026-03-22T10:10:28Z] TICKET_ADDED bundle=B-006 ticket=TKT-002 title="Fix reconcile/terminal/metric/zombie tests — patch artifact.py constants"
+[2026-03-22T10:10:40Z] TICKET_ADDED bundle=B-006 ticket=TKT-003 title="Fix memory contract watch tests — patch memory_contract + artifact modules"
+[2026-03-22T10:10:58Z] TICKET_ADDED bundle=B-006 ticket=TKT-004 title="Fix condition node + dashboard behavioral test failures — diagnose and fix"
+[2026-03-22T10:11:17Z] TICKET_ADDED bundle=B-006 ticket=TKT-005 title="Fix test_worker_disable.py — mock DBExperimentsDB connection"
+[2026-03-22T10:11:28Z] TICKET_ADDED bundle=B-006 ticket=TKT-006 title="Close bundles B-001 through B-005 stage + update roadmap goal statuses"
+[2026-03-22T10:44:07Z] TICKET_ADDED bundle=B-006 ticket=TKT-007 title="Preprocess watch: split into 2 view pages (Operations / Feature Bank)"
+[2026-03-22T10:56:27Z] TICKET_ADDED bundle=B-006 ticket=TKT-008 title="Extend ProgressReporter — metric_history.jsonl + arbitrary metrics"
+[2026-03-22T10:56:44Z] TICKET_ADDED bundle=B-006 ticket=TKT-009 title="Update training loops to pass extra metrics to ProgressReporter"
+[2026-03-22T10:57:05Z] TICKET_ADDED bundle=B-006 ticket=TKT-010 title="Create pipeline/archive_card.py — matplotlib chart generator from metric history"
+[2026-03-22T10:57:26Z] TICKET_ADDED bundle=B-006 ticket=TKT-011 title="Integrate archive card into archive workflow + DB storage"
+[2026-03-22T10:57:57Z] TICKET_ADDED bundle=B-006 ticket=TKT-012 title="Boundary tests for ALL key bindings — preprocess watch + experiments dashboard"
+[2026-03-22T12:02:34Z] BUNDLE_CREATED id=B-007 goal="B-006 carryover (preprocess views, metric tracking, archive cards, boundary tests) + Issue fixes (#8 DB sync, #4 rePipe bug, #5/#7 queue visibility, #3 progress display)"
+[2026-03-22T12:07:40Z] TICKET_ADDED bundle=B-007 ticket=TKT-001 title="Fix rePipe (p key) selection index mismatch"
+[2026-03-22T12:07:40Z] TICKET_ADDED bundle=B-007 ticket=TKT-002 title="Test rePipe selection correctness"
+[2026-03-22T12:07:40Z] TICKET_ADDED bundle=B-007 ticket=TKT-003 title="Investigate and document DB-JSON sync issue"
+[2026-03-22T12:07:40Z] TICKET_ADDED bundle=B-007 ticket=TKT-004 title="Add DB connection failure guard to DBExperimentsDB.load()"
+[2026-03-22T12:07:41Z] TICKET_ADDED bundle=B-007 ticket=TKT-005 title="Add DB query for all experiments including unclaimed queue"
+[2026-03-22T12:07:41Z] TICKET_ADDED bundle=B-007 ticket=TKT-006 title="Use load_all_for_panel in dashboard rendering"
+[2026-03-22T12:07:41Z] TICKET_ADDED bundle=B-007 ticket=TKT-007 title="Add view_page state to preprocess run_watch"
+[2026-03-22T12:07:41Z] TICKET_ADDED bundle=B-007 ticket=TKT-008 title="Modify _render_watch_panel to support view_page"
+[2026-03-22T12:07:41Z] TICKET_ADDED bundle=B-007 ticket=TKT-009 title="Extend ProgressReporter with metric_history.jsonl"
+[2026-03-22T12:07:41Z] TICKET_ADDED bundle=B-007 ticket=TKT-010 title="Update train_single_model to pass train_loss to progress_callback"
+[2026-03-22T12:07:42Z] TICKET_ADDED bundle=B-007 ticket=TKT-011 title="Create pipeline/archive_card.py module"
+[2026-03-22T12:07:42Z] TICKET_ADDED bundle=B-007 ticket=TKT-012 title="Integrate archive card into archive workflow"
+[2026-03-22T12:07:42Z] TICKET_ADDED bundle=B-007 ticket=TKT-013 title="Add phase, elapsed, stale columns to experiment panel"
+[2026-03-22T12:07:42Z] TICKET_ADDED bundle=B-007 ticket=TKT-014 title="Add val_f1 delta (trend) display"
+[2026-03-22T12:07:42Z] TICKET_ADDED bundle=B-007 ticket=TKT-015 title="Boundary tests for preprocess watch keys"
+[2026-03-22T12:07:42Z] TICKET_ADDED bundle=B-007 ticket=TKT-016 title="Boundary tests for experiment dashboard keys"
+[2026-03-22T12:34:58Z] TICKET_UPDATED bundle=B-007 ticket=TKT-001 status=done
+[2026-03-22T12:34:58Z] TICKET_UPDATED bundle=B-007 ticket=TKT-002 status=done
+[2026-03-22T12:34:59Z] TICKET_UPDATED bundle=B-007 ticket=TKT-003 status=done
+[2026-03-22T12:34:59Z] TICKET_UPDATED bundle=B-007 ticket=TKT-004 status=done
+[2026-03-22T12:34:59Z] TICKET_UPDATED bundle=B-007 ticket=TKT-005 status=done
+[2026-03-22T12:34:59Z] TICKET_UPDATED bundle=B-007 ticket=TKT-006 status=done
+[2026-03-22T12:40:03Z] TICKET_UPDATED bundle=B-007 ticket=TKT-007 status=done
+[2026-03-22T12:40:03Z] TICKET_UPDATED bundle=B-007 ticket=TKT-008 status=done
+[2026-03-22T12:49:07Z] TICKET_UPDATED bundle=B-007 ticket=TKT-009 status=done
+[2026-03-22T12:49:07Z] TICKET_UPDATED bundle=B-007 ticket=TKT-010 status=done
+[2026-03-22T12:49:07Z] TICKET_UPDATED bundle=B-007 ticket=TKT-011 status=done
+[2026-03-22T12:49:07Z] TICKET_UPDATED bundle=B-007 ticket=TKT-012 status=done
+[2026-03-22T12:49:07Z] TICKET_UPDATED bundle=B-007 ticket=TKT-013 status=done
+[2026-03-22T12:49:07Z] TICKET_UPDATED bundle=B-007 ticket=TKT-014 status=done
+[2026-03-22T12:49:07Z] TICKET_UPDATED bundle=B-007 ticket=TKT-015 status=done
+[2026-03-22T12:49:08Z] TICKET_UPDATED bundle=B-007 ticket=TKT-016 status=done
+[2026-03-22T12:53:44Z] TICKET_UPDATED bundle=B-007 ticket=TKT-A00 status=done
+[2026-03-22T12:53:59Z] TICKET_UPDATED bundle=B-007 ticket=TKT-000 status=done
+[2026-03-22T12:55:12Z] BUNDLE_CLOSED bundle=B-007 done=18 failed=0

@@ -1,0 +1,98 @@
+project: "ExperimentPipeline"
+version: 2
+updated_at: "2026-03-22T07:24:42Z"
+maintained_by: pm-agent
+stage: active
+stage_history:
+  - stage: active
+    entered_at: "2026-03-22T07:24:42Z"
+    reason: "5 bundles created (B-001 through B-005), roadmap goals defined, ready for coder execution"
+    from: "planning"
+  - stage: planning
+    entered_at: "2026-03-22T07:12:20Z"
+    reason: "initial"
+
+goals:
+  - id: G-001
+    title: "Infrastructure Repair & Skill System Completion"
+    track: infrastructure
+    status: done
+    description: >
+      Fix broken skill infra (mem.py ✅), complete DB migrations (v3 graph, v4 control-plane),
+      establish docs/architecture.md as the project map.
+
+  - id: G-002
+    title: "Test Safety Net & Behavior Specs"
+    track: stabilization
+    status: done
+    description: >
+      Build test coverage for db_registry.py, preprocess.py core paths.
+      Create behavior specs (SKILL.spec.yaml) for experiments.py module interactions
+      to serve as refactoring contracts.
+
+  - id: G-003
+    title: "Modular Decomposition of experiments.py"
+    track: architecture
+    status: done
+    description: >
+      Split experiments.py (5293 lines) into runner/, tui/, preprocess/, registry/, cli/ modules.
+      Use behavior specs to track and verify module interactions during and after refactoring.
+
+  - id: G-004
+    title: "Dual UX: Agent CLI + Human TUI"
+    track: architecture
+    status: ready
+    depends_on: [G-003]
+    description: >
+      Every CLI command supports --json (agent) and rich output (human).
+      Agent uses pipeline/cli/agent_cli.py for structured JSON.
+      TUI dashboard remains human-only surface.
+
+  - id: G-005
+    title: "MLOps Automation & Experiment Comparison"
+    track: mlops
+    status: ready
+    depends_on: [G-003]
+    description: >
+      Experiment comparison tool (side-by-side metrics from DB registry).
+      One-click flow automation (ready.json → results).
+      Experiment lineage tracking (hyperparams + data version + code version).
+      Auto-generated summaries (human-readable + agent-parseable).
+
+success_criteria:
+  - "All skill infra operational (mem.py CLI, skill_system schema complete, TKT active)"
+  - "Core pipeline modules have ≥80% path coverage on critical functions"
+  - "experiments.py split into ≤500 line modules with behavior spec contracts"
+  - "Every CLI command has --json mode for agent consumption"
+  - "Experiment comparison available via single CLI command"
+
+decision_gates:
+  - gate: "G-002 → G-003"
+    condition: "Test coverage on db_registry + preprocess critical paths AND behavior specs defined"
+  - gate: "G-003 → G-004/G-005"
+    condition: "Module split complete, all behavior spec contracts passing"
+
+dependencies:
+  - from: G-003
+    to: G-002
+    type: blocks
+  - from: G-004
+    to: G-003
+    type: blocks
+  - from: G-005
+    to: G-003
+    type: blocks
+
+tracks:
+  - name: infrastructure
+    description: "Skill system, DB, tooling fixes"
+    goals: [G-001]
+  - name: stabilization
+    description: "Testing, behavior specs, documentation"
+    goals: [G-002]
+  - name: architecture
+    description: "Module decomposition, dual UX"
+    goals: [G-003, G-004]
+  - name: mlops
+    description: "Experiment tracking, automation, comparison"
+    goals: [G-005]

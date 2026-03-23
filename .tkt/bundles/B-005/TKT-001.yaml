@@ -1,0 +1,37 @@
+ticket_id: TKT-001
+type: worker
+title: Extract pipeline/cluster.py — ClusterManager class
+status: done
+claimed_by: sisyphus-main
+category: refactor
+effort_estimate: M
+wave: 1
+depends_on: []
+skills: []
+description: "Extract the ClusterManager class from experiments.py into pipeline/cluster.py.\n\
+  \n## Source File\n`pipeline/experiments.py`\n\n## Target File\nCreate: `pipeline/cluster.py`\n\
+  \n## What to MOVE\n\n`ClusterManager` class — lines 1773-1978 (~205 lines)\n\nMethods:\n\
+  - `__init__` (line 1774)\n- `load_machines` (line 1777)\n- `_load_heartbeat_files`\
+  \ (line 1795)\n- `get_cluster_status` (line 1823)\n- `_ssh_base_cmd` (line 1861)\n\
+  - `start_node` (line 1873)\n- `stop_node` (line 1911)\n- `restart_node` (line 1950)\n\
+  - `kill_remote_pid` (line 1953)\n\nInstance variable: `machines` (dict)\n\n## Dependencies\n\
+  - `MACHINES_FILES`, `MACHINES_FILE` constants\n- `HEARTBEATS_DIR` constant\n- `HEARTBEAT_STALE_SEC`\
+  \ constant\n- `format_time_ago` from formatting.py (B-004)\n- `db_registry.DBExperimentsDB`\
+  \ (for get_cluster_status)\n- stdlib: json, subprocess, logging, time, pathlib\n\
+  \n## Steps\n\n1. Create `pipeline/cluster.py`\n2. Move `ClusterManager` class entirely\n\
+  3. Copy required constants or import them\n4. In experiments.py, replace with:\n\
+  \   ```python\n   from cluster import ClusterManager\n   ```\n5. Delete the class\
+  \ from experiments.py\n6. Verify: `cd pipeline && python -c \"from cluster import\
+  \ ClusterManager; print('OK')\"`\n7. Run tests: `cd pipeline && python -m pytest\
+  \ tests/ -v`\n\n## MUST NOT DO\n- Do NOT change any method signatures or logic\n\
+  - Do NOT rename the class\n- Do NOT refactor SSH commands or error handling\n"
+acceptance:
+- pipeline/cluster.py exists with ClusterManager class
+- All 9 methods present and unchanged
+- experiments.py imports ClusterManager from cluster
+- Existing tests still pass
+result:
+  status: null
+  summary: null
+  evidence: null
+claimed_at: '2026-03-22T08:08:47Z'

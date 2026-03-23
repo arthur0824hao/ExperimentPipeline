@@ -1,0 +1,94 @@
+id: TKT-008
+bundle: "B-006"
+type: worker
+title: "Extend ProgressReporter — metric_history.jsonl + arbitrary metrics"
+description: |
+  CONTEXT: ProgressReporter (pipeline/preprocess_lib/train_utils.py line 198) currently writes a single .progress JSON snapshot that gets overwritten each epoch and deleted on finish. Only tracks val_f1 and loss. User wants configurable metrics with full per-epoch history.
+
+FILE TO EDIT: pipeline/preprocess_lib/train_utils.py (ProgressReporter class, lines 198-267)
+
+CHANGES:
+
+1. Add metric_history.jsonl path in __init__ (line 220-225):
+   self.history_file = os.path.join(experiment_dir, 'metric_history.jsonl')
+
+2. Modify update() signature (line 227) to accept arbitrary metrics:
+   FROM: def update(self, epoch, total_epochs, val_f1=0.0, loss=0.0, phase=None):
+   TO:   def update(self, epoch, total_epochs, val_f1=0.0, loss=0.0, phase=None, **metrics):
+
+3. In update() body, AFTER writing .progress (line 252-256), APPEND to history file:
+   history_entry = {
+       'epoch': epoch,
+       'total_epochs': total_epochs,
+       'val_f1': round(val_f1, 4),
+       'loss': round(loss, 4),
+       'timestamp': datetime.now().isoformat(),
+   }
+   if phase is not None:
+       history_entry['phase'] = phase
+   # Merge any extra metrics (train_loss, val_loss, auc, etc.)
+   for k, v in metrics.items():
+       if isinstance(v, float):
+           history_entry[k] = round(v, 4)
+       else:
+           history_entry[k] = v
+   try:
+       with open(self.history_file, 'a') as f:
+           f.write(json.dumps(history_entry) + '\n')
+   except Exception:
+       pass  # Non-critical
+
+4. In finish() (line 262-266), do NOT delete metric_history.jsonl. Only delete .progress as before. The history must survive for archive card generation.
+
+5. Add a read_history() class method for downstream consumers:
+   @staticmethod
+   def read_history(experiment_dir: str) -> List[Dict]:
+       history_file = os.path.join(experiment_dir, 'metric_history.jsonl')
+       entries = []
+       if not os.path.exists(history_file):
+           return entries
+       try:
+           with open(history_file, 'r') as f:
+               for line in f:
+                   line = line.strip()
+                   if line:
+                       entries.append(json.loads(line))
+       except Exception:
+           pass
+       return entries
+
+MUST NOT:
+  - Change the .progress snapshot format (backward compat)
+  - Delete metric_history.jsonl in finish()
+  - Break existing callers of update(epoch, total_epochs, val_f1, loss)
+
+DB ATOMICITY: No DB interaction in this ticket. File append is naturally atomic for single-line writes on Linux (< PIPE_BUF = 4096 bytes).
+
+VERIFY: python3 -c "from preprocess_lib.train_utils import ProgressReporter; r=ProgressReporter('/tmp/test_exp','test'); r.update(1,10,0.5,0.3,train_loss=0.4); r.update(2,10,0.6,0.2,train_loss=0.3); print(ProgressReporter.read_history('/tmp/test_exp'))"
+acceptance_criteria:
+  - "Task completed as described"
+status: done
+claimed_by: null
+claimed_at: null
+started_at: null
+completed_at: null
+category: null
+effort_estimate: null
+agent_type: null
+skills: []
+wave: 2
+qa_scenarios: 
+  - "ProgressReporter.update() still works with old signature (val_f1 + loss only)"
+  - "metric_history.jsonl has 1 line per epoch"
+  - "Extra **metrics appear in history entries"
+  - "read_history() returns list of dicts"
+  - ".progress snapshot still works as before"
+  - "finish() does NOT delete metric_history.jsonl"
+source_plan: null
+source_ticket_index: null
+result:
+  summary: null
+  artifacts: []
+  notes: null
+  evidence: null
+depends_on: []

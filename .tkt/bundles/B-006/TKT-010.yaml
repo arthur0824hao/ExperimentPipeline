@@ -1,0 +1,82 @@
+id: TKT-010
+bundle: "B-006"
+type: worker
+title: "Create pipeline/archive_card.py — matplotlib chart generator from metric history"
+description: |
+  CONTEXT: New module that reads metric_history.jsonl and generates matplotlib charts for archive cards.
+
+DEPENDS ON: TKT-008
+
+NEW FILE: pipeline/archive_card.py
+
+REQUIREMENTS:
+
+1. Function: generate_archive_card(exp_name: str, exp_dir: Optional[str] = None, output_path: Optional[str] = None) -> Optional[str]
+   - Reads metric_history.jsonl from exp_dir (default: BASE_DIR / 'experiments' / exp_name)
+   - Returns path to generated PNG, or None if no history data
+   
+2. Chart Layout (single PNG, subplot grid):
+   - Auto-detect available metrics from history entries (exclude epoch, total_epochs, timestamp, phase)
+   - Create one subplot per metric (e.g., val_f1, loss, train_loss)
+   - X-axis: epoch number
+   - Y-axis: metric value
+   - Title: experiment name
+   - Each subplot has metric name as y-label
+   - Grid lines, clean style (plt.style.use('seaborn-v0_8-whitegrid') or similar)
+   - Figure size: auto-scale based on number of metrics, e.g., (10, 3*num_metrics)
+
+3. Output:
+   - Default output_path: exp_dir / 'archive_card.png'
+   - Also generate a summary dict: {metric_name: {min, max, final, epochs}} for each metric
+   - Return the PNG path
+
+4. Edge Cases:
+   - Empty or missing metric_history.jsonl → return None, no error
+   - Single epoch → still generate chart (single point)
+   - Mixed metrics across epochs (some epochs have metrics others dont) → plot available points only
+   - Non-numeric metric values → skip that metric
+
+5. Summary function: get_metric_summary(exp_name: str, exp_dir: Optional[str] = None) -> Dict
+   - Returns {metric_name: {min, max, final, mean, epochs_count}} without generating chart
+   - Used by archive workflow to embed summary in DB
+
+IMPLEMENTATION NOTES:
+  - import matplotlib; matplotlib.use('Agg')  # Non-interactive backend, MUST be before pyplot
+  - Use tight_layout() to avoid label overlap
+  - Close figure after saving (plt.close(fig)) to prevent memory leak
+  - BASE_DIR = Path(__file__).parent.absolute() (same pattern as other pipeline modules)
+
+MUST NOT:
+  - Import matplotlib at module top level (wrap in function to avoid import cost on non-archive paths)
+  - Use plt.show() (headless server)
+  - Leave figures open (memory leak in long-running processes)
+
+VERIFY: Create a test metric_history.jsonl with 5 epochs, call generate_archive_card(), verify PNG exists and is valid image.
+acceptance_criteria:
+  - "Task completed as described"
+status: done
+claimed_by: null
+claimed_at: null
+started_at: null
+completed_at: null
+category: null
+effort_estimate: null
+agent_type: null
+skills: []
+wave: 2
+qa_scenarios: 
+  - "generate_archive_card() returns PNG path for valid history"
+  - "Returns None for missing/empty history"
+  - "PNG file is valid image (can be opened)"
+  - "get_metric_summary() returns correct min/max/final"
+  - "No matplotlib GUI popup (Agg backend)"
+  - "Figure is closed after save (no memory leak)"
+source_plan: null
+source_ticket_index: null
+result:
+  summary: null
+  artifacts: []
+  notes: null
+  evidence: null
+depends_on: 
+  - "TKT-008"

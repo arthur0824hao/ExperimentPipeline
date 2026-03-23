@@ -1,0 +1,106 @@
+id: TKT-012
+bundle: "B-006"
+type: worker
+title: "Boundary tests for ALL key bindings — preprocess watch + experiments dashboard"
+description: |
+  CONTEXT: User requires boundary tests for every key binding. Both the preprocess watch (pipeline/preprocess.py run_watch) and experiments dashboard (pipeline/experiments.py UnifiedDashboard) have key handlers that must be tested at boundaries.
+
+NEW FILES TO CREATE:
+  pipeline/tests/test_preprocess_watch_keys.py
+  pipeline/tests/test_dashboard_key_boundaries.py
+
+=== Part A: pipeline/tests/test_preprocess_watch_keys.py ===
+
+Test the preprocess watch key logic. Since run_watch() has a blocking loop, test the LOGIC functions it calls, not the loop itself.
+
+BOUNDARY TESTS FOR PREPROCESS WATCH:
+
+1. Tab (view_page toggle) — from TKT-007:
+   - test_tab_toggles_view_page_0_to_1: view_page=0 → Tab → view_page=1
+   - test_tab_toggles_view_page_1_to_0: view_page=1 → Tab → view_page=0
+   - test_tab_wraps_around: view_page cycles 0→1→0→1
+
+2. N/P (feature page) — only on view_page==1:
+   - test_n_increments_page: page=0, total=3 → N → page=1
+   - test_n_wraps_at_last_page: page=2, total=3 → N → page=0
+   - test_p_decrements_page: page=1, total=3 → P → page=0
+   - test_p_wraps_at_first_page: page=0, total=3 → P → page=2
+   - test_n_noop_on_single_page: page=0, total=1 → N → page=0
+   - test_n_ignored_on_view_page_0: view_page=0 → N → page unchanged
+   - test_p_ignored_on_view_page_0: view_page=0 → P → page unchanged
+
+3. W/S (selection) — only on view_page==0:
+   - test_w_moves_selection_up: selected idx=2 → W → idx=1
+   - test_w_at_top_stays: selected idx=0 → W → idx=0 (or wraps, check _move_watch_selection)
+   - test_s_moves_selection_down: selected idx=0 of 3 → S → idx=1
+   - test_s_at_bottom_stays: selected idx=2 of 3 → S → idx=2 (or wraps)
+   - test_w_ignored_on_view_page_1: view_page=1 → W → selected unchanged
+   - test_s_ignored_on_view_page_1: view_page=1 → S → selected unchanged
+   - test_ws_with_empty_snapshot: no rows → W/S → no crash
+
+4. _paginate_rows boundary:
+   - test_paginate_empty_rows: [] → page=0, total_pages=1
+   - test_paginate_exact_page_size: 20 rows, page_size=20 → 1 page
+   - test_paginate_one_over: 21 rows, page_size=20 → 2 pages
+
+=== Part B: pipeline/tests/test_dashboard_key_boundaries.py ===
+
+Test experiments dashboard key boundaries (UnifiedDashboard).
+
+1. Experiment selection boundaries:
+   - test_selected_exp_idx_negative_clamps_to_0: idx=-1 → clamp to 0
+   - test_selected_exp_idx_beyond_list_clamps: idx=100, 3 exps → clamp to 2
+   - test_selected_exp_idx_empty_list: 0 exps → no crash on selection keys
+   - test_j_k_navigation_at_boundaries: first→up stays, last→down stays
+
+2. Page navigation boundaries:
+   - test_exp_page_wraps_forward: last page → N → page 0
+   - test_exp_page_wraps_backward: page 0 → P → last page
+   - test_exp_page_single_page: 1 page → N/P → stays on page 0
+
+3. Two-step key boundaries:
+   - test_scope_key_without_action_resets: S then Q → no action, scope resets
+   - test_action_without_scope_ignored: K without S/A → ignored
+   - test_esc_cancels_scope: S then Esc → scope cleared
+
+4. Focus mode boundaries:
+   - test_switch_focus_at_each_mode: cycle through all focus modes
+   - test_keys_in_wrong_focus_mode_ignored: exp keys in cluster mode → noop
+
+IMPLEMENTATION PATTERN:
+  Use make_dashboard() helper from existing test_dashboard_keys.py for Part B.
+  For Part A, directly call _paginate_rows, _move_watch_selection, normalize_initial_watch_page.
+  Mock filesystem access (no real experiments.json needed).
+
+MUST NOT:
+  - Test the actual terminal I/O (stdin/stdout) — only test logic functions
+  - Duplicate tests that already pass in test_dashboard_keys.py
+  - Modify any source code (this is test-only)
+
+VERIFY: pytest pipeline/tests/test_preprocess_watch_keys.py pipeline/tests/test_dashboard_key_boundaries.py -v
+acceptance_criteria:
+  - "Task completed as described"
+status: done
+claimed_by: null
+claimed_at: null
+started_at: null
+completed_at: null
+category: null
+effort_estimate: null
+agent_type: null
+skills: []
+wave: 3
+qa_scenarios: 
+  - "All preprocess watch key boundary tests pass"
+  - "All dashboard key boundary tests pass"
+  - "Empty list edge cases covered"
+  - "Page wrap-around tested"
+  - "No real I/O in tests"
+source_plan: null
+source_ticket_index: null
+result:
+  summary: null
+  artifacts: []
+  notes: null
+  evidence: null
+depends_on: []

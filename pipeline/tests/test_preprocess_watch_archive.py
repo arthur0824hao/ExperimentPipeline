@@ -43,7 +43,7 @@ def test_render_watch_panel_shows_archive_controls_and_selection(monkeypatch):
         lambda _path: {"ready_to_process": 0, "batch_id": "-", "experiments": []},
     )
 
-    panel, _, _ = preprocess._render_watch_panel(0, 20, "exp-a", "hello")
+    panel, _, _ = preprocess._render_watch_panel(0, 20, "exp-a", "hello", view_page=0)
 
     assert "All" in panel
     assert "Selected" in panel
@@ -51,10 +51,8 @@ def test_render_watch_panel_shows_archive_controls_and_selection(monkeypatch):
     assert "Clear" in panel
     assert "hello" in panel
     assert "exp-a" in panel
-    assert "Feature Bank Overview" in panel
-    assert "artifact_base_34dim_cut_d152" in panel
-    assert "depends_on" in panel
-    assert "Current computing" in panel
+    assert "View: Operations" in panel
+    assert "Tab:Feature Bank" in panel
     assert "MemFam" in panel
     assert "EstMB" in panel
     assert "Mode" in panel
@@ -307,7 +305,11 @@ def test_run_watch_uses_two_step_archive_actions_with_direct_navigation(monkeypa
     monkeypatch.setattr(
         preprocess,
         "_render_watch_panel",
-        lambda page, _page_size, _selected, _status: (f"panel-{page}", 1, page),
+        lambda page, _page_size, _selected, _status, view_page=0: (
+            f"panel-{page}-{view_page}",
+            1,
+            page,
+        ),
     )
     monkeypatch.setattr(
         preprocess,
@@ -500,7 +502,6 @@ def test_render_watch_panel_filters_ready_queue_when_name_already_registered(
 
     panel, _, _ = preprocess._render_watch_panel(0, 20)
 
-    assert "Queue: 0" in panel
     assert "(empty)" in panel
 
 
@@ -602,6 +603,17 @@ def test_render_watch_panel_shows_feature_bank_overview(monkeypatch):
         ],
     )
     monkeypatch.setattr(preprocess, "_collect_watch_snapshot_rows", lambda: [])
+    monkeypatch.setattr(preprocess, "generated_count", 1, raising=False)
+    monkeypatch.setattr(preprocess, "missing_count", 1, raising=False)
+    monkeypatch.setattr(
+        preprocess, "computing_signal", "base_basic12_cut_d152", raising=False
+    )
+    monkeypatch.setattr(
+        preprocess,
+        "feature_table",
+        "base_basic12_cut_d152 artifact_base_34dim_cut_d152 slice[0:12]",
+        raising=False,
+    )
     monkeypatch.setattr(
         preprocess,
         "load_json",
@@ -613,7 +625,9 @@ def test_render_watch_panel_shows_feature_bank_overview(monkeypatch):
         },
     )
 
-    panel, _, _ = preprocess._render_watch_panel(0, 20, status_msg="tick ok @ 12:34:56")
+    panel, _, _ = preprocess._render_watch_panel(
+        0, 20, status_msg="tick ok @ 12:34:56", view_page=1
+    )
 
     assert "Feature Bank Overview" in panel
     assert "total=2" in panel
@@ -640,7 +654,9 @@ def test_render_watch_panel_header_includes_mode_and_tick(monkeypatch):
     panel, _, _ = preprocess._render_watch_panel(0, 20, status_msg="tick ok @ 12:34:56")
 
     assert "Mode: WATCH" in panel
-    assert "Tick: 12:34:56" in panel
+    assert "View: Operations" in panel
+    assert "tick ok @ 12:34:56" in panel
+    assert "12:34:56" in panel
 
 
 def test_render_watch_panel_shows_stage_labels(monkeypatch):

@@ -1,0 +1,106 @@
+id: TKT-007
+bundle: "B-006"
+type: worker
+title: "Preprocess watch: split into 2 view pages (Operations / Feature Bank)"
+description: |
+  ISSUE: preprocess --watch dashboard shows all 3 panels simultaneously (Feature Bank + Ready Queue + Experiments Snapshot). Feature Bank takes most space, leaving Ready Queue and Snapshot cramped. User wants Feature Bank on a separate page.
+
+TARGET LAYOUT:
+  View 0 (Operations — default): Ready Queue + Experiments Snapshot (full height, no Feature Bank)
+  View 1 (Feature Bank): Feature Bank Overview (full height, with existing N/P pagination)
+
+FILES TO EDIT:
+  pipeline/preprocess.py — run_watch() function (line 1836) and _render_watch_panel() function (line 1473)
+
+STEP 1 — Add view_page state to run_watch() (line 1836):
+  Add variable: view_page = 0  (0=operations, 1=feature_bank)
+  Pass view_page to _render_watch_panel() call.
+
+STEP 2 — Add Tab key binding for view toggle in run_watch() key handling (around line 1870):
+  Add BEFORE the existing N/P handling:
+    if key == '\t':  # Tab key
+        view_page = (view_page + 1) % 2
+        continue
+  NOTE: Tab character is '\t' (0x09). _read_key_nonblocking should already return it as '\t'.
+
+STEP 3 — Modify _render_watch_panel() signature (line 1473):
+  Add parameter: view_page: int = 0
+  
+STEP 4 — Modify _render_watch_panel() layout logic (lines 1543-1584):
+  
+  IF view_page == 0 (Operations view):
+    - Do NOT create the 'features' layout slot
+    - layout['main'] splits into ONLY ready + snapshot
+    - Give them more height: ready_height = max(10, main_height // 2), snapshot_height = main_height - ready_height
+    - Skip all feature_table rendering (lines 1601-1653)
+    
+  IF view_page == 1 (Feature Bank view):
+    - Do NOT create ready/snapshot layout slots
+    - layout['main'] is just one 'features' slot taking full main_height
+    - Skip ready_table and snapshot_table rendering (lines 1655-1771)
+
+STEP 5 — Update header to show current view (line 1549-1556):
+  Add view indicator to header, e.g.:
+    Text.from_markup(f'[cyan]View[/]: {'Operations' if view_page == 0 else 'Feature Bank'}  [white]|[/]  [dim]Tab[/] to switch')
+
+STEP 6 — Update footer controls (line 1773-1774):
+  View 0 controls: W/S:Exp Select  Tab:Feature Bank  [a]All [S]Selected -> [v]Archive [c]Clear [Esc]Cancel  Q:Quit
+  View 1 controls: N/P:Feature Page  Tab:Operations  Q:Quit
+  (N/P only shown on view 1 since features have pagination; W/S only shown on view 0 since exp selection is there)
+
+STEP 7 — Adjust N/P keys to only work on view_page == 1:
+  Change lines 1874-1877 from:
+    if key_lower == 'n':
+        page = (page + 1) % max(total_pages, 1)
+    elif key_lower == 'p':
+        page = (page - 1) % max(total_pages, 1)
+  To:
+    if key_lower == 'n' and view_page == 1:
+        page = (page + 1) % max(total_pages, 1)
+    elif key_lower == 'p' and view_page == 1:
+        page = (page - 1) % max(total_pages, 1)
+
+STEP 8 — Adjust W/S keys to only work on view_page == 0:
+  Change lines 1878-1881 from:
+    elif key_lower == 'w':
+        selected_name = _move_watch_selection(...)
+    elif key == 's':
+        selected_name = _move_watch_selection(...)
+  To:
+    elif key_lower == 'w' and view_page == 0:
+        selected_name = _move_watch_selection(...)
+    elif key == 's' and view_page == 0:
+        selected_name = _move_watch_selection(...)
+
+MUST NOT:
+  - Change any test files
+  - Change the data collection functions (_collect_watch_rows, _collect_watch_snapshot_rows)
+  - Change _render_watch_panel return signature (still returns panel_str, total_pages, page)
+  - Break the --page CLI argument (it still controls feature bank page)
+
+VERIFY: python3 pipeline/preprocess.py --watch --dry-run should work. Manual verification: run --watch and press Tab to switch views.
+acceptance_criteria:
+  - "Task completed as described"
+status: done
+claimed_by: null
+claimed_at: null
+started_at: null
+completed_at: null
+category: null
+effort_estimate: null
+agent_type: null
+skills: []
+wave: 1
+qa_scenarios: 
+  - "python3 pipeline/preprocess.py --watch --dry-run succeeds"
+  - "Tab key switches between Operations and Feature Bank views"
+  - "N/P only paginate on Feature Bank view"
+  - "W/S only select on Operations view"
+source_plan: null
+source_ticket_index: null
+result:
+  summary: null
+  artifacts: []
+  notes: null
+  evidence: null
+depends_on: []

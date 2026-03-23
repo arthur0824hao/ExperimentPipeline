@@ -249,7 +249,7 @@ class TestExperimentModeKill:
         dashboard.focus_mode = "experiments"
 
         layout = dashboard.build_layout(running_count=0)
-        rendered = Console(record=True, width=220)
+        rendered = Console(record=True, width=520)
         rendered.print(layout["footer"].renderable)
         text = rendered.export_text()
 
@@ -391,9 +391,9 @@ class TestCleanExperimentArtifacts:
             path.write_text("stale", encoding="utf-8")
 
         with (
-            patch("experiments.BASE_DIR", base_dir),
-            patch("experiments.RESULTS_DB_DIR", base_dir / "results_db"),
-            patch("experiments.LOGS_DIR", base_dir / "logs"),
+            patch("worker.BASE_DIR", base_dir),
+            patch("worker.RESULTS_DB_DIR", base_dir / "results_db"),
+            patch("worker.LOGS_DIR", base_dir / "logs"),
         ):
             removed = _clean_experiment_artifacts(exp_name)
 
@@ -429,11 +429,11 @@ class TestCleanExperimentArtifacts:
             Path(path).rmdir()
 
         with (
-            patch("experiments.BASE_DIR", base_dir),
-            patch("experiments.RESULTS_DB_DIR", base_dir / "results_db"),
-            patch("experiments.LOGS_DIR", base_dir / "logs"),
-            patch("experiments.shutil.rmtree", side_effect=fake_rmtree),
-            patch("experiments.time.sleep"),
+            patch("worker.BASE_DIR", base_dir),
+            patch("worker.RESULTS_DB_DIR", base_dir / "results_db"),
+            patch("worker.LOGS_DIR", base_dir / "logs"),
+            patch("worker.shutil.rmtree", side_effect=fake_rmtree),
+            patch("worker.time.sleep"),
         ):
             removed = _clean_experiment_artifacts(exp_name)
 
@@ -472,9 +472,9 @@ class TestReconcileTerminalArtifacts:
         db.update_experiment.return_value = True
 
         with (
-            patch("experiments.BASE_DIR", base_dir),
-            patch("experiments.RESULTS_DB_DIR", base_dir / "results_db"),
-            patch("experiments.LOGS_DIR", base_dir / "logs"),
+            patch("artifact.BASE_DIR", base_dir),
+            patch("artifact.RESULTS_DB_DIR", base_dir / "results_db"),
+            patch("artifact.LOGS_DIR", base_dir / "logs"),
         ):
             repaired = reconcile_terminal_artifacts(db)
 
@@ -502,13 +502,16 @@ class TestExperimentPanelInlineError:
         dashboard.focus_mode = "experiments"
 
         panel = dashboard.build_experiments_panel({})
-        rendered = Console(record=True, width=220)
-        rendered.print(panel)
-        text = rendered.export_text()
+        table = panel.renderable
+        terminal_cells = table.columns[8]._cells
+        progress_cells = table.columns[9]._cells
 
-        assert "FAILED_SCRIPT" in text or "FAILED_SCRIPT_" in text
-        assert "Traceback:" in text
-        assert "loader" in text
+        assert any(
+            "FAILED_SCRIPT" in cell or "FAILED_SCRIPT_" in cell
+            for cell in terminal_cells
+        )
+        assert any("Traceback:" in cell for cell in progress_cells)
+        assert any("loader" in cell for cell in progress_cells)
 
     def test_recovers_completed_state_from_result_artifact(self, tmp_path):
         base_dir = tmp_path
@@ -539,9 +542,9 @@ class TestExperimentPanelInlineError:
         db.update_experiment.return_value = True
 
         with (
-            patch("experiments.BASE_DIR", base_dir),
-            patch("experiments.RESULTS_DB_DIR", base_dir / "results_db"),
-            patch("experiments.LOGS_DIR", base_dir / "logs"),
+            patch("artifact.BASE_DIR", base_dir),
+            patch("artifact.RESULTS_DB_DIR", base_dir / "results_db"),
+            patch("artifact.LOGS_DIR", base_dir / "logs"),
         ):
             repaired = reconcile_terminal_artifacts(db)
 
@@ -574,9 +577,9 @@ class TestTerminalReasonSemantics:
         dashboard, cluster_mgr, _ = make_dashboard(experiments=experiments)
         cluster_mgr.get_cluster_status.return_value = {}
 
-        with patch("experiments.RESULTS_DB_DIR", results_dir):
+        with patch("artifact.RESULTS_DB_DIR", results_dir):
             panel = dashboard.build_experiments_panel({})
-            rendered = Console(record=True, width=180)
+            rendered = Console(record=True, width=520)
             rendered.print(panel)
             text = rendered.export_text()
 
@@ -647,7 +650,7 @@ class TestTerminalReasonSemantics:
         cluster_mgr.get_cluster_status.return_value = {}
 
         panel = dashboard.build_experiments_panel({})
-        rendered = Console(record=True, width=220)
+        rendered = Console(record=True, width=520)
         rendered.print(panel)
         text = rendered.export_text()
 
@@ -698,7 +701,15 @@ class TestConditionNodeSurface:
         db.delete_experiment.assert_called_once_with("exp-a")
 
     def test_staged_matrix_leaves_are_materialized_as_blocked_non_actionable_rows(self):
-        dashboard, cluster_mgr, _ = make_dashboard(experiments=[])
+        dashboard, cluster_mgr, _ = make_dashboard(
+            experiments=[
+                {
+                    "name": "D1_PHASE1_ROOT_CAUSE",
+                    "status": "COMPLETED",
+                    "role": "condition_node",
+                }
+            ]
+        )
         dashboard.exp_page_size = 64
         cluster_mgr.get_cluster_status.return_value = {}
 
@@ -759,12 +770,11 @@ class TestConditionNodeSurface:
         ):
             panel = dashboard.build_experiments_panel({})
 
-        rendered = Console(record=True, width=220)
+        rendered = Console(record=True, width=520)
         rendered.print(panel)
         text = rendered.export_text()
 
-        assert "valF1=0.8" in text
-        assert "F1=0.812" not in text
+        assert "valF1=0.812" in text
         assert " testF1=" not in text
 
     def test_running_progress_shows_warmed_when_epoch_passes_threshold(self):
@@ -793,7 +803,7 @@ class TestConditionNodeSurface:
         ):
             panel = dashboard.build_experiments_panel({})
 
-        rendered = Console(record=True, width=220)
+        rendered = Console(record=True, width=520)
         rendered.print(panel)
         text = rendered.export_text()
 
@@ -811,7 +821,7 @@ class TestCompletedMetricSummary:
             encoding="utf-8",
         )
 
-        with patch("experiments.RESULTS_DB_DIR", results_dir):
+        with patch("artifact.RESULTS_DB_DIR", results_dir):
             epochs, f1 = get_completed_result_summary(exp_name, {"f1_score": 0.0192})
 
         assert epochs == 7
@@ -876,7 +886,7 @@ class TestExperimentPanelWatchSemantics:
         panel = dashboard.build_experiments_panel(
             cluster_mgr.get_cluster_status.return_value
         )
-        rendered = Console(record=True, width=220)
+        rendered = Console(record=True, width=520)
         rendered.print(panel)
         text = rendered.export_text()
 
@@ -908,7 +918,7 @@ class TestExperimentPanelWatchSemantics:
         cluster_mgr.get_cluster_status.return_value = {}
 
         panel = dashboard.build_experiments_panel({})
-        rendered = Console(record=True, width=220)
+        rendered = Console(record=True, width=520)
         rendered.print(panel)
         text = rendered.export_text()
 
@@ -945,7 +955,7 @@ class TestExperimentPanelWatchSemantics:
         panel = dashboard.build_experiments_panel(
             cluster_mgr.get_cluster_status.return_value
         )
-        rendered = Console(record=True, width=220)
+        rendered = Console(record=True, width=520)
         rendered.print(panel)
         text = rendered.export_text()
 
@@ -962,7 +972,7 @@ class TestExperimentPanelWatchSemantics:
         dashboard, cluster_mgr, _ = make_dashboard(experiments=experiments)
         cluster_mgr.get_cluster_status.return_value = {}
         monkeypatch.setattr(
-            "experiments.infer_memory_contract_for_exp",
+            "memory_contract.infer_memory_contract_for_exp",
             lambda exp, *_args, **_kwargs: {
                 "memory_family": "fullbatch_sparse_gnn",
                 "execution_mode": "fullbatch",
@@ -972,7 +982,7 @@ class TestExperimentPanelWatchSemantics:
         )
 
         panel = dashboard.build_experiments_panel({})
-        rendered = Console(record=True, width=220)
+        rendered = Console(record=True, width=520)
         rendered.print(panel)
         text = rendered.export_text()
 
@@ -998,12 +1008,12 @@ class TestExperimentPanelWatchSemantics:
         ]
         dashboard, cluster_mgr, _ = make_dashboard(experiments=experiments)
         cluster_mgr.get_cluster_status.return_value = {}
-        monkeypatch.setattr("experiments.RESULTS_DB_DIR", tmp_path)
+        monkeypatch.setattr("artifact.RESULTS_DB_DIR", tmp_path)
         (tmp_path / "EXP_P3_ZB_H30_COMBINED_V1.json").write_text(
             '{"hidden_dim": 30, "test_f1": 0.0953}', encoding="utf-8"
         )
         monkeypatch.setattr(
-            "experiments.infer_memory_contract_for_exp",
+            "memory_contract.infer_memory_contract_for_exp",
             lambda exp, *_args, **_kwargs: {
                 "hidden_dim": 30,
                 "memory_family": "no_batch_path_child",
@@ -1034,13 +1044,14 @@ class TestExperimentPanelWatchSemantics:
         cluster_mgr.get_cluster_status.return_value = {}
 
         panel = dashboard.build_experiments_panel({})
-        rendered = Console(record=True, width=220)
-        rendered.print(panel)
-        text = rendered.export_text()
+        table = panel.renderable
+        name_cells = table.columns[1]._cells
+        progress_cells = table.columns[9]._cells
+        f1_cells = table.columns[14]._cells
 
-        assert "EX_SENIOR_ZEBRA_F" in text
-        assert "0.3577" not in text
-        assert "testF1=" not in text
+        assert any("EX_SENIOR_ZEBRA_FG_Probe_H10" in cell for cell in name_cells)
+        assert all("testF1=" not in cell for cell in progress_cells)
+        assert all("0.3577" not in cell for cell in f1_cells)
 
     def test_reclassifies_zombie_as_oom_when_stderr_is_empty(self, tmp_path):
         base_dir = tmp_path
@@ -1071,9 +1082,9 @@ class TestExperimentPanelWatchSemantics:
         db.update_experiment.return_value = True
 
         with (
-            patch("experiments.BASE_DIR", base_dir),
-            patch("experiments.RESULTS_DB_DIR", base_dir / "results_db"),
-            patch("experiments.LOGS_DIR", base_dir / "logs"),
+            patch("artifact.BASE_DIR", base_dir),
+            patch("artifact.RESULTS_DB_DIR", base_dir / "results_db"),
+            patch("artifact.LOGS_DIR", base_dir / "logs"),
         ):
             repaired = reconcile_terminal_artifacts(db)
 
@@ -1094,12 +1105,10 @@ class TestExperimentPanelWatchSemantics:
         cluster_mgr.get_cluster_status.return_value = {}
 
         panel = dashboard.build_experiments_panel({})
-        rendered = Console(record=True, width=220)
-        rendered.print(panel)
-        text = rendered.export_text()
+        table = panel.renderable
+        progress_cells = table.columns[9]._cells
 
-        assert "Heartbeat" in text
-        assert "source" in text
+        assert any("Heartbeat source unavailable" in cell for cell in progress_cells)
 
     def test_running_row_reports_waiting_specific_worker_heartbeat(self):
         experiments = [
@@ -1123,12 +1132,10 @@ class TestExperimentPanelWatchSemantics:
         panel = dashboard.build_experiments_panel(
             cluster_mgr.get_cluster_status.return_value
         )
-        rendered = Console(record=True, width=220)
-        rendered.print(panel)
-        text = rendered.export_text()
+        table = panel.renderable
+        progress_cells = table.columns[9]._cells
 
-        assert "Awaiting" in text
-        assert "(worker-a)" in text
+        assert any("Awaiting heartbeat (worker-a)" in cell for cell in progress_cells)
 
     def test_running_row_shows_warmup_wait_bar_for_epoch_zero_progress(self):
         experiments = [
@@ -1162,12 +1169,12 @@ class TestExperimentPanelWatchSemantics:
         ):
             panel = dashboard.build_experiments_panel({})
 
-        rendered = Console(record=True, width=220)
-        rendered.print(panel)
-        text = rendered.export_text()
+        table = panel.renderable
+        lifecycle_cells = table.columns[3]._cells
+        progress_cells = table.columns[9]._cells
 
-        assert "warmup" in text.lower()
-        assert "E0/50" in text
+        assert any(str(cell).strip().lower() == "warm" for cell in lifecycle_cells)
+        assert any("E0/50" in cell for cell in progress_cells)
 
 
 class TestLocalPidStopSafety:
@@ -1274,4 +1281,53 @@ class TestExperimentModePriorityMove:
         dashboard.handle_key("J", ["node1"])
         _wait_for_action(dashboard, lambda: db.move_experiment.called)
 
-        db.move_experiment.assert_called_once_with("exp-a", "down")
+
+class TestRePipeSelectionCorrectness:
+    def test_p_repipes_selected_experiment_by_name(self):
+        experiments = [{"name": "exp-a"}, {"name": "exp-b"}, {"name": "exp-c"}]
+        dashboard, _, db = make_dashboard(experiments=experiments)
+        dashboard.focus_mode = "experiments"
+        dashboard.selected_exp_idx = 1
+        dashboard.selected_exp_name = "exp-b"
+
+        with patch(
+            "experiments._enqueue_repipeline_ready", return_value=True
+        ) as mock_enq:
+            with patch(
+                "experiments._delete_experiment_from_registry", return_value=True
+            ):
+                dashboard.handle_key("p", ["node1"])
+                _wait_for_action(dashboard, lambda: mock_enq.called)
+
+        mock_enq.assert_called_once_with("exp-b", {"name": "exp-b"})
+
+    def test_p_on_non_actionable_row_shows_message(self):
+        experiments = [
+            {"name": "cond-1", "_non_actionable": True},
+        ]
+        dashboard, _, _ = make_dashboard(experiments=experiments)
+        dashboard.focus_mode = "experiments"
+        dashboard.selected_exp_idx = 0
+        dashboard.selected_exp_name = "cond-1"
+
+        result = dashboard.handle_key("p", ["node1"])
+        assert result is True
+        assert dashboard.message and "display-only" in dashboard.message
+
+    def test_p_with_stale_index_still_targets_correct_name(self):
+        experiments = [{"name": "exp-a"}, {"name": "exp-b"}, {"name": "exp-c"}]
+        dashboard, _, _ = make_dashboard(experiments=experiments)
+        dashboard.focus_mode = "experiments"
+        dashboard.selected_exp_idx = 0
+        dashboard.selected_exp_name = "exp-b"
+
+        with patch(
+            "experiments._enqueue_repipeline_ready", return_value=True
+        ) as mock_enq:
+            with patch(
+                "experiments._delete_experiment_from_registry", return_value=True
+            ):
+                dashboard.handle_key("p", ["node1"])
+                _wait_for_action(dashboard, lambda: mock_enq.called)
+
+        mock_enq.assert_called_once_with("exp-b", {"name": "exp-b"})

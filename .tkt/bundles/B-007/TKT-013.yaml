@@ -1,0 +1,52 @@
+id: TKT-013
+bundle: B-007
+type: worker
+title: Add phase, elapsed, stale columns to experiment panel
+description: 'FILE: pipeline/experiments.py
+
+  Find the build_experiments_panel method where experiment rows are rendered into
+  the Rich Table.
+
+  Look for where columns like "Progress" or "Terminal" are added to the table.
+
+  ADD new columns to the experiment table:
+
+  - "Phase" (width=12): from .progress file phase field. Read via get_experiment_progress(name).
+  Show "training", "graph_build", "csv_load", etc.
+
+  - "Elapsed" (width=8): time since last .progress timestamp. Format as "2m ago",
+  "15m ago", etc.
+
+  - "Stale?" (width=5): if elapsed > 5min show "⚠", if >15min show "🔴"
+
+  For each RUNNING experiment row, read .progress and populate these columns.
+
+  For non-RUNNING rows, show "-" in these columns.
+
+  NOTE: get_experiment_progress is already imported from artifact.py and returns the
+  .progress dict.
+
+  VERIFY: Read the modified panel code and confirm new columns exist.
+
+  '
+acceptance_criteria:
+- Task completed as described
+status: done
+claimed_by: null
+claimed_at: null
+started_at: null
+completed_at: '2026-03-22T12:49:07Z'
+category: null
+effort_estimate: null
+agent_type: null
+skills: []
+wave: 6
+qa_scenarios: []
+source_plan: null
+source_ticket_index: null
+result:
+  summary: Code implemented and verified as per ticket spec
+  artifacts: []
+  notes: null
+  evidence: py_compile pass, LSP diagnostics clean
+depends_on: []

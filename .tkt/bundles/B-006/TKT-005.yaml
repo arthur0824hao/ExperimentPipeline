@@ -1,0 +1,61 @@
+id: TKT-005
+bundle: "B-006"
+type: worker
+title: "Fix test_worker_disable.py — mock DBExperimentsDB connection"
+description: |
+  ROOT CAUSE: experiments.py line 237 sets ExperimentsDB = DBExperimentsDB. Tests import ExperimentsDB and pass a file path (mock_experiments_file), but DBExperimentsDB.__init__ connects to PostgreSQL via Unix socket /var/run/postgresql/.s.PGSQL.5432. On this machine, PostgreSQL only listens on TCP localhost:5432, so the Unix socket connection fails.
+
+FILE TO EDIT: pipeline/tests/test_worker_disable.py
+
+FAILING TESTS (7 total):
+1. TestDisableWorker::test_adds_worker_to_disabled_list
+2. TestDisableWorker::test_idempotent_does_not_duplicate
+3. TestDisableWorker::test_can_disable_multiple_workers
+4. TestEnableWorker::test_removes_worker_from_disabled_list
+5. TestEnableWorker::test_enabling_already_enabled_returns_true
+6. TestEnableWorker::test_enable_when_no_disabled_workers_key
+7. TestRunnerSkipsDisabledWorker::test_is_worker_disabled_checked_before_accepting_experiments
+
+FIX STRATEGY: The old ExperimentsDB was file-based (JSON). It no longer exists — ExperimentsDB IS DBExperimentsDB now. These tests test disable/enable/is_worker_disabled methods which are DB operations (db_registry.py lines 1304-1345).
+
+Option A (PREFERRED): Mock the DB connection. DBExperimentsDB methods use self._conn (or get_conn()). Patch get_conn to return a MagicMock connection, AND mock the SQL execute/fetchone calls to simulate the expected behavior.
+
+IMPLEMENTATION:
+1. Check DBExperimentsDB.__init__ signature in pipeline/db_registry.py (line 444) to understand what it needs
+2. Check disable_worker/enable_worker/is_worker_disabled implementations (lines 1304-1345) to see what SQL they run
+3. Create a fixture that properly mocks the DB connection:
+   - Either patch 'db_registry.get_conn' to return a mock connection
+   - Or patch 'db_registry.psycopg2.connect' to return a mock connection
+4. The mock connection should:
+   - cursor().execute() should work (no-op or track calls)
+   - cursor().fetchone() should return appropriate data for each test
+   - commit() should work
+
+ALTERNATIVE: If the disable/enable methods also support JSON-file fallback, use that instead. Check the method implementations.
+
+IMPORTANT: Read db_registry.py lines 1304-1345 to understand the exact SQL used by disable_worker, enable_worker, is_worker_disabled before writing mocks.
+
+VERIFY: pytest pipeline/tests/test_worker_disable.py -v — all 19 tests pass (7 previously failing + 12 already passing)
+acceptance_criteria:
+  - "Task completed as described"
+status: done
+claimed_by: null
+claimed_at: null
+started_at: null
+completed_at: null
+category: null
+effort_estimate: null
+agent_type: null
+skills: []
+wave: 1
+qa_scenarios: 
+  - "pytest pipeline/tests/test_worker_disable.py -v shows 19 passed 0 failed"
+  - "no real DB connection attempted during tests"
+source_plan: null
+source_ticket_index: null
+result:
+  summary: null
+  artifacts: []
+  notes: null
+  evidence: null
+depends_on: []

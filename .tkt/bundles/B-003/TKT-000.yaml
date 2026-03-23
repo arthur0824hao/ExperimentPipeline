@@ -1,0 +1,20 @@
+ticket_id: TKT-000
+type: integrate
+title: 'Integrate B-003: preprocess tests + behavior specs'
+status: done
+claimed_by: sisyphus-main
+description: 'Coordinate B-003. Verify all tests pass and behavior specs are valid.
+  Run: cd pipeline && python -m pytest tests/ -v Check: all .behavior.yaml files in
+  pipeline/ are valid YAML.
+
+  '
+acceptance:
+- Full test suite passes
+- At least 3 behavior spec YAML files exist in pipeline/
+claimed_at: '2026-03-22T07:51:52Z'
+completed_at: '2026-03-22T07:52:21Z'
+result:
+  summary: Bundle B-003 integrated and closed
+  artifacts: []
+  notes: null
+  evidence: All 5 workers done, audit passed

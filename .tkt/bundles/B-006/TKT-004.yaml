@@ -1,0 +1,62 @@
+id: TKT-004
+bundle: "B-006"
+type: worker
+title: "Fix condition node + dashboard behavioral test failures — diagnose and fix"
+description: |
+  ROOT CAUSE: Requires investigation. These 5 tests fail but do NOT have obvious wrong-module patches. The failures may be caused by:
+(a) condition.py reading from its own BASE_DIR/RESULTS_DB_DIR to check evidence files, OR
+(b) dashboard handle_key methods calling split-module functions that access real filesystem paths, OR
+(c) _build_condition_node_rows reading live experiments.json from condition.RESULTS_DB_DIR
+
+FAILING TESTS (5 total):
+1. TestConditionNodeSurface::test_runtime_condition_nodes_are_materialized_in_panel_rows (line ~660)
+2. TestConditionNodeSurface::test_staged_matrix_leaves_are_materialized_as_blocked_non_actionable_rows (line ~680)
+3. TestExperimentModeTwoStepDeleteArchive::test_selected_scope_then_v_archives_current_experiment (line ~305)
+4. TestExperimentModeRerun::test_selected_scope_then_r_reruns_current_experiment_clean (line ~348)
+5. TestExperimentPanelInlineError::test_recovers_completed_state_from_result_artifact (search for this class name)
+
+STEP 1 — DIAGNOSE: Run each test individually with --tb=long to see full traceback:
+  pytest pipeline/tests/test_dashboard_keys.py::TestConditionNodeSurface -v --tb=long
+  pytest pipeline/tests/test_dashboard_keys.py::TestExperimentModeTwoStepDeleteArchive::test_selected_scope_then_v_archives_current_experiment -v --tb=long
+  pytest pipeline/tests/test_dashboard_keys.py::TestExperimentModeRerun::test_selected_scope_then_r_reruns_current_experiment_clean -v --tb=long
+  pytest pipeline/tests/test_dashboard_keys.py::TestExperimentPanelInlineError::test_recovers_completed_state_from_result_artifact -v --tb=long
+
+STEP 2 — FIX: Based on tracebacks:
+- If the issue is wrong patch target: change experiments.X to the correct split module (condition.py, worker.py, artifact.py, etc)
+- If the issue is a function calling real filesystem: add appropriate patches for the split module constants
+- If the issue is dashboard.handle_key calling _clean_experiment_artifacts internally: add patch('worker._clean_experiment_artifacts', return_value=[]) to the test
+
+STEP 3 — VERIFY: All 5 tests pass.
+
+IMPORTANT: Do NOT change the test logic or assertions. Only fix the mock/patch targets. The test expectations are correct — only the mock wiring broke due to B-004/B-005 module split.
+
+KEY REFERENCE — Module constant locations:
+- worker.py: BASE_DIR (line 43), RESULTS_DB_DIR (line 45), LOGS_DIR (line 46)
+- artifact.py: BASE_DIR (line 15), RESULTS_DB_DIR (line 16), LOGS_DIR (line 18)
+- condition.py: BASE_DIR (line 25), RESULTS_DB_DIR (line 27)
+- memory_contract.py: BASE_DIR (via import or own definition)
+- gpu.py: subprocess.check_output (line 105, 154, 200)
+- health.py: _kill_local_pid_tree (line 118)
+acceptance_criteria:
+  - "Task completed as described"
+status: done
+claimed_by: null
+claimed_at: null
+started_at: null
+completed_at: null
+category: null
+effort_estimate: null
+agent_type: null
+skills: []
+wave: 1
+qa_scenarios: 
+  - "pytest on all 5 tests passes"
+  - "no test assertion logic changed"
+source_plan: null
+source_ticket_index: null
+result:
+  summary: null
+  artifacts: []
+  notes: null
+  evidence: null
+depends_on: []

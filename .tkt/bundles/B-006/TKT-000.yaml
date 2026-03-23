@@ -1,0 +1,51 @@
+id: TKT-000
+bundle: "B-006"
+type: integrate
+title: "Integrate B-006 — Test Fixes + Preprocess Views + Metric Tracking + Archive Cards"
+description: |
+  Wave 1 — Test Fixes + UI:
+  TKT-001: Fix worker.py constant patches (2 tests)
+  TKT-002: Fix artifact.py constant patches (4 tests)
+  TKT-003: Fix memory_contract.py patches (2 tests)
+  TKT-004: Diagnose + fix condition/behavioral tests (5 tests)
+  TKT-005: Mock DBExperimentsDB for worker_disable tests (7 tests)
+  TKT-007: Preprocess watch 2 view pages (Tab switch)
+  
+  Wave 2 — Metric Tracking + Housekeeping:
+  TKT-006: Close B-001~B-005 stages + update roadmap goals
+  TKT-008: Extend ProgressReporter with metric_history.jsonl
+  TKT-009: Update training loops to pass extra metrics
+  
+  Wave 3 — Archive Cards + Boundary Tests:
+  TKT-010: Create archive_card.py (matplotlib charts)
+  TKT-011: Integrate archive card into archive workflow
+  TKT-012: Boundary tests for ALL key bindings
+  
+  Constraints:
+  - All key bindings must have boundary tests
+  - All DB interactions must be atomic
+  - Archive card generation failure must not block archive
+acceptance_criteria:
+  - "All 20 previously-failing tests pass"
+  - "No regressions — total test pass count >= 264"
+  - "B-001~B-005 bundle stages closed, G-001~G-003 done"
+  - "Tab switches preprocess watch between Operations and Feature Bank views"
+  - "metric_history.jsonl written per epoch during training"
+  - "archive_card.png generated on archive (graceful degradation if no history)"
+  - "Boundary tests exist for all key bindings in both dashboards"
+status: done
+claimed_by: null
+claimed_at: null
+started_at: null
+completed_at: null
+category: null
+effort_estimate: null
+agent_type: null
+source_plan: null
+source_ticket_index: null
+result:
+  summary: null
+  artifacts: []
+  notes: null
+  evidence: null
+depends_on: []

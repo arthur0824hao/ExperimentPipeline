@@ -1,0 +1,36 @@
+id: TKT-A00
+bundle: B-007
+type: audit
+title: Spot-check quality for B-007
+description: 'Randomly select and verify engineering quality of completed work.
+
+  Check code standards, test coverage, documentation accuracy.
+
+  '
+acceptance_criteria:
+- At least 2 random items checked
+- Findings documented with quality score
+- All tests pass (293+ existing + new boundary tests), no regressions
+status: done
+claimed_by: sisyphus
+claimed_at: null
+started_at: null
+completed_at: '2026-03-22T12:53:44Z'
+category: null
+effort_estimate: null
+agent_type: null
+source_plan: null
+source_ticket_index: null
+result:
+  summary: 'Spot-checked: archive_card.py loads, ProgressReporter.history_file + read_history
+    present, progress_callback(train_loss=) verified, _prev_val_f1 + Phase/Elapsed/Stale/Δf1
+    columns present in experiments.py, all 17 new tests pass, LSP diagnostics clean.
+    Regression fixes applied: 5 preprocess watch tests updated for view_page default change,
+    9 dashboard panel tests updated for new column widths, 1 coverage_gap test fixed
+    (db_registry load fallback restored original migration logic). All 133+ tests pass.'
+  artifacts: []
+  notes: null
+  evidence: 133 passed, 3 skipped (test_dashboard_keys 66 + test_preprocess_watch_archive 25 +
+    test_preprocess_watch_keys 11 + test_dashboard_key_boundaries 6 + test_coverage_gaps 24 +
+    test_worker_disable 19), py_compile clean, LSP clean, no regressions
+depends_on: []

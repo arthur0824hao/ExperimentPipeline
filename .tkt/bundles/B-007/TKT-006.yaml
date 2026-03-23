@@ -1,0 +1,37 @@
+id: TKT-006
+bundle: B-007
+type: worker
+title: Use load_all_for_panel in dashboard rendering
+description: "FILE: pipeline/experiments.py\nFind build_experiments_panel method.\
+  \ Look for where experiments are loaded for display.\nSearch for: self.db.load()\
+  \ calls that feed into the panel.\nThe key location is where _panel_exp_rows is\
+  \ populated (line ~1500 area).\nADD: Before the existing load, try load_all_for_panel:\n\
+  \  all_db_experiments = []\n  loader = getattr(self.db, \"load_all_for_panel\",\
+  \ None)\n  if callable(loader):\n      all_db_experiments = loader()\n  # Merge\
+  \ with existing data: DB experiments take priority\n  if all_db_experiments:\n \
+  \     existing_names = {e.get(\"name\") for e in display_experiments}\n      for\
+  \ db_exp in all_db_experiments:\n          if db_exp.get(\"name\") not in existing_names:\n\
+  \              display_experiments.append(db_exp)\nThis ensures all DB experiments\
+  \ appear in the panel, even if they weren't in the original data.\nVERIFY: Read\
+  \ the modified area and confirm the merge logic.\n"
+acceptance_criteria:
+- Task completed as described
+status: done
+claimed_by: null
+claimed_at: null
+started_at: null
+completed_at: '2026-03-22T12:34:59Z'
+category: null
+effort_estimate: null
+agent_type: null
+skills: []
+wave: 3
+qa_scenarios: []
+source_plan: null
+source_ticket_index: null
+result:
+  summary: Code changes verified in codebase
+  artifacts: []
+  notes: null
+  evidence: grep-based code verification
+depends_on: []

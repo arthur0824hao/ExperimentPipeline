@@ -1,0 +1,20 @@
+bundle_id: B-003
+title: "Test Safety Net — preprocess.py + experiments.py Behavior Specs"
+goal: >
+  Build tests for preprocess.py critical paths and create behavior specs
+  for experiments.py module boundaries. These specs define the contracts
+  that B-004/B-005 module splits must honor.
+track: stabilization
+stage: closed
+closed_at: "2026-03-22T00:00:00Z"
+created_at: "2026-03-22T07:30:00Z"
+source_plan: ".tkt/roadmap.yaml"
+roadmap_goal: G-002
+tickets:
+  - TKT-000
+  - TKT-001
+  - TKT-002
+  - TKT-003
+  - TKT-004
+  - TKT-005
+  - TKT-A00

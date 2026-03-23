@@ -1,0 +1,86 @@
+ticket_id: TKT-004
+type: worker
+title: Create behavior spec — experiments.py module boundary contracts
+status: done
+claimed_by: sisyphus-main
+category: spec
+effort_estimate: M
+wave: 2
+depends_on: []
+skills:
+- skill-system-behavior
+description: "Create a behavior spec YAML that defines module boundary contracts for\
+  \ experiments.py.\nThese contracts specify which functions belong to which module\
+  \ AFTER the B-004/B-005 split.\nThe spec is the source of truth for verifying the\
+  \ refactoring.\n\n## Target File\nCreate: `pipeline/experiments.behavior.yaml`\n\
+  \n## Spec Structure\n\nDefine module boundaries as behavior contracts:\n\n```yaml\n\
+  spec_version: \"1.0\"\ntarget: \"pipeline/experiments.py\"\npurpose: \"Module boundary\
+  \ contracts for experiments.py decomposition\"\n\nmodules:\n  gpu:\n    file: \"\
+  pipeline/gpu.py\"\n    description: \"GPU monitoring, nvidia-smi parsing, process\
+  \ detection\"\n    public_api:\n      - get_all_gpu_status\n      - collect_gpu_status_with_error\n\
+  \      - collect_system_info\n      - get_gpu_process_count\n      - get_pid_gpu_map\n\
+  \      - detect_running_experiments_from_gpu_pids\n    internal:\n      - _coerce_nvidia_int\n\
+  \      - _parse_nvidia_query_output\n      - get_cpu_load\n      - _build_worker_gpu_free_maps\n\
+  \      - _best_free_mb_for_worker\n      - _free_mb_for_worker_gpu\n    dependencies:\
+  \ []\n\n  memory_contract:\n    file: \"pipeline/memory_contract.py\"\n    description:\
+  \ \"Memory estimation, OOM policy, contract management\"\n    public_api:\n    \
+  \  - get_memory_contract\n      - format_memory_contract_fields\n      - get_required_mem_mb\n\
+  \    internal:\n      - _should_reestimate_memory_contract\n      - _copy_memory_contract\n\
+  \      - _update_oom_policy_contract\n      - _persist_oom_policy_contract\n   \
+  \ dependencies: [\"artifact\"]\n\n  artifact:\n    file: \"pipeline/artifact.py\"\
+  \n    description: \"Experiment result/artifact file operations\"\n    public_api:\n\
+  \      - update_running_peak\n      - get_experiment_progress\n      - get_completed_result_summary\n\
+  \      - get_terminal_reason\n    internal:\n      - _load_json_dict\n      - _artifact_timestamp\n\
+  \      - _failed_timestamp\n      - _artifact_is_fresh\n      - _stderr_is_empty\n\
+  \      - _read_resource_usage\n      - _read_result_payload\n      - _coerce_completed_result\n\
+  \      - _coerce_float\n      - _coerce_int\n      - _extract_peak_from_payload\n\
+  \      - _best_error_peak_mb\n    dependencies: []\n\n  oom:\n    file: \"pipeline/oom.py\"\
+  \n    description: \"OOM detection, batch size reduction\"\n    public_api:\n  \
+  \    - parse_oom_from_stderr\n    internal:\n      - _resolve_batch_overrides\n\
+  \      - _next_smaller_batches\n      - _script_env_default\n      - _coerce_positive_int\n\
+  \    dependencies: []\n\n  formatting:\n    file: \"pipeline/formatting.py\"\n \
+  \   description: \"TUI formatting helpers\"\n    public_api:\n      - format_time_ago\n\
+  \      - make_bar\n      - normalize_status\n      - format_terminal_reason_text\n\
+  \      - normalize_initial_exp_page\n    internal:\n      - _parse_iso_ts\n    \
+  \  - _SPINNER_FRAMES\n      - _render_wait_progress\n    dependencies: []\n\n  cluster:\n\
+  \    file: \"pipeline/cluster.py\"\n    description: \"Multi-node SSH cluster management\"\
+  \n    public_api:\n      - ClusterManager\n    dependencies: []\n\n  allocator:\n\
+  \    file: \"pipeline/allocator.py\"\n    description: \"GPU memory-aware job allocation\"\
+  \n    public_api:\n      - GPUAllocator\n      - enforce_formal_slot_serialization\n\
+  \    dependencies: [\"gpu\", \"artifact\"]\n\n  health:\n    file: \"pipeline/health.py\"\
+  \n    description: \"Orphan reaping, stale detection, self-healing\"\n    public_api:\n\
+  \      - cleanup_on_startup\n      - enforce_running_pid_registration\n      - reap_orphan_runner_processes\n\
+  \      - reap_orphan_training_processes\n      - check_stale_locks\n      - self_heal_heartbeat_worker_conflicts\n\
+  \      - check_zombie_processes\n      - process_remote_termination_requests\n \
+  \   internal:\n      - _get_active_runner_pids_from_db\n      - _kill_local_pid_tree\n\
+  \      - _extract_exp_name_from_cmd\n    dependencies: [\"gpu\"]\n\n  condition:\n\
+  \    file: \"pipeline/condition.py\"\n    description: \"Condition nodes and staged\
+  \ matrix for experiment dependencies\"\n    public_api:\n      - RUNTIME_CONDITION_NODES\n\
+  \      - RUNTIME_STAGED_MATRIX\n    internal:\n      - _normalize_name_list\n  \
+  \    - _load_condition_nodes_from_runtime\n      - _load_staged_matrix_entries\n\
+  \      - _resolve_gate_evidence_status\n      - _build_condition_node_rows\n   \
+  \   - _build_staged_matrix_rows\n    dependencies: [\"artifact\"]\n\n  worker:\n\
+  \    file: \"pipeline/worker.py\"\n    description: \"Experiment process execution\"\
+  \n    public_api:\n      - run_experiment_process\n      - mark_running\n      -\
+  \ mark_done\n      - mark_error\n    internal:\n      - update_lock_pid\n      -\
+  \ release_distributed_lock\n      - _clean_experiment_artifacts\n      - _clear_runtime_markers\n\
+  \    dependencies: [\"gpu\", \"memory_contract\", \"oom\", \"artifact\"]\n\ncross_cutting:\n\
+  \  - \"UnifiedDashboard stays in experiments.py for now (1690 lines)\"\n  - \"main()\
+  \ and scheduler_loop stay in experiments.py\"\n  - \"Constants (STATUS_*, config\
+  \ values) stay in experiments.py\"\n```\n\n## Verification\n- File is valid YAML\
+  \ (parseable by python: `python3 -c \"import yaml; yaml.safe_load(open('pipeline/experiments.behavior.yaml'))\"\
+  `)\n- All functions listed exist in current experiments.py\n"
+acceptance:
+- pipeline/experiments.behavior.yaml exists
+- File is valid YAML
+- All listed functions correspond to real functions in experiments.py
+- Module dependency graph has no circular dependencies
+result:
+  status: null
+  summary: Created pipeline/experiments.behavior.yaml with module boundary contracts
+    for all planned extraction modules. Verified acyclic dependency graph.
+  evidence: YAML parses OK. All listed functions verified against experiments.py.
+  artifacts: []
+  notes: null
+claimed_at: '2026-03-22T07:46:24Z'
+completed_at: '2026-03-22T07:51:18Z'

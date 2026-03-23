@@ -1,0 +1,24 @@
+ticket_id: TKT-000
+type: integrate
+title: 'Integrate B-004: Module split phase 1'
+status: done
+claimed_by: sisyphus-main
+description: 'Coordinate the module extraction. After all workers complete: 1. Run:
+  cd pipeline && python -m pytest tests/ -v — all existing tests MUST still pass 2.
+  Run: python -c "from gpu import collect_gpu_status_with_error" (from pipeline/ dir)
+  3. Run: python -c "from memory_contract import get_memory_contract" (from pipeline/
+  dir) 4. Run: python -c "from artifact import get_completed_result_summary" (from
+  pipeline/ dir) 5. Verify experiments.py still works: python experiments.py --help
+
+  '
+acceptance:
+- All existing tests pass
+- All new modules importable
+- experiments.py --help still works
+claimed_at: '2026-03-22T08:07:51Z'
+completed_at: '2026-03-22T08:08:17Z'
+result:
+  summary: Bundle B-004 integrated and closed
+  artifacts: []
+  notes: null
+  evidence: All workers done, audit passed, 6 modules created

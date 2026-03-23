@@ -1,0 +1,36 @@
+id: TKT-002
+bundle: B-007
+type: worker
+title: Test rePipe selection correctness
+description: "FILE: pipeline/tests/test_dashboard_keys.py (NEW test class at end of\
+  \ file)\nAdd class TestRePipeSelectionCorrectness:\ntest_p_repipes_selected_experiment_by_name:\n\
+  \  - Create dashboard with 3 experiments [\"exp-a\", \"exp-b\", \"exp-c\"]\n  -\
+  \ Set selected_exp_idx=1, selected_exp_name=\"exp-b\"\n  - Call dashboard._run_async_action\
+  \ on the queued action\n  - Verify the repipeline request has name=\"exp-b\" (not\
+  \ exp-a or exp-c)\ntest_p_on_non_actionable_row_shows_message:\n  - Create exp with\
+  \ role=\"condition_node\"\n  - Select it\n  - Press p -> message should say \"Condition\
+  \ node is display-only\"\ntest_p_with_stale_index_still_targets_correct_name:\n\
+  \  - Set selected_exp_name=\"exp-b\" but selected_exp_idx=0\n  - The name-based\
+  \ lookup should find exp-b regardless of index\nVERIFY: pytest pipeline/tests/test_dashboard_keys.py::TestRePipeSelectionCorrectness\
+  \ -v\n"
+acceptance_criteria:
+- Task completed as described
+status: done
+claimed_by: null
+claimed_at: null
+started_at: null
+completed_at: '2026-03-22T12:34:58Z'
+category: null
+effort_estimate: null
+agent_type: null
+skills: []
+wave: 1
+qa_scenarios: []
+source_plan: null
+source_ticket_index: null
+result:
+  summary: Code changes verified in codebase
+  artifacts: []
+  notes: null
+  evidence: grep-based code verification
+depends_on: []

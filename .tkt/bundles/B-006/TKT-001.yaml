@@ -1,0 +1,56 @@
+id: TKT-001
+bundle: "B-006"
+type: worker
+title: "Fix TestCleanExperimentArtifacts — patch worker.py constants"
+description: |
+  ROOT CAUSE: _clean_experiment_artifacts() was moved from experiments.py to worker.py (B-004). worker.py defines its OWN BASE_DIR, RESULTS_DB_DIR, LOGS_DIR at lines 43-46. Tests patch experiments.X but worker.py reads from worker.X.
+
+FILE TO EDIT: pipeline/tests/test_dashboard_keys.py
+
+FIX test_clean_experiment_artifacts_removes_resume_and_result_files (line ~393):
+Change:
+  patch('experiments.BASE_DIR', base_dir),
+  patch('experiments.RESULTS_DB_DIR', base_dir / 'results_db'),
+  patch('experiments.LOGS_DIR', base_dir / 'logs'),
+To:
+  patch('worker.BASE_DIR', base_dir),
+  patch('worker.RESULTS_DB_DIR', base_dir / 'results_db'),
+  patch('worker.LOGS_DIR', base_dir / 'logs'),
+
+FIX test_clean_experiment_artifacts_retries_directory_not_empty (line ~431):
+Change:
+  patch('experiments.BASE_DIR', base_dir),
+  patch('experiments.RESULTS_DB_DIR', base_dir / 'results_db'),
+  patch('experiments.LOGS_DIR', base_dir / 'logs'),
+  patch('experiments.shutil.rmtree', side_effect=fake_rmtree),
+  patch('experiments.time.sleep'),
+To:
+  patch('worker.BASE_DIR', base_dir),
+  patch('worker.RESULTS_DB_DIR', base_dir / 'results_db'),
+  patch('worker.LOGS_DIR', base_dir / 'logs'),
+  patch('worker.shutil.rmtree', side_effect=fake_rmtree),
+  patch('worker.time.sleep'),
+
+VERIFY: pytest pipeline/tests/test_dashboard_keys.py::TestCleanExperimentArtifacts -v
+acceptance_criteria:
+  - "Task completed as described"
+status: done
+claimed_by: null
+claimed_at: null
+started_at: null
+completed_at: null
+category: null
+effort_estimate: null
+agent_type: null
+skills: []
+wave: 1
+qa_scenarios: 
+  - "pytest pipeline/tests/test_dashboard_keys.py::TestCleanExperimentArtifacts -v passes 2/2"
+source_plan: null
+source_ticket_index: null
+result:
+  summary: null
+  artifacts: []
+  notes: null
+  evidence: null
+depends_on: []

@@ -1,0 +1,40 @@
+ticket_id: TKT-002
+type: worker
+title: Extract pipeline/allocator.py — GPUAllocator class
+status: done
+claimed_by: sisyphus-main
+category: refactor
+effort_estimate: M
+wave: 1
+depends_on: []
+skills: []
+description: "Extract GPUAllocator class and enforce_formal_slot_serialization from\
+  \ experiments.py.\n\n## Source File\n`pipeline/experiments.py`\n\n## Target File\n\
+  Create: `pipeline/allocator.py`\n\n## What to MOVE\n\n1. `GPUAllocator` class —\
+  \ lines 1984-2094 (~110 lines)\n   Methods:\n   - `__init__` (line 1985)\n   - `_refresh_gpus`\
+  \ (line 1999)\n   - `_is_warmup_complete` (line 2015)\n   - `allocate` (line 2025)\n\
+  \   - `release` (line 2084)\n\n   Instance variables: max_jobs, max_gpus, preferred_gpu,\
+  \ gpu_jobs,\n   gpu_job_assigned_at, _lock, gpus\n\n2. `enforce_formal_slot_serialization`\
+  \ function — lines 2094-2180\n\n## Dependencies\n- `collect_gpu_status_with_error`\
+  \ from gpu.py (B-004)\n- `get_experiment_progress` from artifact.py (B-004)\n- Constants:\
+  \ `MAX_JOBS_PER_GPU`, `ALLOW_WARMUP_OVERLAP`,\n  `MAX_PARALLEL_WARMUP_JOBS_PER_GPU`,\
+  \ `GPU_PROCESS_WARMUP_SEC`,\n  `WARMUP_COMPLETION_EPOCH`, `WARMUP_OVERLAP_BYPASS_HIGH_MEM_EXCLUSIVE`,\n\
+  \  `HIGH_MEM_EXCLUSIVE_THRESHOLD_MB`, `HIGH_MEM_EXCLUSIVE_RATIO`,\n  `GPU_JOB_COUNT_MIN_MEMORY_MB`,\
+  \ `GPU_CLAIM_HEADROOM_MB`\n- `get_gpu_process_count` from gpu.py\n\n## Steps\n\n\
+  1. Create `pipeline/allocator.py`\n2. Move GPUAllocator class + enforce_formal_slot_serialization\n\
+  3. Import dependencies from gpu.py and artifact.py\n4. Copy or import GPU-related\
+  \ constants\n5. In experiments.py, replace with:\n   ```python\n   from allocator\
+  \ import GPUAllocator, enforce_formal_slot_serialization\n   ```\n6. Verify: `cd\
+  \ pipeline && python -c \"from allocator import GPUAllocator; print('OK')\"`\n7.\
+  \ Run tests: `cd pipeline && python -m pytest tests/ -v`\n\n## MUST NOT DO\n- Do\
+  \ NOT change method signatures or logic\n- Do NOT rename the class\n"
+acceptance:
+- pipeline/allocator.py exists with GPUAllocator + enforce_formal_slot_serialization
+- All 5 methods present and unchanged
+- experiments.py imports from allocator
+- Existing tests still pass
+result:
+  status: null
+  summary: null
+  evidence: null
+claimed_at: '2026-03-22T08:08:47Z'

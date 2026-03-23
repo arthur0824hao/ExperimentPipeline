@@ -1,0 +1,49 @@
+ticket_id: TKT-003
+type: worker
+title: Extract pipeline/artifact.py from experiments.py
+status: done
+claimed_by: sisyphus-main
+category: refactor
+effort_estimate: M
+wave: 1
+depends_on: []
+skills: []
+description: "Extract experiment result/artifact helper functions from experiments.py\
+  \ into\npipeline/artifact.py. These are pure file-reading utilities.\n\n## Source\
+  \ File\n`pipeline/experiments.py`\n\n## Target File\nCreate: `pipeline/artifact.py`\n\
+  \n## Functions to MOVE\n\n1. `_load_json_dict` — line 970\n2. `_artifact_timestamp`\
+  \ — line 983\n3. `_failed_timestamp` — line 990\n4. `_artifact_is_fresh` — line\
+  \ 1001\n5. `_stderr_is_empty` — line 1010\n6. `_read_resource_usage` — line 1018\n\
+  7. `_read_result_payload` — line 1026\n8. `_coerce_completed_result` — line 1048\n\
+  9. `_coerce_float` — line 1067\n10. `_coerce_int` — line 1072\n11. `_extract_peak_from_payload`\
+  \ — line 1079\n12. `_best_error_peak_mb` — line 1094\n13. `update_running_peak`\
+  \ — line 935\n14. `get_experiment_progress` — line 1674\n15. `get_completed_result_summary`\
+  \ — line 1685\n16. `get_terminal_reason` — line 1732\n\n## Required Constants to\
+  \ Copy\n- `RESULTS_DB_DIR` (line 83)\n- `PREPROCESS_PROGRESS_FILE` (line 94)\n\n\
+  ## Steps\n\n1. Create `pipeline/artifact.py` with all 16 functions\n2. Copy constants:\
+  \ RESULTS_DB_DIR, PREPROCESS_PROGRESS_FILE, BASE_DIR\n3. In experiments.py, replace\
+  \ with import:\n   ```python\n   from artifact import (\n       _load_json_dict,\
+  \ _artifact_timestamp, _failed_timestamp,\n       _artifact_is_fresh, _stderr_is_empty,\
+  \ _read_resource_usage,\n       _read_result_payload, _coerce_completed_result,\
+  \ _coerce_float,\n       _coerce_int, _extract_peak_from_payload, _best_error_peak_mb,\n\
+  \       update_running_peak, get_experiment_progress,\n       get_completed_result_summary,\
+  \ get_terminal_reason,\n   )\n   ```\n4. Delete originals from experiments.py\n\
+  5. Verify: `cd pipeline && python -c \"from artifact import get_completed_result_summary;\
+  \ print('OK')\"`\n6. Run tests: `cd pipeline && python -m pytest tests/ -v`\n\n\
+  ## MUST NOT DO\n- Do NOT change function signatures or logic\n- Do NOT modify other\
+  \ files besides experiments.py and the new module\n"
+acceptance:
+- pipeline/artifact.py exists with all 16 functions
+- experiments.py imports from artifact.py
+- Import verification succeeds
+- Existing tests still pass
+result:
+  status: null
+  summary: Extracted 16 artifact/result helper functions to pipeline/artifact.py.
+    experiments.py imports from artifact.py. Import check passes.
+  evidence: 'python3 -c ''from pipeline.artifact import get_completed_result_summary'':
+    OK'
+  artifacts: []
+  notes: null
+claimed_at: '2026-03-22T07:52:54Z'
+completed_at: '2026-03-22T08:07:36Z'

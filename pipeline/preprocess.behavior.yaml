@@ -1,0 +1,139 @@
+spec_version: "1.0"
+target: "pipeline/preprocess.py"
+purpose: "Module boundary contracts for preprocess.py"
+
+modules:
+  runtime_config:
+    description: "Runtime defaults and import fallback bootstrap"
+    public_api:
+      - RUNNER_PYTHON
+      - DEFAULT_LOOP_INTERVAL_SEC
+      - DEFAULT_WATCH_PAGE_SIZE
+      - DEFAULT_WATCH_PAGE
+      - GATE_BATCH_SIZE
+    internal:
+      - _load_phase3_runtime_config
+      - _cfg_int
+      - _should_fallback_gate_engine_import
+      - _resolve_runner_python
+
+  io_registry:
+    description: "JSON I/O, experiment registry I/O, and artifact lookup helpers"
+    public_api:
+      - load_json
+      - save_json
+      - load_experiments_json
+      - save_experiments_json
+      - get_experiment_test_path
+      - get_available_features
+      - is_experiment_ready
+    internal:
+      - _load_json_dict
+      - _artifact_timestamp
+      - _read_result_payload
+      - _coerce_optional_int
+      - _resolve_watch_memory_contract
+      - _row_priority
+      - _slugify_experiment_name
+      - _compact_pytest_output
+      - _get_experiment_train_path
+
+  feature_gen:
+    description: "Feature generation + registry"
+    public_api:
+      - generate_single_feature
+      - collect_missing_tasks
+      - collect_feature_jobs
+      - get_available_features
+      - is_experiment_ready
+      - FEATURE_GENERATORS
+      - register_generator
+    internal:
+      - _run_script
+      - _parse_cutoff_suffix
+      - _ensure_cut_feature
+      - _update_registry
+      - generate_velocity_features
+      - generate_burst_features
+      - generate_balance_vol_features
+
+  registration:
+    description: "Experiment registration + ready queue processing"
+    public_api:
+      - run_once
+      - run_experiment_gate
+      - move_completed_experiments
+      - archive_doc_processed_completed
+    internal: []
+
+  watch_panel:
+    description: "TUI watch panel rendering and snapshot composition"
+    public_api:
+      - run_watch
+    internal:
+      - _collect_watch_rows
+      - _collect_watch_snapshot_rows
+      - _resolve_watch_feature_path
+      - _derive_watch_feature_dependency_signal
+      - _collect_computing_feature_names
+      - _render_watch_panel
+      - _resolve_watch_selection
+      - _move_watch_selection
+      - _paginate_rows
+      - normalize_initial_watch_page
+      - _compute_watch_panel_sizes
+      - _format_watch_status_text
+      - _format_watch_feature_status_text
+      - _format_watch_stage_text
+      - _run_watch_tick
+      - _read_key_nonblocking
+      - _RawInputMode
+
+  reconciliation:
+    description: "Terminal-state and status reconciliation for watch snapshot rows"
+    public_api: []
+    internal:
+      - _read_result_payload
+      - _resolve_watch_memory_contract
+      - _row_priority
+
+  archive:
+    description: "Experiment archival operations"
+    public_api: []
+    internal:
+      - _archive_selected_from_watch
+      - _archive_all_completed_from_watch
+      - _clear_latest_archive_from_watch
+      - _load_archive_module
+
+  cli_entry:
+    description: "CLI mode routing and logging tee setup"
+    public_api:
+      - main
+    internal:
+      - _TeeStream
+
+module_dependencies:
+  runtime_config: []
+  io_registry:
+    - runtime_config
+  feature_gen:
+    - runtime_config
+    - io_registry
+  registration:
+    - feature_gen
+    - io_registry
+  watch_panel:
+    - registration
+    - feature_gen
+    - io_registry
+  reconciliation:
+    - io_registry
+    - registration
+  archive:
+    - watch_panel
+  cli_entry:
+    - runtime_config
+    - registration
+    - watch_panel
+    - archive

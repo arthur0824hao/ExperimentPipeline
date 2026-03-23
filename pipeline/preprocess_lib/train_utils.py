@@ -219,6 +219,7 @@ class ProgressReporter:
 
     def __init__(self, experiment_dir: str, experiment_name: str):
         self.experiment_dir = experiment_dir
+        self.history_file = os.path.join(experiment_dir, "metric_history.jsonl")
         self.experiment_name = experiment_name
         self.progress_file = os.path.join(experiment_dir, ".progress")
         self._last_update = -1
@@ -231,6 +232,7 @@ class ProgressReporter:
         val_f1: float = 0.0,
         loss: float = 0.0,
         phase: Optional[str] = None,
+        **metrics,
     ):
         """Update progress file. Called once per epoch."""
         if epoch - self._last_update < self._update_interval and epoch != total_epochs:
@@ -255,6 +257,26 @@ class ProgressReporter:
         except Exception:
             pass  # Non-critical, don't crash training
 
+        history_entry = {
+            "epoch": epoch,
+            "total_epochs": total_epochs,
+            "val_f1": round(val_f1, 4),
+            "loss": round(loss, 4),
+            "timestamp": datetime.now().isoformat(),
+        }
+        if phase is not None:
+            history_entry["phase"] = phase
+        for k, v in metrics.items():
+            if isinstance(v, float):
+                history_entry[k] = round(v, 4)
+            elif isinstance(v, (int, str, bool)):
+                history_entry[k] = v
+        try:
+            with open(self.history_file, "a") as f:
+                f.write(json.dumps(history_entry) + "\n")
+        except Exception:
+            pass
+
     def set_phase(self, phase: str, total_epochs: int = 0):
         self._last_update = -1
         self.update(0, total_epochs, phase=phase)
@@ -265,6 +287,22 @@ class ProgressReporter:
                 os.remove(self.progress_file)
         except Exception:
             pass
+
+    @staticmethod
+    def read_history(experiment_dir: str) -> list:
+        history_file = os.path.join(experiment_dir, "metric_history.jsonl")
+        entries = []
+        if not os.path.exists(history_file):
+            return entries
+        try:
+            with open(history_file, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        entries.append(json.loads(line))
+        except Exception:
+            pass
+        return entries
 
 
 CANONICAL_TEST_DATASET = "acct_predi.csv"
@@ -2448,7 +2486,7 @@ def train_single_model(
     eval_every_epochs: int = 1,
     progress_callback: Optional[
         Callable
-    ] = None,  # Called each epoch: (epoch, total, val_f1, loss)
+    ] = None,  # Called each epoch: (epoch, total, val_f1, loss, **metrics)
     **kwargs,  # Accept augmentation args
 ) -> Tuple[nn.Module, float]:
     import inspect
@@ -2642,7 +2680,9 @@ def train_single_model(
         # --- P1: Built-in progress callback ---
         if progress_callback is not None:
             try:
-                progress_callback(epoch + 1, max_epochs, val_f1, avg_loss)
+                progress_callback(
+                    epoch + 1, max_epochs, val_f1, avg_loss, train_loss=avg_loss
+                )
             except Exception:
                 pass  # Never let callback failure break training
 

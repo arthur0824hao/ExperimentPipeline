@@ -1,0 +1,22 @@
+ticket_id: TKT-000
+type: integrate
+title: 'Integrate B-005: Module split phase 2'
+status: done
+claimed_by: sisyphus-main
+description: 'Coordinate class extraction. After all workers complete: 1. Run: cd
+  pipeline && python -m pytest tests/ -v — all tests MUST pass 2. Run: cd pipeline
+  && python experiments.py --help — must work 3. Verify: wc -l pipeline/experiments.py
+  — should be ~2000-2500 lines 4. Verify all new modules importable
+
+  '
+acceptance:
+- All existing tests pass
+- experiments.py --help works
+- experiments.py < 2500 lines
+- All new modules importable from pipeline/ directory
+completed_at: '2026-03-22T08:44:03Z'
+result:
+  summary: Bundle B-005 integrated and closed
+  artifacts: []
+  notes: null
+  evidence: null

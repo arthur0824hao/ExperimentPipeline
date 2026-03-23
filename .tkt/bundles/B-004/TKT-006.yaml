@@ -1,0 +1,50 @@
+ticket_id: TKT-006
+type: worker
+title: Extract pipeline/condition.py from experiments.py
+status: done
+claimed_by: sisyphus-main
+category: refactor
+effort_estimate: M
+wave: 1
+depends_on: []
+skills: []
+description: "Extract condition node and staged matrix functions from experiments.py\
+  \ into\npipeline/condition.py. These handle experiment dependency chains.\n\n##\
+  \ Source File\n`pipeline/experiments.py`\n\n## Target File\nCreate: `pipeline/condition.py`\n\
+  \n## Functions/Constants to MOVE\n\n1. `_normalize_name_list` — line 137\n2. `_load_condition_nodes_from_runtime`\
+  \ — line 155\n3. `RUNTIME_CONDITION_NODES` — line 186 (module-level constant, calls\
+  \ _load_condition_nodes_from_runtime)\n4. `_load_staged_matrix_entries` — line 189\n\
+  5. `RUNTIME_STAGED_MATRIX` — line 230 (module-level constant, calls _load_staged_matrix_entries)\n\
+  6. `_resolve_gate_evidence_status` — line 233\n7. `_build_condition_node_rows` —\
+  \ line 248\n8. `_build_staged_matrix_rows` — line 309\n\n## Dependencies\n- `_CONDITION_NODES_CFG`,\
+  \ `_STAGED_MATRIX_CFG` constants (runtime config)\n- `runtime_config.get_runtime_section`\
+  \ for config loading\n- `_artifact_timestamp`, `_load_json_dict` from artifact.py\
+  \ (for gate evidence)\n- `RESULTS_DB_DIR` constant\n\n## Important Notes\n- `RUNTIME_CONDITION_NODES`\
+  \ and `RUNTIME_STAGED_MATRIX` are evaluated at module import time\n- Keep this behavior\
+  \ in condition.py (compute at import)\n- These constants are referenced by UnifiedDashboard.build_experiments_panel\n\
+  \n## Steps\n\n1. Create `pipeline/condition.py` with all 8 items\n2. Import dependencies\
+  \ from artifact.py and runtime_config.py\n3. In experiments.py, replace with:\n\
+  \   ```python\n   from condition import (\n       _normalize_name_list,\n      \
+  \ _load_condition_nodes_from_runtime, RUNTIME_CONDITION_NODES,\n       _load_staged_matrix_entries,\
+  \ RUNTIME_STAGED_MATRIX,\n       _resolve_gate_evidence_status,\n       _build_condition_node_rows,\
+  \ _build_staged_matrix_rows,\n   )\n   ```\n4. Delete originals from experiments.py\n\
+  5. Verify: `cd pipeline && python -c \"from condition import RUNTIME_CONDITION_NODES;\
+  \ print('OK')\"`\n6. Run tests: `cd pipeline && python -m pytest tests/ -v`\n\n\
+  ## MUST NOT DO\n- Do NOT change function signatures, logic, or import-time behavior\n\
+  - Do NOT change other files besides experiments.py and the new module\n"
+acceptance:
+- pipeline/condition.py exists with all 8 items
+- RUNTIME_CONDITION_NODES and RUNTIME_STAGED_MATRIX still evaluate at import time
+- experiments.py imports from condition.py
+- Existing tests still pass
+result:
+  status: null
+  summary: Extracted 8 condition/staged matrix functions to pipeline/condition.py.
+    RUNTIME_CONDITION_NODES and RUNTIME_STAGED_MATRIX preserved at import time. Import
+    check passes.
+  evidence: 'python3 -c ''from pipeline.condition import RUNTIME_CONDITION_NODES'':
+    OK'
+  artifacts: []
+  notes: null
+claimed_at: '2026-03-22T07:52:54Z'
+completed_at: '2026-03-22T08:07:42Z'

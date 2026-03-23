@@ -1,0 +1,22 @@
+bundle_id: B-005
+title: "Module Split Phase 2 — Extract Core Classes from experiments.py"
+goal: >
+  Extract ClusterManager, GPUAllocator, HybridLogger classes and the worker/health
+  functions from experiments.py. After this bundle, experiments.py contains only
+  UnifiedDashboard + main() + scheduler_loop (~2300 lines, down from 5293).
+track: architecture
+stage: closed
+closed_at: "2026-03-22T00:00:00Z"
+created_at: "2026-03-22T07:30:00Z"
+source_plan: ".tkt/roadmap.yaml"
+roadmap_goal: G-003
+depends_on_bundles: [B-004]
+tickets:
+  - TKT-000
+  - TKT-001
+  - TKT-002
+  - TKT-003
+  - TKT-004
+  - TKT-005
+  - TKT-006
+  - TKT-A00

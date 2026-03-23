@@ -1,0 +1,33 @@
+id: TKT-010
+bundle: B-007
+type: worker
+title: Update train_single_model to pass train_loss to progress_callback
+description: "FILE: pipeline/preprocess_lib/train_utils.py\nLOCATION: train_single_model\
+  \ function (line ~2437)\nCHANGE 1 - Change progress_callback type hint (line ~2451):\n\
+  \  OLD: ] = None,  # Called each epoch: (epoch, total, val_f1, loss)\n  NEW: ] =\
+  \ None,  # Called each epoch: (epoch, total, val_f1, loss, **metrics)\nCHANGE 2\
+  \ - At the progress_callback call (line ~2645):\n  OLD: progress_callback(epoch\
+  \ + 1, max_epochs, val_f1, avg_loss)\n  NEW: progress_callback(epoch + 1, max_epochs,\
+  \ val_f1, avg_loss, train_loss=avg_loss)\nVERIFY: grep -n \"progress_callback(\"\
+  \ pipeline/preprocess_lib/train_utils.py\n"
+acceptance_criteria:
+- Task completed as described
+status: done
+claimed_by: null
+claimed_at: null
+started_at: null
+completed_at: '2026-03-22T12:49:07Z'
+category: null
+effort_estimate: null
+agent_type: null
+skills: []
+wave: 5
+qa_scenarios: []
+source_plan: null
+source_ticket_index: null
+result:
+  summary: Code implemented and verified as per ticket spec
+  artifacts: []
+  notes: null
+  evidence: py_compile pass, LSP diagnostics clean
+depends_on: []

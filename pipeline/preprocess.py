@@ -1471,7 +1471,11 @@ def _format_watch_stage_text(stage: str) -> Text:
 
 
 def _render_watch_panel(
-    page: int, page_size: int, selected_name: str = "", status_msg: str = ""
+    page: int,
+    page_size: int,
+    selected_name: str = "",
+    status_msg: str = "",
+    view_page: int = 0,
 ) -> Tuple[str, int, int]:
     ready_data = load_json(READY_FILE)
     ready_flag = 0
@@ -1549,6 +1553,9 @@ def _render_watch_panel(
     header_lines = Group(
         Text.from_markup("[bold bright_white]Phase3 preprocess.py --watch[/]"),
         Text.from_markup(
+            f"[cyan]View[/]: {'Operations' if view_page == 0 else 'Feature Bank'}  [white]|[/]  [dim]Tab[/] to switch"
+        ),
+        Text.from_markup(
             f"[cyan]Mode[/]: WATCH  [white]|[/]  [cyan]Stage[/]: {current_stage}  [white]|[/]  [cyan]Time[/]: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         ),
         Text.from_markup(
@@ -1568,211 +1575,165 @@ def _render_watch_panel(
     feature_height = int(panel_sizes["feature_height"])
     ready_height = int(panel_sizes["ready_height"])
     snapshot_height = int(panel_sizes["snapshot_height"])
-    if bool(panel_sizes["stacked"]):
+    if view_page == 0:
+        ops_ready_height = max(10, main_height // 2)
+        ops_snapshot_height = main_height - ops_ready_height
         layout["main"].split_column(
-            Layout(name="features", size=feature_height),
-            Layout(name="ready", size=ready_height),
-            Layout(name="snapshot", size=snapshot_height),
+            Layout(name="ready", size=ops_ready_height),
+            Layout(name="snapshot", size=ops_snapshot_height),
         )
     else:
-        layout["main"].split_row(
-            Layout(name="features", ratio=5), Layout(name="sidebar", ratio=3)
-        )
-        layout["sidebar"].split_column(
-            Layout(name="ready", size=ready_height),
-            Layout(name="snapshot", size=snapshot_height),
+        layout["main"].split_column(
+            Layout(name="features", size=main_height),
         )
 
-    generated_count = sum(
-        1 for row in feature_rows if str(row.get("status") or "") == "GENERATED"
-    )
-    missing_count = max(0, len(feature_rows) - generated_count)
-    computing_names = [
-        str(row.get("name") or "")
-        for row in feature_rows
-        if str(row.get("status") or "") == "COMPUTING"
-    ]
-    computing_signal = ", ".join(computing_names[:3])
-    if len(computing_names) > 3:
-        computing_signal += f" (+{len(computing_names) - 3})"
-    if not computing_signal:
-        computing_signal = "idle"
-
-    feature_table = Table(
-        box=box.SIMPLE_HEAVY,
-        expand=True,
-        show_header=True,
-        header_style="bold bright_white on dark_blue",
-        row_styles=["none", "dim"],
-        pad_edge=False,
-    )
-    feature_table.add_column("#", width=4, justify="right")
-    feature_table.add_column("Status", width=11)
-    feature_table.add_column("Feature", min_width=24, ratio=2)
-    feature_table.add_column("Artifact", min_width=20, ratio=2)
-    feature_table.add_column("total_dim", width=10, justify="right")
-    feature_table.add_column("depends_on", min_width=16, ratio=1)
-    if page_rows:
-        for idx, row in enumerate(page_rows, start + 1):
-            feature_table.add_row(
-                str(idx),
-                _format_watch_feature_status_text(str(row.get("status") or "-")),
-                Text(str(row.get("name") or "-"), style="bright_white"),
-                str(row.get("artifact_id") or "-"),
-                str(row.get("total_dim") or "-"),
-                str(row.get("depends_on") or "-"),
+    if view_page == 1:
+        feature_summary = Group(
+            Text.from_markup(
+                f"[cyan]Feature bank[/]: total={len(feature_rows)}  [white]|[/]  [green]generated[/]={generated_count}  [white]|[/]  [red]missing[/]={missing_count}"
+            ),
+            Text.from_markup(f"[yellow]Current computing[/]: {computing_signal}"),
+            feature_table,
+        )
+        layout["features"].update(
+            Panel(
+                feature_summary,
+                title="[bold]Feature Bank Overview[/]",
+                border_style="blue",
+                box=box.ROUNDED,
+                padding=(0, 1),
+                height=feature_height,
             )
-    else:
-        feature_table.add_row("", "", "(no features)", "", "", "")
-    if len(feature_rows) > page_size:
-        feature_table.add_row(
-            "",
-            "",
-            f"Page {page + 1}/{total_pages} · showing {start + 1}-{end} of {len(feature_rows)}",
-            "",
-            "",
-            "",
         )
 
-    feature_summary = Group(
-        Text.from_markup(
-            f"[cyan]Feature bank[/]: total={len(feature_rows)}  [white]|[/]  [green]generated[/]={generated_count}  [white]|[/]  [red]missing[/]={missing_count}"
-        ),
-        Text.from_markup(f"[yellow]Current computing[/]: {computing_signal}"),
-        feature_table,
-    )
-    layout["features"].update(
-        Panel(
-            feature_summary,
-            title="[bold]Feature Bank Overview[/]",
-            border_style="blue",
-            box=box.ROUNDED,
-            padding=(0, 1),
-            height=feature_height if bool(panel_sizes["stacked"]) else None,
+    if view_page == 0:
+        ready_table = Table(
+            box=box.SIMPLE_HEAVY,
+            expand=True,
+            show_header=True,
+            header_style="bold bright_white on dark_green",
+            row_styles=["none", "dim"],
+            pad_edge=False,
         )
-    )
-
-    ready_table = Table(
-        box=box.SIMPLE_HEAVY,
-        expand=True,
-        show_header=True,
-        header_style="bold bright_white on dark_green",
-        row_styles=["none", "dim"],
-        pad_edge=False,
-    )
-    ready_table.add_column("#", width=4, justify="right")
-    ready_table.add_column("Stage", width=18)
-    ready_table.add_column("Ready Queue", ratio=1)
-    ready_rows = [
-        ("READY_QUEUE", item.get("name", "<unknown>")) for item in ready_queue
-    ]
-    ready_rows += [
-        ("GENERATING_FEATURES", item.get("name", "<unknown>")) for item in feature_jobs
-    ]
-    if ready_rows:
-        for idx, (stage_label, item_name) in enumerate(ready_rows[:8], 1):
+        ready_table.add_column("#", width=4, justify="right")
+        ready_table.add_column("Stage", width=18)
+        ready_table.add_column("Ready Queue", ratio=1)
+        ready_rows = [
+            ("READY_QUEUE", item.get("name", "<unknown>")) for item in ready_queue
+        ]
+        ready_rows += [
+            ("GENERATING_FEATURES", item.get("name", "<unknown>"))
+            for item in feature_jobs
+        ]
+        if ready_rows:
+            for idx, (stage_label, item_name) in enumerate(ready_rows[:8], 1):
+                ready_table.add_row(
+                    str(idx),
+                    _format_watch_stage_text(stage_label),
+                    Text(str(item_name), style="bright_white"),
+                )
+            remaining = len(ready_rows) - 8
+            if remaining > 0:
+                ready_table.add_row(
+                    "…",
+                    _format_watch_stage_text(current_stage),
+                    Text(f"and {remaining} more", style="dim"),
+                )
+        else:
             ready_table.add_row(
-                str(idx),
-                _format_watch_stage_text(stage_label),
-                Text(str(item_name), style="bright_white"),
-            )
-        remaining = len(ready_rows) - 8
-        if remaining > 0:
-            ready_table.add_row(
-                "…",
+                "",
                 _format_watch_stage_text(current_stage),
-                Text(f"and {remaining} more", style="dim"),
+                Text("(empty)", style="dim"),
             )
-    else:
-        ready_table.add_row(
-            "",
-            _format_watch_stage_text(current_stage),
-            Text("(empty)", style="dim"),
+        layout["ready"].update(
+            Panel(
+                ready_table,
+                title="[bold]Ready Queue[/]",
+                border_style="green",
+                box=box.ROUNDED,
+                padding=(0, 1),
+                height=ready_height,
+            )
         )
-    layout["ready"].update(
-        Panel(
-            ready_table,
-            title="[bold]Ready Queue[/]",
-            border_style="green",
-            box=box.ROUNDED,
-            padding=(0, 1),
-            height=ready_height,
-        )
-    )
 
-    snapshot_table = Table(
-        box=box.SIMPLE_HEAVY,
-        expand=True,
-        show_header=True,
-        header_style="bold bright_white on dark_cyan",
-        row_styles=["none", "dim"],
-        pad_edge=False,
-    )
-    snapshot_table.add_column("", width=2)
-    snapshot_table.add_column("#", width=4, justify="right")
-    snapshot_table.add_column("Status", width=12)
-    snapshot_table.add_column("Experiment", min_width=18, ratio=2)
-    snapshot_table.add_column("Parent", width=12)
-    snapshot_table.add_column("Batch", width=10)
-    snapshot_table.add_column("MemFam", width=10)
-    snapshot_table.add_column("EstMB", width=7, justify="right")
-    snapshot_table.add_column("Mode", width=10)
-    snapshot_table.add_column("NBLdr", width=7)
-    snapshot_table.add_column("Stage", width=18)
-    if snapshot_rows:
-        for idx, row in enumerate(snapshot_rows[:8], 1):
-            prefix = ">" if row.get("name") == selected_name else " "
-            stage_label = (
-                "HANDOFF_TO_RUNNER"
-                if str(row.get("status") or "").upper() in {"NEEDS_RERUN", "READY"}
-                else "IDLE"
-            )
+        snapshot_table = Table(
+            box=box.SIMPLE_HEAVY,
+            expand=True,
+            show_header=True,
+            header_style="bold bright_white on dark_cyan",
+            row_styles=["none", "dim"],
+            pad_edge=False,
+        )
+        snapshot_table.add_column("", width=2)
+        snapshot_table.add_column("#", width=4, justify="right")
+        snapshot_table.add_column("Status", width=12)
+        snapshot_table.add_column("Experiment", min_width=18, ratio=2)
+        snapshot_table.add_column("Parent", width=12)
+        snapshot_table.add_column("Batch", width=10)
+        snapshot_table.add_column("MemFam", width=10)
+        snapshot_table.add_column("EstMB", width=7, justify="right")
+        snapshot_table.add_column("Mode", width=10)
+        snapshot_table.add_column("NBLdr", width=7)
+        snapshot_table.add_column("Stage", width=18)
+        if snapshot_rows:
+            for idx, row in enumerate(snapshot_rows[:8], 1):
+                prefix = ">" if row.get("name") == selected_name else " "
+                stage_label = (
+                    "HANDOFF_TO_RUNNER"
+                    if str(row.get("status") or "").upper() in {"NEEDS_RERUN", "READY"}
+                    else "IDLE"
+                )
+                snapshot_table.add_row(
+                    prefix,
+                    str(idx),
+                    _format_watch_status_text(str(row["status"])),
+                    Text(str(row["name"]), style="bright_white"),
+                    str(row["parent"]),
+                    str(row["batch"]),
+                    str(row.get("mem_family") or "-"),
+                    str(row.get("est_mb") or "-"),
+                    str(row.get("mem_mode") or "-"),
+                    str(row.get("nbldr") or "-"),
+                    _format_watch_stage_text(stage_label),
+                    style="reverse" if row.get("name") == selected_name else None,
+                )
+        else:
             snapshot_table.add_row(
-                prefix,
-                str(idx),
-                _format_watch_status_text(str(row["status"])),
-                Text(str(row["name"]), style="bright_white"),
-                str(row["parent"]),
-                str(row["batch"]),
-                str(row.get("mem_family") or "-"),
-                str(row.get("est_mb") or "-"),
-                str(row.get("mem_mode") or "-"),
-                str(row.get("nbldr") or "-"),
-                _format_watch_stage_text(stage_label),
-                style="reverse" if row.get("name") == selected_name else None,
+                "", "", "", "(no experiments)", "", "", "", "", "", "", current_stage
             )
-    else:
-        snapshot_table.add_row(
-            "", "", "", "(no experiments)", "", "", "", "", "", "", current_stage
+        if len(snapshot_rows) > 8:
+            snapshot_table.add_row(
+                "",
+                "",
+                "",
+                f"showing 8 of {len(snapshot_rows)} experiment rows",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+            )
+        layout["snapshot"].update(
+            Panel(
+                snapshot_table,
+                title="[bold]Experiments Snapshot[/]",
+                border_style="cyan",
+                box=box.ROUNDED,
+                padding=(0, 1),
+                height=snapshot_height,
+            )
         )
-    if len(snapshot_rows) > 8:
-        snapshot_table.add_row(
-            "",
-            "",
-            "",
-            f"showing 8 of {len(snapshot_rows)} experiment rows",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-        )
-    layout["snapshot"].update(
-        Panel(
-            snapshot_table,
-            title="[bold]Experiments Snapshot[/]",
-            border_style="cyan",
-            box=box.ROUNDED,
-            padding=(0, 1),
-            height=snapshot_height,
-        )
-    )
 
-    controls_line = Text.from_markup(
-        "[dim]W/S[/]:Exp Select  [dim]N/P[/]:Feature Page  [dim][a]All [S]Selected -> [v]Archive [c]Clear [Esc]Cancel[/]  [dim]Q[/]:Quit"
-    )
+    if view_page == 0:
+        controls_line = Text.from_markup(
+            "[dim]W/S[/]:Exp Select  [dim]Tab[/]:Feature Bank  [dim][a]All [S]Selected -> [v]Archive [c]Clear [Esc]Cancel[/]  [dim]Q[/]:Quit"
+        )
+    else:
+        controls_line = Text.from_markup(
+            "[dim]N/P[/]:Feature Page  [dim]Tab[/]:Operations  [dim]Q[/]:Quit"
+        )
     status_line = Text.from_markup(
         f"[yellow]{status_msg}[/]" if status_msg else "[dim]Status: idle[/]"
     )
@@ -1837,12 +1798,15 @@ def run_watch(interval: int, page_size: int, initial_page: int = 1) -> None:
     page = normalize_initial_watch_page(initial_page, 1)
     selected_name = ""
     status_msg = ""
+    view_page = 0
     next_tick = 0.0
     first_render = True
     action_keys = TwoStepKeyHandler()
     if not sys.stdin.isatty():
         status_msg = _run_watch_tick(status_msg)
-        panel, _, _ = _render_watch_panel(page, page_size, selected_name, status_msg)
+        panel, _, _ = _render_watch_panel(
+            page, page_size, selected_name, status_msg, view_page=view_page
+        )
         print(panel)
         return
     with _RawInputMode():
@@ -1860,7 +1824,7 @@ def run_watch(interval: int, page_size: int, initial_page: int = 1) -> None:
                 page = normalize_initial_watch_page(initial_page, total_pages_preview)
                 first_render = False
             panel, total_pages, page = _render_watch_panel(
-                page, page_size, selected_name, status_msg
+                page, page_size, selected_name, status_msg, view_page=view_page
             )
             sys.stdout.write("\033[2J\033[H")
             sys.stdout.write(panel + "\n")
@@ -1871,13 +1835,16 @@ def run_watch(interval: int, page_size: int, initial_page: int = 1) -> None:
             key_lower = key.lower()
             if key_lower == "q":
                 break
-            if key_lower == "n":
+            if key == "\t":
+                view_page = (view_page + 1) % 2
+                continue
+            if key_lower == "n" and view_page == 1:
                 page = (page + 1) % max(total_pages, 1)
-            elif key_lower == "p":
+            elif key_lower == "p" and view_page == 1:
                 page = (page - 1) % max(total_pages, 1)
-            elif key_lower == "w":
+            elif key_lower == "w" and view_page == 0:
                 selected_name = _move_watch_selection(snapshot_rows, selected_name, -1)
-            elif key == "s":
+            elif key == "s" and view_page == 0:
                 selected_name = _move_watch_selection(snapshot_rows, selected_name, 1)
 
             action_key = ""

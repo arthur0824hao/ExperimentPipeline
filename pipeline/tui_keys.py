@@ -17,6 +17,7 @@ class Action:
 SCOPE_KEYS = {
     "a": "all",
     "s": "selected",
+    "S": "selected",
 }
 
 ACTION_KEYS = {

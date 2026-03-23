@@ -1,0 +1,42 @@
+ticket_id: TKT-005
+type: worker
+title: Extract pipeline/health.py — orphan reaping + self-healing
+status: done
+claimed_by: sisyphus-main
+category: refactor
+effort_estimate: L
+wave: 2
+depends_on:
+- TKT-001
+skills: []
+description: "Extract all process health, orphan detection, and self-healing functions\
+  \ from\nexperiments.py into pipeline/health.py.\n\n## Source File\n`pipeline/experiments.py`\n\
+  \n## Target File\nCreate: `pipeline/health.py`\n\n## Functions to MOVE\n\n1. `cleanup_on_startup`\
+  \ — line 3930\n2. `_get_active_runner_pids_from_db` — line 3940\n3. `_kill_local_pid_tree`\
+  \ — line 3960\n4. `enforce_running_pid_registration` — line 4003\n5. `reap_orphan_runner_processes`\
+  \ — line 4009\n6. `_extract_exp_name_from_cmd` — line 4057\n7. `reap_orphan_training_processes`\
+  \ — line 4078\n8. `check_stale_locks` — line 4224\n9. `self_heal_heartbeat_worker_conflicts`\
+  \ — line 4240\n10. `check_zombie_processes` — line 4306\n11. `process_remote_termination_requests`\
+  \ — line 4317\n\n## Dependencies\n- From db_registry.py: `DBExperimentsDB`\n- From\
+  \ cluster.py: `ClusterManager` (for self_heal)\n- From logger_hybrid.py: `HybridLogger`\n\
+  - Constants: `HEARTBEAT_STALE_SEC`, `ORPHAN_REAPER_INTERVAL_SEC`,\n  `ORPHAN_ETIMES_SEC`,\
+  \ `ORPHAN_CONFIRMATION_SEC`, `ORPHAN_TRAINING_SEEN`\n- stdlib: os, signal, subprocess,\
+  \ time, logging\n\n## Steps\n\n1. Create `pipeline/health.py`\n2. Move all 11 functions\n\
+  3. Import dependencies from cluster, db_registry, logger_hybrid\n4. In experiments.py,\
+  \ replace with:\n   ```python\n   from health import (\n       cleanup_on_startup,\
+  \ enforce_running_pid_registration,\n       reap_orphan_runner_processes, reap_orphan_training_processes,\n\
+  \       check_stale_locks, self_heal_heartbeat_worker_conflicts,\n       check_zombie_processes,\
+  \ process_remote_termination_requests,\n       _get_active_runner_pids_from_db,\
+  \ _kill_local_pid_tree,\n       _extract_exp_name_from_cmd,\n   )\n   ```\n5. Verify:\
+  \ `cd pipeline && python -c \"from health import cleanup_on_startup; print('OK')\"\
+  `\n6. Run tests: `cd pipeline && python -m pytest tests/ -v`\n\n## MUST NOT DO\n\
+  - Do NOT change function logic\n- Do NOT modify process kill behavior\n"
+acceptance:
+- pipeline/health.py exists with all 11 functions
+- experiments.py imports from health
+- Existing tests still pass
+result:
+  status: null
+  summary: null
+  evidence: null
+claimed_at: '2026-03-22T08:14:39Z'

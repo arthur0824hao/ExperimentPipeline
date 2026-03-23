@@ -1,0 +1,49 @@
+id: TKT-003
+bundle: "B-006"
+type: worker
+title: "Fix memory contract watch tests — patch memory_contract + artifact modules"
+description: |
+  ROOT CAUSE: infer_memory_contract_for_exp is imported in BOTH experiments.py (line 175) AND memory_contract.py (line 42). When build_experiments_panel calls get_memory_contract() (from memory_contract.py), that function internally calls memory_contract.infer_memory_contract_for_exp — NOT experiments.infer_memory_contract_for_exp. Also, RESULTS_DB_DIR for reading result files is in artifact.py.
+
+FILE TO EDIT: pipeline/tests/test_dashboard_keys.py
+
+FIX 1: test_backfills_memory_contract_when_row_is_missing_it (line ~964):
+Change:
+  monkeypatch.setattr('experiments.infer_memory_contract_for_exp', lambda exp, *_args, **_kwargs: {...})
+To:
+  monkeypatch.setattr('memory_contract.infer_memory_contract_for_exp', lambda exp, *_args, **_kwargs: {...})
+
+FIX 2: test_reestimates_stale_memory_contract_when_artifact_hidden_dim_conflicts (line ~1001-1013):
+Change:
+  monkeypatch.setattr('experiments.RESULTS_DB_DIR', tmp_path)
+To:
+  monkeypatch.setattr('artifact.RESULTS_DB_DIR', tmp_path)
+
+AND Change:
+  monkeypatch.setattr('experiments.infer_memory_contract_for_exp', lambda exp, *_args, **_kwargs: {...})
+To:
+  monkeypatch.setattr('memory_contract.infer_memory_contract_for_exp', lambda exp, *_args, **_kwargs: {...})
+
+VERIFY: pytest pipeline/tests/test_dashboard_keys.py::TestExperimentPanelWatchSemantics::test_backfills_memory_contract_when_row_is_missing_it pipeline/tests/test_dashboard_keys.py::TestExperimentPanelWatchSemantics::test_reestimates_stale_memory_contract_when_artifact_hidden_dim_conflicts -v
+acceptance_criteria:
+  - "Task completed as described"
+status: done
+claimed_by: null
+claimed_at: null
+started_at: null
+completed_at: null
+category: null
+effort_estimate: null
+agent_type: null
+skills: []
+wave: 1
+qa_scenarios: 
+  - "2 memory contract watch tests pass"
+source_plan: null
+source_ticket_index: null
+result:
+  summary: null
+  artifacts: []
+  notes: null
+  evidence: null
+depends_on: []

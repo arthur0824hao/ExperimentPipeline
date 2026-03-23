@@ -1,0 +1,67 @@
+id: TKT-002
+bundle: "B-006"
+type: worker
+title: "Fix reconcile/terminal/metric/zombie tests — patch artifact.py constants"
+description: |
+  ROOT CAUSE: _read_resource_usage(), _stderr_is_empty(), get_completed_result_summary() were moved to artifact.py (B-004). artifact.py defines its OWN BASE_DIR, RESULTS_DB_DIR, LOGS_DIR at lines 15-18. Tests patch experiments.X but artifact.py reads from artifact.X.
+
+FILE TO EDIT: pipeline/tests/test_dashboard_keys.py
+
+FIX 1: TestReconcileTerminalArtifacts::test_reclassifies_script_error_as_oom_from_resource_usage (line ~474):
+Change:
+  patch('experiments.BASE_DIR', base_dir),
+  patch('experiments.RESULTS_DB_DIR', base_dir / 'results_db'),
+  patch('experiments.LOGS_DIR', base_dir / 'logs'),
+To:
+  patch('artifact.BASE_DIR', base_dir),
+  patch('artifact.RESULTS_DB_DIR', base_dir / 'results_db'),
+  patch('artifact.LOGS_DIR', base_dir / 'logs'),
+
+FIX 2: TestReconcileTerminalArtifacts - second test around line ~541 (if present, same pattern):
+Same change: experiments.X -> artifact.X for BASE_DIR, RESULTS_DB_DIR, LOGS_DIR
+
+FIX 3: TestTerminalReasonSemantics::test_completed_row_with_failed_artifact_marks_stale_db_truth (line ~577):
+Change:
+  patch('experiments.RESULTS_DB_DIR', results_dir)
+To:
+  patch('artifact.RESULTS_DB_DIR', results_dir)
+
+FIX 4: TestCompletedMetricSummary::test_ignores_historical_targeted_test_f1_residue (line ~814):
+Change:
+  patch('experiments.RESULTS_DB_DIR', results_dir)
+To:
+  patch('artifact.RESULTS_DB_DIR', results_dir)
+
+FIX 5: TestExperimentPanelWatchSemantics::test_reclassifies_zombie_as_oom_when_stderr_is_empty (line ~1073):
+Change:
+  patch('experiments.BASE_DIR', base_dir),
+  patch('experiments.RESULTS_DB_DIR', base_dir / 'results_db'),
+  patch('experiments.LOGS_DIR', base_dir / 'logs'),
+To:
+  patch('artifact.BASE_DIR', base_dir),
+  patch('artifact.RESULTS_DB_DIR', base_dir / 'results_db'),
+  patch('artifact.LOGS_DIR', base_dir / 'logs'),
+
+VERIFY: pytest pipeline/tests/test_dashboard_keys.py::TestReconcileTerminalArtifacts pipeline/tests/test_dashboard_keys.py::TestTerminalReasonSemantics::test_completed_row_with_failed_artifact_marks_stale_db_truth pipeline/tests/test_dashboard_keys.py::TestCompletedMetricSummary::test_ignores_historical_targeted_test_f1_residue pipeline/tests/test_dashboard_keys.py::TestExperimentPanelWatchSemantics::test_reclassifies_zombie_as_oom_when_stderr_is_empty -v
+acceptance_criteria:
+  - "Task completed as described"
+status: done
+claimed_by: null
+claimed_at: null
+started_at: null
+completed_at: null
+category: null
+effort_estimate: null
+agent_type: null
+skills: []
+wave: 1
+qa_scenarios: 
+  - "4 previously-failing tests pass"
+source_plan: null
+source_ticket_index: null
+result:
+  summary: null
+  artifacts: []
+  notes: null
+  evidence: null
+depends_on: []

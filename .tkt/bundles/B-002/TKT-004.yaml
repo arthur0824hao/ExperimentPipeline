@@ -1,0 +1,107 @@
+ticket_id: TKT-004
+type: worker
+title: Test db_registry.py — experiment management operations
+status: done
+claimed_by: sisyphus-main
+category: test
+effort_estimate: M
+wave: 1
+depends_on: []
+skills: []
+description: 'Create unit tests for experiment management operations (kill, freeze,
+  rerun, reset, move).
+
+  Tests MUST mock PostgreSQL — no live database required.
+
+
+  ## Target File
+
+  Create: `pipeline/tests/test_db_registry_management.py`
+
+
+  ## What to Test
+
+
+  File: `pipeline/db_registry.py`
+
+  Class: `DBExperimentsDB` (line 444)
+
+
+  ### Test Group 1: kill_experiment (line 934)
+
+  - Test that killing a RUNNING experiment changes status to NEEDS_RERUN
+
+  - Test that it records run_id in history_run_ids
+
+  - Test that it clears running_on fields
+
+  - Test killing a non-running experiment (should handle gracefully)
+
+
+  ### Test Group 2: freeze_experiment (line 975)
+
+  - Test that freezing changes status to FROZEN
+
+  - Test that frozen experiments are excluded from runnable list
+
+
+  ### Test Group 3: rerun_experiment (line 1005)
+
+  - Test that rerun resets status to NEEDS_RERUN
+
+  - Test that rerun clears error_info and running_on
+
+  - Test that rerun recalculates queue_order
+
+
+  ### Test Group 4: reset_failed_experiments (line 871)
+
+  - Test batch reset of ERROR/OOM experiments
+
+  - Test that only experiments within retry limit are reset
+
+  - Test that retry_count is preserved
+
+
+  ### Test Group 5: move_experiment (line 1095)
+
+  - Test move up (direction=-1) swaps queue_order with previous
+
+  - Test move down (direction=1) swaps queue_order with next
+
+  - Test edge cases: move first up, move last down
+
+
+  ### Test Group 6: assign_experiment_worker (line 1133)
+
+  - Test assigning preferred_worker to an experiment
+
+  - Test clearing preferred_worker (set to null)
+
+  - Test that assignment fails for RUNNING experiments
+
+
+  ## Verification
+
+  ```bash
+
+  cd pipeline && python -m pytest tests/test_db_registry_management.py -v
+
+  ```
+
+  '
+acceptance:
+- test_db_registry_management.py exists in pipeline/tests/
+- Has >= 10 test functions covering all 6 groups
+- All tests pass
+- Tests mock DB connections
+result:
+  status: null
+  summary: Created test_db_registry_management.py with 13 tests covering kill, freeze,
+    rerun, reset_failed, move, assign_experiment_worker
+  evidence: 'cd pipeline && python -m pytest tests/test_db_registry_management.py
+    -v: 13 passed'
+  artifacts: []
+  notes: null
+claimed_at: '2026-03-22T07:37:44Z'
+completed_at: '2026-03-22T07:45:30Z'

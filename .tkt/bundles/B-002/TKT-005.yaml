@@ -1,0 +1,46 @@
+ticket_id: TKT-005
+type: worker
+title: Test db_registry.py — connection pool + snapshot sync
+status: done
+claimed_by: sisyphus-main
+category: test
+effort_estimate: M
+wave: 1
+depends_on: []
+skills: []
+description: "Create unit tests for connection pool management and JSON snapshot sync.\n\
+  Tests MUST mock PostgreSQL — no live database required.\n\n## Target File\nCreate:\
+  \ `pipeline/tests/test_db_registry_pool.py`\n\n## What to Test\n\nFile: `pipeline/db_registry.py`\n\
+  \n### Test Group 1: _get_dsn / _get_dsn_candidates (lines 115, 231)\n- Test DSN\
+  \ construction from environment variables\n- Test DSN construction from database.json\
+  \ config\n- Test multiple host candidates (localhost, configured hosts)\n- Test\
+  \ connect_timeout parameter handling\n\n### Test Group 2: get_pool (line 305)\n\
+  - Test pool creation with first successful candidate\n- Test pool fallback when\
+  \ first host fails\n- Test pool caching (singleton pattern)\n- Test get_conn context\
+  \ manager yields connection properly\n\n### Test Group 3: sync_snapshot_to_json\
+  \ (line 379)\n- Test that snapshot queries DB and writes experiments.json\n- Test\
+  \ atomic write (writes to tmp then renames)\n- Test snapshot format matches expected\
+  \ structure:\n  {\"experiments\": [...], \"completed\": [...], \"archived\": [...]}\n\
+  - Test no-op when data unchanged (skip write)\n\n### Test Group 4: _row_to_dict\
+  \ (line 1730)\n- Test conversion of DB row tuple to experiment dict\n- Test handling\
+  \ of NULL fields\n- Test JSONB fields (extra, memory_contract) parsing\n- Test progression_status\
+  \ derivation with condition_parent\n\n### Test Group 5: derive_progression_status\
+  \ (line 160)\n- Test READY when no condition_parent\n- Test BLOCKED_CONDITION when\
+  \ parent not completed\n- Test COMPLETED pass-through\n- Test WARM status hint\n\
+  \n## Verification\n```bash\ncd pipeline && python -m pytest tests/test_db_registry_pool.py\
+  \ -v\n```\n"
+acceptance:
+- test_db_registry_pool.py exists in pipeline/tests/
+- Has >= 10 test functions covering all 5 groups
+- All tests pass
+- Tests mock DB connections and file I/O
+result:
+  status: null
+  summary: Created test_db_registry_pool.py with 14 tests covering _get_dsn, get_pool,
+    sync_snapshot_to_json, _row_to_dict, derive_progression_status
+  evidence: 'cd pipeline && python -m pytest tests/test_db_registry_pool.py -v: 14
+    passed'
+  artifacts: []
+  notes: null
+claimed_at: '2026-03-22T07:37:44Z'
+completed_at: '2026-03-22T07:45:32Z'

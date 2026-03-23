@@ -47,14 +47,111 @@ from rich.markup import escape
 from cli_shared import add_common_args, emit_result, setup_logging
 from db_registry import DBExperimentsDB, derive_progression_status, get_conn
 from experiment_registration import build_experiment_config, register_experiment
+from condition import (
+    _normalize_name_list,
+    _load_condition_nodes_from_runtime,
+    RUNTIME_CONDITION_NODES,
+    _load_staged_matrix_entries,
+    RUNTIME_STAGED_MATRIX,
+    _resolve_gate_evidence_status,
+    _build_condition_node_rows,
+    _build_staged_matrix_rows,
+)
+from oom import (
+    parse_oom_from_stderr,
+    _coerce_positive_int,
+    _script_env_default,
+    _resolve_batch_overrides,
+    _next_smaller_batches,
+    MIN_RUNTIME_BATCH_SIZE,
+    OOM_RETRY_EST_MEM_BUMP_MB,
+    OOM_EXPECTED_FREE_MARGIN_MB,
+)
 from runtime_config import (
     cfg_bool,
     cfg_float,
     cfg_int,
-    get_experiment_env_overrides,
     get_runtime_section,
 )
-from tui_keys import Action, TwoStepKeyHandler
+from tui_keys import Action, SCOPE_KEYS, TwoStepKeyHandler
+from gpu import (
+    get_all_gpu_status,
+    _coerce_nvidia_int,
+    _parse_nvidia_query_output,
+    collect_gpu_status_with_error,
+    get_cpu_load,
+    collect_system_info,
+    get_gpu_process_count,
+    get_pid_gpu_map,
+    detect_running_experiments_from_gpu_pids,
+    _build_worker_gpu_free_maps,
+    _best_free_mb_for_worker,
+    _free_mb_for_worker_gpu,
+)
+from artifact import (
+    _load_json_dict,
+    _artifact_timestamp,
+    _failed_timestamp,
+    _artifact_is_fresh,
+    _stderr_is_empty,
+    _read_resource_usage,
+    _read_result_payload,
+    _coerce_completed_result,
+    _coerce_float,
+    _coerce_int,
+    _extract_peak_from_payload,
+    _best_error_peak_mb,
+    update_running_peak,
+    get_experiment_progress,
+    get_completed_result_summary,
+    get_terminal_reason,
+)
+from formatting import (
+    format_time_ago,
+    make_bar,
+    _parse_iso_ts,
+    _SPINNER_FRAMES,
+    _render_wait_progress,
+    normalize_status,
+    format_terminal_reason_text,
+    normalize_initial_exp_page,
+)
+from memory_contract import (
+    _copy_memory_contract,
+    _update_oom_policy_contract,
+    _persist_oom_policy_contract,
+    _should_reestimate_memory_contract,
+    get_memory_contract,
+    format_memory_contract_fields,
+    get_required_mem_mb,
+)
+from allocator import GPUAllocator, enforce_formal_slot_serialization
+from cluster import ClusterManager
+from logger_hybrid import HybridLogger
+from worker import (
+    run_experiment_process,
+    mark_running,
+    mark_done,
+    mark_error,
+    update_lock_pid,
+    release_distributed_lock,
+    _clean_experiment_artifacts,
+    _clear_runtime_markers,
+    get_key,
+)
+from health import (
+    cleanup_on_startup,
+    enforce_running_pid_registration,
+    reap_orphan_runner_processes,
+    reap_orphan_training_processes,
+    check_stale_locks,
+    self_heal_heartbeat_worker_conflicts,
+    check_zombie_processes,
+    process_remote_termination_requests,
+    _get_active_runner_pids_from_db,
+    _kill_local_pid_tree,
+    _extract_exp_name_from_cmd,
+)
 
 
 def _should_fallback_memory_estimator_import(exc: Exception) -> bool:
@@ -94,8 +191,6 @@ HEARTBEATS_DIR = BASE_DIR / "heartbeats"
 PREPROCESS_PROGRESS_FILE = BASE_DIR / "preprocess_progress.json"
 READY_QUEUE_FILE = BASE_DIR / "ready.json"
 _RUNNER_CFG = get_runtime_section("experiments_runner")
-_CONDITION_NODES_CFG = get_runtime_section("condition_nodes")
-_STAGED_MATRIX_CFG = get_runtime_section("staged_matrix")
 
 MAX_JOBS_PER_GPU = cfg_int(_RUNNER_CFG, "default_max_jobs_per_gpu", 1)
 OOM_THRESHOLD_MB = cfg_int(_RUNNER_CFG, "true_oom_threshold_mb", 24000)
@@ -122,412 +217,13 @@ MAX_PARALLEL_WARMUP_JOBS_PER_GPU = cfg_int(
 WARMUP_OVERLAP_BYPASS_HIGH_MEM_EXCLUSIVE = cfg_bool(
     _RUNNER_CFG, "warmup_overlap_bypass_high_mem_exclusive", True
 )
-OOM_RETRY_EST_MEM_BUMP_MB = cfg_int(_RUNNER_CFG, "oom_retry_est_mem_bump_mb", 1024)
-OOM_EXPECTED_FREE_MARGIN_MB = cfg_int(_RUNNER_CFG, "oom_expected_free_margin_mb", 500)
 GPU_CLAIM_HEADROOM_MB = cfg_int(_RUNNER_CFG, "gpu_claim_headroom_mb", 1024)
-MIN_RUNTIME_BATCH_SIZE = cfg_int(_RUNNER_CFG, "min_runtime_batch_size", 32)
 HIGH_MEM_EXCLUSIVE_THRESHOLD_MB = cfg_int(
     _RUNNER_CFG, "high_mem_exclusive_threshold_mb", 21000
 )
 HIGH_MEM_EXCLUSIVE_RATIO = cfg_float(_RUNNER_CFG, "high_mem_exclusive_ratio", 0.85)
 MEMORY_CHECK_INTERVAL = cfg_int(_RUNNER_CFG, "memory_check_interval_sec", 3)
 GPU_JOB_COUNT_MIN_MEMORY_MB = cfg_int(_RUNNER_CFG, "gpu_job_count_min_memory_mb", 512)
-
-
-def _normalize_name_list(raw: Any) -> List[str]:
-    if isinstance(raw, str):
-        raw_items = [raw]
-    elif isinstance(raw, list):
-        raw_items = raw
-    else:
-        raw_items = []
-    names: List[str] = []
-    seen: Set[str] = set()
-    for item in raw_items:
-        value = str(item).strip()
-        if not value or value in seen:
-            continue
-        seen.add(value)
-        names.append(value)
-    return names
-
-
-def _load_condition_nodes_from_runtime() -> List[Dict[str, Any]]:
-    nodes_raw = _CONDITION_NODES_CFG.get("nodes", [])
-    if not isinstance(nodes_raw, list):
-        return []
-    parsed: List[Dict[str, Any]] = []
-    seen_names: Set[str] = set()
-    for item in nodes_raw:
-        if not isinstance(item, dict):
-            continue
-        name = str(item.get("name") or "").strip()
-        if not name or name in seen_names:
-            continue
-        seen_names.add(name)
-        condition_parent = str(item.get("condition_parent") or "").strip()
-        depends_on = _normalize_name_list(item.get("depends_on"))
-        if condition_parent and condition_parent not in depends_on:
-            depends_on = [condition_parent] + depends_on
-        parsed.append(
-            {
-                "name": name,
-                "description": str(item.get("description") or "").strip(),
-                "role": "condition_node",
-                "condition_parent": condition_parent,
-                "depends_on": depends_on,
-                "gate_type": str(item.get("gate_type") or "").strip(),
-                "gate_evidence_ref": str(item.get("gate_evidence_ref") or "").strip(),
-            }
-        )
-    return parsed
-
-
-RUNTIME_CONDITION_NODES = _load_condition_nodes_from_runtime()
-
-
-def _load_staged_matrix_entries() -> List[Dict[str, Any]]:
-    if not cfg_bool(_STAGED_MATRIX_CFG, "enabled", False):
-        return []
-    manifest_rel = str(_STAGED_MATRIX_CFG.get("manifest_path") or "").strip()
-    if not manifest_rel:
-        return []
-    manifest_path = PROJECT_ROOT / manifest_rel
-    if not manifest_path.exists():
-        return []
-    try:
-        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except Exception:
-        return []
-    if not isinstance(payload, list):
-        return []
-
-    condition_parent = str(_STAGED_MATRIX_CFG.get("condition_parent") or "").strip()
-    role = str(_STAGED_MATRIX_CFG.get("role") or "staged_matrix_leaf").strip()
-    rows: List[Dict[str, Any]] = []
-    seen: Set[str] = set()
-    for item in payload:
-        if not isinstance(item, dict):
-            continue
-        name = str(item.get("name") or "").strip()
-        if not name or name in seen:
-            continue
-        seen.add(name)
-        rows.append(
-            {
-                "name": name,
-                "description": str(item.get("description") or "").strip(),
-                "script": str(item.get("script") or "").strip(),
-                "features": list(item.get("features") or []),
-                "condition_parent": condition_parent,
-                "role": role,
-                "gate_type": "staged_after_root_cause",
-            }
-        )
-    return rows
-
-
-RUNTIME_STAGED_MATRIX = _load_staged_matrix_entries()
-
-
-def _resolve_gate_evidence_status(
-    gate_evidence_ref: str, status_lookup_by_name: Dict[str, str]
-) -> str:
-    evidence_name = str(gate_evidence_ref or "").strip()
-    if not evidence_name:
-        return ""
-    in_memory = normalize_status(status_lookup_by_name.get(evidence_name, ""))
-    if in_memory in {STATUS_RUNNING, STATUS_COMPLETED}:
-        return in_memory
-    result_file = RESULTS_DB_DIR / f"{evidence_name}.json"
-    if result_file.exists():
-        return STATUS_COMPLETED
-    return in_memory
-
-
-def _build_condition_node_rows(
-    status_lookup_by_name: Dict[str, str],
-) -> List[Dict[str, Any]]:
-    rows: List[Dict[str, Any]] = []
-    local_status_lookup = dict(status_lookup_by_name)
-    for node in RUNTIME_CONDITION_NODES:
-        name = str(node.get("name") or "").strip()
-        if not name:
-            continue
-        condition_parent = str(node.get("condition_parent") or "").strip()
-        depends_on = _normalize_name_list(node.get("depends_on"))
-        gate_evidence_ref = str(node.get("gate_evidence_ref") or "").strip()
-        gate_type = str(node.get("gate_type") or "").strip()
-        evidence_status = _resolve_gate_evidence_status(
-            gate_evidence_ref, local_status_lookup
-        )
-        if evidence_status in {STATUS_RUNNING, STATUS_COMPLETED}:
-            status = evidence_status
-        else:
-            status = STATUS_NEEDS_RERUN
-
-        unmet_dependencies: List[str] = []
-        for dependency in depends_on:
-            dep_status = normalize_status(local_status_lookup.get(dependency, ""))
-            if dep_status != STATUS_COMPLETED:
-                unmet_dependencies.append(dependency)
-
-        progression_status = ""
-        block_reason = ""
-        if unmet_dependencies:
-            progression_status = "BLOCKED_CONDITION"
-            block_reason = "condition_dependencies_unmet:" + ",".join(
-                unmet_dependencies
-            )
-        elif status == STATUS_RUNNING:
-            progression_status = "RUNNING"
-        elif status == STATUS_COMPLETED:
-            progression_status = "COMPLETED"
-        else:
-            progression_status = "READY"
-
-        row = {
-            "name": name,
-            "description": str(node.get("description") or "").strip(),
-            "batch_id": "-",
-            "status": status,
-            "role": "condition_node",
-            "condition_parent": condition_parent,
-            "depends_on": depends_on,
-            "gate_type": gate_type,
-            "gate_evidence_ref": gate_evidence_ref,
-            "progression_status": progression_status,
-            "block_reason": block_reason,
-            "_synthetic_reason": "condition_node",
-            "_non_actionable": True,
-        }
-        rows.append(row)
-        local_status_lookup[name] = status
-    return rows
-
-
-def _build_staged_matrix_rows(
-    status_lookup_by_name: Dict[str, str],
-) -> List[Dict[str, Any]]:
-    rows: List[Dict[str, Any]] = []
-    for leaf in RUNTIME_STAGED_MATRIX:
-        name = str(leaf.get("name") or "").strip()
-        if not name:
-            continue
-        condition_parent = str(leaf.get("condition_parent") or "").strip()
-        parent_status = normalize_status(
-            status_lookup_by_name.get(condition_parent, "")
-        )
-        progression_status, block_reason = derive_progression_status(
-            STATUS_NEEDS_RERUN,
-            condition_parent=condition_parent,
-            condition_parent_status=parent_status,
-        )
-        rows.append(
-            {
-                "name": name,
-                "description": str(leaf.get("description") or "").strip(),
-                "script": str(leaf.get("script") or "").strip(),
-                "features": list(leaf.get("features") or []),
-                "batch_id": "matrix-staged",
-                "status": STATUS_NEEDS_RERUN,
-                "role": str(leaf.get("role") or "staged_matrix_leaf"),
-                "condition_parent": condition_parent,
-                "gate_type": str(leaf.get("gate_type") or "staged_after_root_cause"),
-                "progression_status": progression_status,
-                "block_reason": block_reason,
-                "parent_experiment": condition_parent,
-                "_synthetic_reason": "staged_matrix_leaf",
-                "_non_actionable": True,
-            }
-        )
-    return rows
-
-
-def _clean_experiment_artifacts(exp_name: str) -> List[str]:
-    exp_dir = BASE_DIR / "experiments" / exp_name
-    targets = [
-        exp_dir / ".progress",
-        exp_dir / "resource_usage.json",
-        exp_dir / "outputs",
-        exp_dir / "results_db",
-        exp_dir / "checkpoints",
-        RESULTS_DB_DIR / f"{exp_name}.json",
-        LOGS_DIR / f"{exp_name}.out",
-        LOGS_DIR / f"{exp_name}.err",
-    ]
-    pycache_dirs = list(exp_dir.rglob("__pycache__"))
-    pyc_files = list(exp_dir.rglob("*.pyc"))
-    targets.extend(pycache_dirs)
-    targets.extend(pyc_files)
-    for scripts_pycache in (BASE_DIR / "scripts").rglob("__pycache__"):
-        targets.append(scripts_pycache)
-    removed: List[str] = []
-    for path in targets:
-        try:
-            if path.is_dir():
-                for attempt in range(2):
-                    try:
-                        shutil.rmtree(path)
-                        break
-                    except OSError as e:
-                        if e.errno != 39 or attempt == 1:
-                            raise
-                        time.sleep(0.1)
-                removed.append(str(path.relative_to(BASE_DIR)))
-            elif path.exists():
-                path.unlink()
-                removed.append(str(path.relative_to(BASE_DIR)))
-        except FileNotFoundError:
-            continue
-    return removed
-
-
-def _clear_runtime_markers(exp_name: str) -> List[str]:
-    exp_dir = BASE_DIR / "experiments" / exp_name
-    targets = [
-        exp_dir / ".progress",
-        exp_dir / "resource_usage.json",
-        LOGS_DIR / f"{exp_name}.out",
-        LOGS_DIR / f"{exp_name}.err",
-    ]
-    removed: List[str] = []
-    for path in targets:
-        try:
-            if path.exists() and path.is_file():
-                path.unlink()
-                removed.append(str(path.relative_to(BASE_DIR)))
-        except FileNotFoundError:
-            continue
-    return removed
-
-
-def _coerce_positive_int(value: Any) -> Optional[int]:
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
-        return None
-    return parsed if parsed > 0 else None
-
-
-def _script_env_default(script_path: Path, env_name: str) -> Optional[int]:
-    try:
-        source = script_path.read_text(encoding="utf-8")
-    except OSError:
-        return None
-    match = re.search(
-        rf'os\.environ\.setdefault\(["\']{re.escape(env_name)}["\'],\s*["\'](\d+)["\']\)',
-        source,
-    )
-    if not match:
-        return None
-    return _coerce_positive_int(match.group(1))
-
-
-def _resolve_batch_overrides(
-    exp_name: str, exp_config: Dict[str, Any], script_path: Path
-) -> Tuple[int, int]:
-    env_overrides = get_experiment_env_overrides(exp_name)
-    batch_size = _coerce_positive_int(exp_config.get("batch_size"))
-    if batch_size is None:
-        batch_size = _coerce_positive_int(env_overrides.get("BATCH_SIZE"))
-    if batch_size is None:
-        batch_size = _script_env_default(script_path, "BATCH_SIZE") or 1024
-
-    eval_batch_size = _coerce_positive_int(exp_config.get("eval_batch_size"))
-    if eval_batch_size is None:
-        eval_batch_size = _coerce_positive_int(env_overrides.get("EVAL_BATCH_SIZE"))
-    if eval_batch_size is None:
-        eval_batch_size = _script_env_default(script_path, "EVAL_BATCH_SIZE") or max(
-            batch_size * 4, batch_size
-        )
-    return batch_size, max(eval_batch_size, batch_size)
-
-
-def _next_smaller_batches(batch_size: int, eval_batch_size: int) -> Tuple[int, int]:
-    next_batch = max(32, batch_size // 2)
-    next_eval = max(next_batch, eval_batch_size // 2)
-    return next_batch, next_eval
-
-
-def _copy_memory_contract(exp_config: Dict[str, Any]) -> Dict[str, Any]:
-    contract = exp_config.get("memory_contract")
-    if isinstance(contract, dict):
-        return dict(contract)
-    return {}
-
-
-def _update_oom_policy_contract(
-    contract: Dict[str, Any],
-    *,
-    current_batch_size: int,
-    current_eval_batch_size: int,
-    next_batch_size: int,
-    next_eval_batch_size: int,
-    expected_required_free_mb: int,
-    stop_reason: str,
-    force_true_mem: bool,
-) -> Dict[str, Any]:
-    updated = dict(contract)
-    old_est = int(
-        updated.get("est_mem_decision_mb") or updated.get("est_mem_upper_mb") or 0
-    )
-    new_est = max(old_est, int(expected_required_free_mb))
-    if force_true_mem:
-        new_est = max(new_est, OOM_THRESHOLD_MB + 1)
-    updated.update(
-        {
-            "batch_size_before_retry": current_batch_size,
-            "batch_size_after_retry": next_batch_size,
-            "eval_batch_size_before_retry": current_eval_batch_size,
-            "eval_batch_size_after_retry": next_eval_batch_size,
-            "est_mem_before_retry": old_est,
-            "est_mem_after_retry": new_est,
-            "est_mem_decision_mb": new_est,
-            "oom_retry_policy": str(
-                updated.get("oom_policy_mode")
-                or (
-                    "batch_adjustable"
-                    if updated.get("runtime_batch_adjustable")
-                    else "not_applicable"
-                )
-            ),
-            "policy_forced_true_mem": bool(force_true_mem),
-            "stop_reason": stop_reason,
-        }
-    )
-    return updated
-
-
-def _persist_oom_policy_contract(
-    db: Any,
-    exp_name: str,
-    contract: Dict[str, Any],
-    oom_retry_count: int,
-) -> None:
-    try:
-        db.update_experiment(
-            exp_name,
-            {
-                "memory_contract": contract,
-                "oom_retry_count": oom_retry_count,
-            },
-        )
-    except Exception:
-        pass
-
-
-def normalize_status(raw_status: Any) -> str:
-    status = str(raw_status or "").upper()
-    if status in (STATUS_NEEDS_RERUN, STATUS_RUNNING, STATUS_COMPLETED):
-        return status
-    if status == "DONE":
-        return STATUS_COMPLETED
-    if status == "SKIPPED":
-        return STATUS_COMPLETED
-    if status in ("READY", "ERROR", "OOM"):
-        return STATUS_NEEDS_RERUN
-    return STATUS_NEEDS_RERUN
 
 
 RESULTS_DB_DIR.mkdir(exist_ok=True)
@@ -544,610 +240,6 @@ ExperimentsDB = DBExperimentsDB
 # =============================================================================
 # GPU Utilities
 # =============================================================================
-
-
-def get_all_gpu_status():
-    gpus, _probe_error = collect_gpu_status_with_error()
-    return gpus
-
-
-def _coerce_nvidia_int(raw: str) -> int:
-    text = str(raw).strip()
-    if not text or text.upper() == "N/A":
-        return 0
-    try:
-        return int(text)
-    except ValueError:
-        match = re.search(r"-?\d+", text)
-        if not match:
-            raise
-        return int(match.group(0))
-
-
-def _parse_nvidia_query_output(output: str, include_util: bool) -> List[Dict[str, int]]:
-    gpus: List[Dict[str, int]] = []
-    for line in output.splitlines():
-        if not line.strip():
-            continue
-        parts = [part.strip() for part in line.split(",")]
-        if include_util:
-            if len(parts) < 5:
-                raise ValueError(f"unexpected nvidia-smi row: {line!r}")
-            idx, free, used, total, util = (
-                _coerce_nvidia_int(part) for part in parts[:5]
-            )
-        else:
-            if len(parts) < 4:
-                raise ValueError(f"unexpected nvidia-smi row: {line!r}")
-            idx, free, used, total = (_coerce_nvidia_int(part) for part in parts[:4])
-            util = 0
-        gpus.append(
-            {"index": idx, "free": free, "used": used, "total": total, "util": util}
-        )
-    return gpus
-
-
-def collect_gpu_status_with_error() -> Tuple[List[Dict[str, int]], str]:
-    commands = [
-        (
-            [
-                "nvidia-smi",
-                "--query-gpu=index,memory.free,memory.used,memory.total,utilization.gpu",
-                "--format=csv,noheader,nounits",
-            ],
-            True,
-        ),
-        (
-            [
-                "/usr/bin/nvidia-smi",
-                "--query-gpu=index,memory.free,memory.used,memory.total,utilization.gpu",
-                "--format=csv,noheader,nounits",
-            ],
-            True,
-        ),
-        (
-            [
-                "nvidia-smi",
-                "--query-gpu=index,memory.free,memory.used,memory.total",
-                "--format=csv,noheader,nounits",
-            ],
-            False,
-        ),
-        (
-            [
-                "/usr/bin/nvidia-smi",
-                "--query-gpu=index,memory.free,memory.used,memory.total",
-                "--format=csv,noheader,nounits",
-            ],
-            False,
-        ),
-    ]
-
-    last_error = ""
-    for cmd, include_util in commands:
-        try:
-            output = subprocess.check_output(
-                cmd, encoding="utf-8", stderr=subprocess.DEVNULL, timeout=8
-            ).strip()
-            if not output:
-                last_error = "empty nvidia-smi output"
-                continue
-            parsed = _parse_nvidia_query_output(output, include_util=include_util)
-            if parsed:
-                return parsed, ""
-        except subprocess.TimeoutExpired:
-            last_error = "nvidia-smi timeout"
-        except FileNotFoundError:
-            last_error = "nvidia-smi not found"
-        except Exception as e:
-            last_error = str(e)
-    return [], last_error
-
-
-def get_cpu_load():
-    try:
-        load1, load5, load15 = os.getloadavg()
-        cpu_count = os.cpu_count() or 1
-        return {
-            "load1": round(load1, 2),
-            "load5": round(load5, 2),
-            "load15": round(load15, 2),
-            "cpu_count": cpu_count,
-            "load_percent": round(load1 / cpu_count * 100, 1),
-        }
-    except Exception:
-        return {"load1": 0, "load5": 0, "load15": 0, "cpu_count": 1, "load_percent": 0}
-
-
-def collect_system_info():
-    gpus, gpu_probe_error = collect_gpu_status_with_error()
-    cpu: Dict[str, Any] = dict(get_cpu_load())
-    if gpu_probe_error:
-        cpu["_gpu_probe_error"] = gpu_probe_error
-    return {"gpus": gpus, "cpu": cpu}
-
-
-def get_gpu_process_count():
-    gpu_counts = {}
-    try:
-        cmd = [
-            "nvidia-smi",
-            "--query-compute-apps=gpu_uuid,pid,used_memory",
-            "--format=csv,noheader",
-        ]
-        output = subprocess.check_output(
-            cmd, encoding="utf-8", stderr=subprocess.DEVNULL, timeout=5
-        ).strip()
-
-        uuid_cmd = ["nvidia-smi", "--query-gpu=index,uuid", "--format=csv,noheader"]
-        uuid_output = subprocess.check_output(
-            uuid_cmd, encoding="utf-8", stderr=subprocess.DEVNULL, timeout=5
-        ).strip()
-        uuid_to_index = {}
-        for line in uuid_output.split("\n"):
-            if not line.strip():
-                continue
-            parts = line.split(", ")
-            if len(parts) >= 2:
-                idx = int(parts[0].strip())
-                uuid = parts[1].strip()
-                uuid_to_index[uuid] = idx
-                gpu_counts[idx] = 0
-
-        for line in output.split("\n"):
-            if not line.strip():
-                continue
-            parts = line.split(", ")
-            if len(parts) >= 3:
-                uuid = parts[0].strip()
-                used_memory_mb = _coerce_nvidia_int(parts[2])
-                if used_memory_mb < GPU_JOB_COUNT_MIN_MEMORY_MB:
-                    continue
-                if uuid in uuid_to_index:
-                    gpu_idx = uuid_to_index[uuid]
-                    gpu_counts[gpu_idx] = gpu_counts.get(gpu_idx, 0) + 1
-    except subprocess.TimeoutExpired:
-        return {}
-    except Exception:
-        pass
-    return gpu_counts
-
-
-def get_pid_gpu_map():
-    pid_map = {}
-    try:
-        cmd = [
-            "nvidia-smi",
-            "--query-compute-apps=pid,used_memory",
-            "--format=csv,noheader,nounits",
-        ]
-        output = subprocess.check_output(
-            cmd, encoding="utf-8", stderr=subprocess.DEVNULL, timeout=5
-        ).strip()
-        for line in output.split("\n"):
-            if not line.strip():
-                continue
-            parts = line.split(",")
-            if len(parts) >= 2:
-                pid, mem = int(parts[0]), int(parts[1])
-                pid_map[pid] = mem
-    except subprocess.TimeoutExpired:
-        return {}
-    except Exception:
-        pass
-    return pid_map
-
-
-def detect_running_experiments_from_gpu_pids(
-    pid_map: Dict[int, int],
-) -> Dict[str, List[Dict[str, Any]]]:
-    """Best-effort detection of running experiments from GPU PIDs.
-
-    This is display-only (dashboard aid). It must not mutate registry state.
-    """
-    import re
-
-    detected: Dict[str, List[Dict[str, Any]]] = {}
-    for pid, used_mb in pid_map.items():
-        try:
-            cmdline = (
-                Path(f"/proc/{pid}/cmdline")
-                .read_bytes()
-                .replace(b"\x00", b" ")
-                .decode("utf-8", errors="replace")
-            )
-        except Exception:
-            continue
-
-        m = re.search(
-            r"(?:^|\s)(?:\S+/)?Phase3/experiments/([^/]+)/scripts/train\.py", cmdline
-        )
-        if not m:
-            m = re.search(
-                r"(?:^|\s)(?:\S+/)?experiments/([^/]+)/scripts/train\.py", cmdline
-            )
-        exp_name: Optional[str] = None
-        if m:
-            exp_name = m.group(1)
-        elif "train_ensemble_member.py" in cmdline:
-            arg_match = re.search(r"--experiment-name(?:=|\s+)([^\s]+)", cmdline)
-            if arg_match:
-                exp_name = arg_match.group(1).strip().strip("\"'")
-
-        if not exp_name:
-            continue
-        detected.setdefault(exp_name, []).append({"pid": pid, "used_mb": used_mb})
-
-    return detected
-
-
-def _should_reestimate_memory_contract(
-    contract: Dict[str, Any], result_payload: Optional[Dict[str, Any]]
-) -> bool:
-    if not isinstance(contract, dict) or not contract:
-        return True
-    if not isinstance(result_payload, dict):
-        return False
-    result_hidden_dim = _coerce_int(result_payload.get("hidden_dim"))
-    contract_hidden_dim = _coerce_int(contract.get("hidden_dim"))
-    return (
-        result_hidden_dim > 0
-        and contract_hidden_dim > 0
-        and result_hidden_dim != contract_hidden_dim
-    )
-
-
-def get_memory_contract(exp: Dict[str, Any]) -> Dict[str, Any]:
-    contract = exp.get("memory_contract") or {}
-    exp_name = str(exp.get("name") or "").strip()
-    result_payload: Optional[Dict[str, Any]] = None
-    if exp_name:
-        _result_path, result_payload = _read_result_payload(exp_name)
-    if (
-        isinstance(contract, dict)
-        and contract
-        and not _should_reestimate_memory_contract(contract, result_payload)
-    ):
-        return contract
-    exp_for_infer = dict(exp)
-    exp_for_infer.pop("memory_contract", None)
-    try:
-        inferred = infer_memory_contract_for_exp(exp_for_infer, BASE_DIR)
-    except Exception:
-        if isinstance(contract, dict) and contract:
-            return contract
-        return {}
-    if isinstance(inferred, dict) and inferred:
-        exp["memory_contract"] = inferred
-        return inferred
-    if isinstance(contract, dict) and contract:
-        return contract
-    return {}
-
-
-def format_memory_contract_fields(exp: Dict[str, Any]) -> Dict[str, str]:
-    contract = get_memory_contract(exp)
-    family_raw = str(contract.get("memory_family") or "-")
-    family_display = {
-        "fullbatch_sparse_gnn": "fullbatch",
-        "neighborloader_gnn": "neighbor",
-        "temporal_edge_batch": "temporal",
-        "no_batch_path_child": "no-batch",
-    }
-    mem_family = family_display.get(family_raw, family_raw)
-    est_initial = contract.get("est_mem_decision_mb")
-    est_mb = "-"
-    if isinstance(est_initial, (int, float)) and est_initial > 0:
-        est_mb = f"{int(est_initial)}"
-    mode_raw = str(contract.get("execution_mode") or contract.get("memory_mode") or "-")
-    mode_display = {
-        "fullbatch": "fullbatch",
-        "neighborloader": "neighbor",
-        "temporal_batch": "temporal",
-        "fullgraph_no_batch_path": "no-batch",
-    }
-    mem_mode = mode_display.get(mode_raw, mode_raw)
-    if contract.get("neighborloader_recommended"):
-        nbldr = "reco"
-    elif contract.get("neighborloader_applicable"):
-        nbldr = "yes"
-    elif contract:
-        nbldr = "no"
-    else:
-        nbldr = "-"
-    return {
-        "mem_family": mem_family,
-        "est_mb": est_mb,
-        "mem_mode": mem_mode,
-        "nbldr": nbldr,
-    }
-
-
-def get_required_mem_mb(exp: Dict[str, Any]) -> int:
-    contract = get_memory_contract(exp)
-    est_decision = contract.get("est_mem_decision_mb")
-    est_upper = contract.get("est_mem_upper_mb")
-    est_initial = contract.get("est_mem_initial_mb")
-    est_required = 0
-    for value in (est_decision, est_upper, est_initial):
-        try:
-            if value is not None:
-                est_required = max(est_required, int(value))
-        except (TypeError, ValueError):
-            continue
-
-    err_info = exp.get("error_info") or {}
-    err_type = str(err_info.get("type", "") or "").upper()
-    try:
-        err_peak_mb = int(err_info.get("peak_memory_mb", 0) or 0)
-    except (TypeError, ValueError):
-        err_peak_mb = 0
-    buffer_mb = 500 if err_type == "OOM" else 256
-    retry_required = err_peak_mb + buffer_mb if err_peak_mb > 0 else 0
-    return max(4000, est_required, retry_required)
-
-
-def format_time_ago(seconds):
-    if seconds < 60:
-        return f"{int(seconds)}s"
-    elif seconds < 3600:
-        return f"{int(seconds / 60)}m"
-    elif seconds < 86400:
-        return f"{int(seconds / 3600)}h"
-    else:
-        return f"{int(seconds / 86400)}d"
-
-
-def make_bar(percent, width=15):
-    filled = int(width * percent / 100)
-    if percent >= 80:
-        color = "red"
-    elif percent >= 50:
-        color = "yellow"
-    else:
-        color = "green"
-    return f"[{color}]{'█' * filled}[/][dim]{'░' * (width - filled)}[/]"
-
-
-def _parse_iso_ts(raw: Any) -> float | None:
-    if not raw:
-        return None
-    try:
-        return datetime.fromisoformat(str(raw)).timestamp()
-    except Exception:
-        return None
-
-
-_SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
-
-
-def _render_wait_progress(
-    *, elapsed_sec: float | None, total_sec: float, width: int = 8
-) -> str | None:
-    if elapsed_sec is None:
-        return None
-    safe_elapsed = max(float(elapsed_sec), 0.0)
-    frame = _SPINNER_FRAMES[int(safe_elapsed * 4) % len(_SPINNER_FRAMES)]
-    mins, secs = divmod(int(safe_elapsed), 60)
-    return f"{frame} loading {mins}m{secs:02d}s"
-
-
-def update_running_peak(db: ExperimentsDB, exp_name: str, peak_memory_mb: int):
-    db.update_running_peak(exp_name, peak_memory_mb)
-
-
-def parse_oom_from_stderr(stderr_path: Path) -> tuple:
-    """Returns (is_oom, is_true_oom, requested_mb)"""
-    import re
-
-    try:
-        with open(stderr_path, "r") as f:
-            content = f.read()
-
-        oom_indicators = [
-            "CUDA out of memory",
-            "OutOfMemoryError",
-            "CUDA error: out of memory",
-        ]
-        is_oom = any(ind in content for ind in oom_indicators)
-
-        if not is_oom:
-            return False, False, 0
-
-        pattern = r"[Tt]ried to allocate\s+([\d.]+)\s*(GiB|MiB|GB|MB)"
-        match = re.search(pattern, content)
-        requested_mb = 0
-        if match:
-            amount = float(match.group(1))
-            unit = match.group(2).upper()
-            requested_mb = int(amount * 1024) if unit in ("GIB", "GB") else int(amount)
-
-        return True, False, requested_mb
-    except Exception:
-        return False, False, 0
-
-
-def _load_json_dict(path: Path) -> Optional[Dict[str, Any]]:
-    if not path.exists():
-        return None
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            payload = json.load(f)
-        if isinstance(payload, dict):
-            return payload
-    except Exception:
-        return None
-    return None
-
-
-def _artifact_timestamp(path: Path) -> Optional[float]:
-    try:
-        return path.stat().st_mtime
-    except Exception:
-        return None
-
-
-def _failed_timestamp(exp: Dict[str, Any]) -> Optional[float]:
-    error_info = exp.get("error_info") or {}
-    failed_at = error_info.get("failed_at")
-    if not failed_at:
-        return None
-    try:
-        return datetime.fromisoformat(str(failed_at)).timestamp()
-    except Exception:
-        return None
-
-
-def _artifact_is_fresh(path: Path, failed_ts: Optional[float]) -> bool:
-    stamp = _artifact_timestamp(path)
-    if stamp is None:
-        return False
-    if failed_ts is None:
-        return True
-    return stamp + ARTIFACT_RECONCILE_GRACE_SEC >= failed_ts
-
-
-def _stderr_is_empty(exp_name: str) -> bool:
-    stderr_path = LOGS_DIR / f"{exp_name}.err"
-    try:
-        return (not stderr_path.exists()) or stderr_path.stat().st_size == 0
-    except Exception:
-        return False
-
-
-def _read_resource_usage(
-    exp_name: str,
-) -> tuple[Optional[Path], Optional[Dict[str, Any]]]:
-    exp_dir = BASE_DIR / "experiments" / exp_name
-    path = exp_dir / "resource_usage.json"
-    return path, _load_json_dict(path)
-
-
-def _read_result_payload(
-    exp_name: str,
-) -> tuple[Optional[Path], Optional[Dict[str, Any]]]:
-    candidates = [
-        RESULTS_DB_DIR / f"{exp_name}.json",
-        BASE_DIR / "experiments" / exp_name / "outputs" / "results.json",
-    ]
-    freshest_path: Optional[Path] = None
-    freshest_payload: Optional[Dict[str, Any]] = None
-    freshest_ts = -1.0
-    for path in candidates:
-        payload = _load_json_dict(path)
-        stamp = _artifact_timestamp(path)
-        if payload is None or stamp is None:
-            continue
-        if stamp > freshest_ts:
-            freshest_ts = stamp
-            freshest_path = path
-            freshest_payload = payload
-    return freshest_path, freshest_payload
-
-
-def _coerce_completed_result(
-    result_payload: Dict[str, Any], resource_payload: Optional[Dict[str, Any]] = None
-) -> Dict[str, Any]:
-    f1 = result_payload.get("f1_score")
-    if f1 is None:
-        f1 = result_payload.get("test_f1")
-    auc = result_payload.get("auc_score")
-    if auc is None:
-        auc = result_payload.get("test_auc")
-    peak = result_payload.get("peak_memory_mb")
-    if peak is None and isinstance(resource_payload, dict):
-        peak = resource_payload.get("peak_memory_mb", 0)
-    return {
-        "f1_score": f1,
-        "auc_score": auc,
-        "peak_memory_mb": peak if isinstance(peak, (int, float)) else 0,
-    }
-
-
-def _coerce_float(value: Any) -> Optional[float]:
-    if value is None:
-        return None
-
-
-def _coerce_int(value: Any) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return 0
-
-
-def _extract_peak_from_payload(payload: Optional[Dict[str, Any]]) -> int:
-    if not isinstance(payload, dict):
-        return 0
-    runtime_meta = payload.get("runtime_meta") or {}
-    child_fp = runtime_meta.get("child_fingerprint") or {}
-    candidates = [
-        payload.get("peak_memory_mb"),
-        runtime_meta.get("validated_peak_mb"),
-        runtime_meta.get("current_peak_mb"),
-        child_fp.get("validated_peak_mb"),
-        child_fp.get("current_peak_mb"),
-    ]
-    return max((_coerce_int(v) for v in candidates), default=0)
-
-
-def _best_error_peak_mb(
-    tracked_peak_mb: int,
-    requested_mb: int,
-    resource_payload: Optional[Dict[str, Any]] = None,
-    result_payload: Optional[Dict[str, Any]] = None,
-) -> int:
-    candidates: List[Any] = [tracked_peak_mb, requested_mb]
-    if isinstance(resource_payload, dict):
-        candidates.append(resource_payload.get("peak_memory_mb"))
-        candidates.append(resource_payload.get("requested_peak_memory_mb"))
-    candidates.append(_extract_peak_from_payload(result_payload))
-    return max((_coerce_int(v) for v in candidates), default=0)
-
-
-def _build_worker_gpu_free_maps(
-    cluster_status: Optional[Dict[str, Any]],
-) -> Tuple[Dict[str, Dict[int, int]], int]:
-    worker_gpu_free: Dict[str, Dict[int, int]] = {}
-    global_best_free_mb = 0
-    for worker_id, info in (cluster_status or {}).items():
-        gpu_map: Dict[int, int] = {}
-        for gpu in info.get("gpus", []) or []:
-            try:
-                gpu_idx = int(gpu.get("index"))
-            except (TypeError, ValueError):
-                continue
-            free_mb = _coerce_int(gpu.get("free"))
-            gpu_map[gpu_idx] = free_mb
-            global_best_free_mb = max(global_best_free_mb, free_mb)
-        worker_gpu_free[str(worker_id)] = gpu_map
-    return worker_gpu_free, global_best_free_mb
-
-
-def _best_free_mb_for_worker(
-    worker_gpu_free: Dict[str, Dict[int, int]], worker_id: Optional[str]
-) -> int:
-    if not worker_id:
-        return 0
-    gpu_map = worker_gpu_free.get(str(worker_id), {})
-    return max(gpu_map.values(), default=0)
-
-
-def _free_mb_for_worker_gpu(
-    worker_gpu_free: Dict[str, Dict[int, int]], worker_id: Optional[str], gpu_id: Any
-) -> int:
-    if not worker_id:
-        return 0
-    gpu_map = worker_gpu_free.get(str(worker_id), {})
-    try:
-        gpu_idx = int(gpu_id)
-    except (TypeError, ValueError):
-        return max(gpu_map.values(), default=0)
-    return _coerce_int(gpu_map.get(gpu_idx))
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
 
 
 def _is_truthy_flag(raw_value: Any) -> bool:
@@ -1671,507 +763,6 @@ def reconcile_terminal_artifacts(db: ExperimentsDB, logger=None) -> List[str]:
     return repaired
 
 
-def get_experiment_progress(exp_name: str) -> Optional[Dict]:
-    progress_file = BASE_DIR / "experiments" / exp_name / ".progress"
-    if not progress_file.exists():
-        return None
-    try:
-        with open(progress_file, "r") as f:
-            return json.load(f)
-    except Exception:
-        return None
-
-
-def get_completed_result_summary(
-    exp_name: str,
-    result: Optional[Dict],
-    canonical_result: Optional[Dict[str, Any]] = None,
-) -> Tuple[Optional[int], Optional[float]]:
-    merged: Dict[str, Any] = {}
-    if isinstance(result, dict):
-        merged.update(result)
-    if isinstance(canonical_result, dict):
-        merged.update(canonical_result)
-    elif exp_name:
-        result_file = RESULTS_DB_DIR / f"{exp_name}.json"
-        if result_file.exists():
-            try:
-                with open(result_file, "r") as f:
-                    payload = json.load(f)
-                if isinstance(payload, dict):
-                    merged.update(payload)
-            except Exception:
-                pass
-
-    epochs_raw = merged.get("epochs_ran")
-    test_f1_raw = merged.get("test_f1")
-    if test_f1_raw is None:
-        test_f1_raw = merged.get("f1_score")
-
-    epochs: Optional[int]
-    if epochs_raw is None:
-        epochs = None
-    else:
-        try:
-            epochs = int(epochs_raw)
-        except (TypeError, ValueError):
-            epochs = None
-
-    test_f1: Optional[float]
-    if test_f1_raw is None:
-        test_f1 = None
-    else:
-        try:
-            test_f1 = float(test_f1_raw)
-        except (TypeError, ValueError):
-            test_f1 = None
-
-    return epochs, test_f1
-
-
-def get_terminal_reason(
-    exp_name: str,
-    status: str,
-    result: Optional[Dict],
-    error_info: Optional[Dict],
-    terminal_metadata: Optional[Dict[str, Any]] = None,
-) -> str:
-    status_norm = normalize_status(status)
-    return _get_db_terminal_reason(status_norm, result, error_info, terminal_metadata)
-
-
-def normalize_initial_exp_page(page: int, total_pages: int) -> int:
-    if total_pages <= 0:
-        return 0
-    try:
-        page_num = int(page)
-    except (TypeError, ValueError):
-        return 0
-    return max(0, min(total_pages - 1, page_num - 1))
-
-
-def format_terminal_reason_text(terminal_reason: str) -> Text:
-    raw = str(terminal_reason or "UNKNOWN").upper()
-    normalized = raw.rstrip("*")
-    styles = {
-        "COMPLETED": "bold green",
-        "RUNNING": "bold yellow",
-        "FAILED_OOM": "bold red",
-        "FAILED_SCRIPT_ERROR": "bold magenta",
-        "FAILED_WITHOUT_METRIC": "bold bright_yellow",
-        "QUEUED_RETRY": "bold cyan",
-        "FROZEN": "bold blue",
-    }
-    return Text(raw, style=styles.get(normalized, "bold white"))
-
-
-# =============================================================================
-# Cluster Manager
-# =============================================================================
-
-
-class ClusterManager:
-    def __init__(self):
-        self.machines = self.load_machines()
-
-    def load_machines(self):
-        machine_paths = (
-            [Path(MACHINES_FILE)]
-            if MACHINES_FILE != _DEFAULT_MACHINES_FILE
-            else MACHINES_FILES
-        )
-        for config_path in machine_paths:
-            if not config_path.exists():
-                continue
-            try:
-                with open(config_path, "r") as f:
-                    data = json.load(f)
-                if isinstance(data, dict):
-                    return data
-            except Exception:
-                continue
-        return {}
-
-    def _load_heartbeat_files(self) -> Dict[str, Dict[str, Any]]:
-        heartbeats: Dict[str, Dict[str, Any]] = {}
-        now = time.time()
-        if not HEARTBEATS_DIR.exists():
-            return heartbeats
-
-        for hb_path in HEARTBEATS_DIR.glob("*.json"):
-            payload = _load_json_dict(hb_path)
-            if not payload:
-                continue
-
-            worker_id = payload.get("worker_id")
-            if not isinstance(worker_id, str) or not worker_id:
-                worker_id = hb_path.stem
-
-            if not worker_id:
-                continue
-
-            hb: Dict[str, Any] = dict(payload)
-            if "last_seen_sec" not in hb:
-                last_seen_ts = _parse_iso_ts(payload.get("timestamp"))
-                hb["last_seen_sec"] = (
-                    now - last_seen_ts if last_seen_ts is not None else 999999
-                )
-            heartbeats[worker_id] = hb
-
-        return heartbeats
-
-    def get_cluster_status(self, db: Optional["DBExperimentsDB"] = None) -> Dict:
-        status_map = {}
-
-        for mid, conf in self.machines.items():
-            status_map[mid] = {
-                "status": "OFFLINE",
-                "last_seen_sec": 999999,
-                "config": conf,
-                "is_known": True,
-                "gpus": [],
-                "cpu": {},
-                "running_jobs": 0,
-                "running_experiments": [],
-            }
-
-        heartbeats = db.get_cluster_heartbeats() if db else self._load_heartbeat_files()
-        for w_id, hb in heartbeats.items():
-            seconds_ago = hb.get("last_seen_sec", 999999)
-            is_online = seconds_ago < 60
-
-            if w_id not in status_map:
-                status_map[w_id] = {"config": {}, "is_known": False}
-
-            status_map[w_id].update(
-                {
-                    "status": "ONLINE" if is_online else "OFFLINE",
-                    "last_seen_sec": seconds_ago,
-                    "gpus": hb.get("gpus", []),
-                    "cpu": hb.get("cpu", {}),
-                    "gpu_probe_error": str(hb.get("gpu_probe_error", "") or ""),
-                    "running_jobs": hb.get("running_jobs", 0),
-                    "running_experiments": hb.get("running_experiments", []),
-                    "pid": hb.get("pid"),
-                }
-            )
-
-        return status_map
-
-    def _ssh_base_cmd(self, host: str) -> List[str]:
-        return [
-            "ssh",
-            "-o",
-            "BatchMode=yes",
-            "-o",
-            "ConnectTimeout=8",
-            "-o",
-            "StrictHostKeyChecking=accept-new",
-            host,
-        ]
-
-    def start_node(self, node_id):
-        if node_id not in self.machines:
-            return False, f"Unknown node: {node_id}"
-
-        conf = self.machines[node_id]
-        host = conf["host"]
-        session = conf.get("tmux_session", "exp_runner")
-        work_dir = conf.get("work_dir", str(BASE_DIR))
-
-        runner_cmd = (
-            f"source ~/miniconda3/etc/profile.d/conda.sh && "
-            f"conda activate gnn_fraud && "
-            f"cd {work_dir} && "
-            f"python experiments.py --worker_id {node_id}; "
-            f"echo 'Runner exited. Press Enter...'; read"
-        )
-
-        full_cmd = (
-            f"tmux kill-session -t {session} 2>/dev/null; "
-            f"tmux new-session -d -s {session} bash -c '{runner_cmd}'"
-        )
-
-        try:
-            result = subprocess.run(
-                [*self._ssh_base_cmd(host), full_cmd],
-                timeout=15,
-                capture_output=True,
-                text=True,
-            )
-            if result.returncode == 0:
-                return True, f"Started {node_id}"
-            else:
-                return False, f"SSH error: {result.stderr[:100]}"
-        except subprocess.TimeoutExpired:
-            return False, "SSH timeout"
-        except Exception as e:
-            return False, str(e)
-
-    def stop_node(self, node_id):
-        if node_id not in self.machines:
-            return False, f"Unknown node: {node_id}"
-
-        conf = self.machines[node_id]
-        host = conf["host"]
-        session = conf.get("tmux_session", "exp_runner")
-
-        try:
-            # Step 1: Kill all Phase3 training processes on the remote node
-            # Covers: train.py, train_parallel_optimized.py, and any python child processes
-            kill_cmd = (
-                f"pkill -TERM -f 'Phase3/experiments/.*/scripts/train' 2>/dev/null; "
-                f"pkill -TERM -f 'train_parallel_optimized\\.py' 2>/dev/null; "
-                f"sleep 1; "
-                f"pkill -9 -f 'Phase3/experiments/.*/scripts/train' 2>/dev/null; "
-                f"pkill -9 -f 'train_parallel_optimized\\.py' 2>/dev/null; "
-                f"pkill -TERM -f 'experiments\\.py --worker_id {node_id}' 2>/dev/null; "
-                f"sleep 1; "
-                f"pkill -9 -f 'experiments\\.py --worker_id {node_id}' 2>/dev/null; "
-                f"tmux kill-session -t {session} 2>/dev/null"
-            )
-            result = subprocess.run(
-                [*self._ssh_base_cmd(host), kill_cmd],
-                timeout=15,
-                capture_output=True,
-                text=True,
-            )
-            if result.returncode == 0:
-                return True, f"Stopped {node_id} (processes + tmux)"
-            stderr = (result.stderr or "").strip()
-            if not stderr:
-                stderr = (result.stdout or "").strip()
-            return False, f"SSH stop failed: {stderr[:120]}"
-        except subprocess.TimeoutExpired:
-            return False, "SSH timeout"
-        except Exception as e:
-            return False, str(e)
-
-    def restart_node(self, node_id):
-        return self.start_node(node_id)
-
-    def kill_remote_pid(self, node_id: str, pid: int) -> Tuple[bool, str]:
-        if node_id not in self.machines:
-            return False, f"Unknown node: {node_id}"
-        conf = self.machines[node_id]
-        host = conf["host"]
-        cmd = (
-            f"kill -TERM {int(pid)} 2>/dev/null; "
-            f"sleep 1; "
-            f"kill -9 {int(pid)} 2>/dev/null"
-        )
-        try:
-            result = subprocess.run(
-                [*self._ssh_base_cmd(host), cmd],
-                timeout=10,
-                capture_output=True,
-                text=True,
-            )
-            if result.returncode == 0:
-                return True, f"Killed remote PID {pid}"
-            return False, f"SSH kill failed: {result.stderr[:120]}"
-        except subprocess.TimeoutExpired:
-            return False, "SSH timeout"
-        except Exception as e:
-            return False, str(e)
-
-
-# =============================================================================
-# GPU Allocator
-# =============================================================================
-
-
-class GPUAllocator:
-    def __init__(
-        self,
-        max_jobs_per_gpu=MAX_JOBS_PER_GPU,
-        max_gpus: Optional[int] = None,
-        preferred_gpu: Optional[int] = None,
-    ):
-        self.max_jobs = max_jobs_per_gpu
-        self.max_gpus = max_gpus
-        self.preferred_gpu = preferred_gpu
-        self.gpu_jobs = {}
-        self.gpu_job_assigned_at: Dict[str, float] = {}
-        self._lock = threading.Lock()
-        self._refresh_gpus()
-
-    def _refresh_gpus(self):
-        self.gpus = get_all_gpu_status()
-        # If preferred_gpu is set, use ONLY that GPU (critical for minun hardware constraint)
-        if self.preferred_gpu is not None:
-            self.gpus = [g for g in self.gpus if g["index"] == self.preferred_gpu]
-        elif self.max_gpus is not None:
-            self.gpus = [g for g in self.gpus if g["index"] < self.max_gpus]
-        for g in self.gpus:
-            if g["index"] not in self.gpu_jobs:
-                self.gpu_jobs[g["index"]] = []
-
-        active_indices = {g["index"] for g in self.gpus}
-        stale_indices = [idx for idx in self.gpu_jobs if idx not in active_indices]
-        for idx in stale_indices:
-            del self.gpu_jobs[idx]
-
-    def _is_warmup_complete(self, exp_name: str) -> bool:
-        progress = get_experiment_progress(exp_name)
-        if not isinstance(progress, dict):
-            return False
-        try:
-            epoch = int(progress.get("epoch", 0) or 0)
-        except (TypeError, ValueError):
-            return False
-        return epoch >= WARMUP_COMPLETION_EPOCH
-
-    def allocate(self, exp_name, required_mem_mb=4000) -> Optional[int]:
-        with self._lock:
-            self._refresh_gpus()
-            real_process_counts = get_gpu_process_count()
-
-            candidates = []
-            for g in self.gpus:
-                idx = g["index"]
-                tracked_names = list(self.gpu_jobs.get(idx, []))
-                tracked_jobs = len(tracked_names)
-                real_processes = real_process_counts.get(idx, 0)
-                effective_jobs = max(tracked_jobs, real_processes)
-                finished_warmup = [
-                    name for name in tracked_names if self._is_warmup_complete(name)
-                ]
-                unfinished_warmup = [
-                    name for name in tracked_names if not self._is_warmup_complete(name)
-                ]
-                allow_extra_warmup = (
-                    ALLOW_WARMUP_OVERLAP
-                    and MAX_PARALLEL_WARMUP_JOBS_PER_GPU > 0
-                    and len(unfinished_warmup) < MAX_PARALLEL_WARMUP_JOBS_PER_GPU
-                )
-                allowed_job_limit = self.max_jobs + (
-                    MAX_PARALLEL_WARMUP_JOBS_PER_GPU if allow_extra_warmup else 0
-                )
-
-                if tracked_jobs > 0 and unfinished_warmup and not allow_extra_warmup:
-                    continue
-
-                if effective_jobs >= allowed_job_limit:
-                    continue
-
-                total_mb = int(float(g.get("total", 0) or 0))
-                ratio_exclusive_mb = int(total_mb * HIGH_MEM_EXCLUSIVE_RATIO)
-                if (
-                    required_mem_mb >= HIGH_MEM_EXCLUSIVE_THRESHOLD_MB
-                    or required_mem_mb >= ratio_exclusive_mb
-                ) and effective_jobs > 0:
-                    if not (
-                        allow_extra_warmup and WARMUP_OVERLAP_BYPASS_HIGH_MEM_EXCLUSIVE
-                    ):
-                        continue
-
-                if g["free"] > (required_mem_mb + GPU_CLAIM_HEADROOM_MB):
-                    candidates.append(g)
-
-            if not candidates:
-                return None
-
-            candidates.sort(
-                key=lambda x: (len(self.gpu_jobs.get(x["index"], [])), -x["free"])
-            )
-
-            best_gpu = candidates[0]["index"]
-            self.gpu_jobs[best_gpu].append(exp_name)
-            self.gpu_job_assigned_at[exp_name] = time.time()
-            return best_gpu
-
-    def release(self, exp_name):
-        with self._lock:
-            for idx in self.gpu_jobs:
-                if exp_name in self.gpu_jobs[idx]:
-                    self.gpu_jobs[idx].remove(exp_name)
-                    self.gpu_job_assigned_at.pop(exp_name, None)
-                    return
-            self.gpu_job_assigned_at.pop(exp_name, None)
-
-
-def enforce_formal_slot_serialization(
-    running_processes: Dict[str, subprocess.Popen],
-    running_processes_lock: threading.Lock,
-    running_gpu_ids: Dict[str, int],
-    running_gpu_ids_lock: threading.Lock,
-    allocator: GPUAllocator,
-    paused_formal_jobs: Set[str],
-    logger,
-) -> None:
-    with running_processes_lock:
-        proc_snapshot = {
-            name: proc
-            for name, proc in running_processes.items()
-            if proc.poll() is None
-        }
-    with running_gpu_ids_lock:
-        gpu_snapshot = dict(running_gpu_ids)
-
-    current_names = set(proc_snapshot.keys())
-    for stale_name in list(paused_formal_jobs):
-        if stale_name not in current_names:
-            paused_formal_jobs.discard(stale_name)
-
-    # Group ALL running jobs by GPU (including warmup-incomplete ones)
-    # so SE can enforce serialization across the full lifecycle.
-    jobs_by_gpu: Dict[int, List[Tuple[float, str, subprocess.Popen]]] = {}
-    for name, proc in proc_snapshot.items():
-        gpu_id = gpu_snapshot.get(name)
-        if gpu_id is None:
-            continue
-        assigned_at = float(allocator.gpu_job_assigned_at.get(name, 0.0) or 0.0)
-        jobs_by_gpu.setdefault(int(gpu_id), []).append((assigned_at, name, proc))
-
-    desired_paused: Set[str] = set()
-    for _gpu_id, jobs in jobs_by_gpu.items():
-        if len(jobs) < 2:
-            continue
-        jobs.sort(key=lambda item: (item[0], item[1]))
-        # Check if the oldest (first-assigned) job has reached stable epoch
-        first_name = jobs[0][1]
-        first_stable = False
-        first_progress = get_experiment_progress(first_name)
-        if isinstance(first_progress, dict):
-            try:
-                first_stable = (
-                    int(first_progress.get("epoch", 0) or 0) >= WARMUP_COMPLETION_EPOCH
-                )
-            except (TypeError, ValueError):
-                pass
-        # If oldest job is not yet stable, pause all others on this GPU
-        if not first_stable:
-            for _assigned_at, name, _proc in jobs[1:]:
-                desired_paused.add(name)
-
-    for name, proc in proc_snapshot.items():
-        if name in desired_paused and name not in paused_formal_jobs:
-            try:
-                os.kill(proc.pid, signal.SIGSTOP)
-                paused_formal_jobs.add(name)
-                logger.log(
-                    f"Paused formal-overlap job {name} until earlier formal slot frees"
-                )
-            except Exception as exc:
-                logger.log(f"Failed to pause overlap job {name}: {exc}")
-
-    for name in list(paused_formal_jobs):
-        if name in desired_paused:
-            continue
-        proc = proc_snapshot.get(name)
-        if proc is None:
-            paused_formal_jobs.discard(name)
-            continue
-        try:
-            os.kill(proc.pid, signal.SIGCONT)
-            logger.log(f"Resumed formal-overlap job {name} after slot became free")
-        except Exception as exc:
-            logger.log(f"Failed to resume overlap job {name}: {exc}")
-        finally:
-            paused_formal_jobs.discard(name)
-
-
 # =============================================================================
 # Dashboard
 # =============================================================================
@@ -2197,6 +788,7 @@ class UnifiedDashboard:
         self.selected_exp_name: Optional[str] = None
         self._panel_exp_rows: List[Dict[str, Any]] = []
         self._panel_exp_total = 0
+        self._prev_val_f1: Dict[str, float] = {}
         self.exp_page = 0
         self.exp_page_size = 20
         self.exp_total_pages = 1
@@ -2374,6 +966,14 @@ class UnifiedDashboard:
             name = str(request.get("name", ""))
             if not name:
                 return "✗ Invalid exp_archive"
+            try:
+                from archive_card import generate_archive_card, get_metric_summary
+
+                card_path = generate_archive_card(name)
+                metric_summary = get_metric_summary(name)
+            except Exception:
+                card_path = None
+                metric_summary = {}
             archive_fn = getattr(self.db, "archive_experiment", None)
             ok = bool(archive_fn(name)) if callable(archive_fn) else False
             if not ok:
@@ -2726,7 +1326,16 @@ class UnifiedDashboard:
 
     def build_experiments_panel(self, cluster_status: Optional[Dict] = None) -> Panel:
         data = self.db.load()
+        all_db_experiments = []
+        loader = getattr(self.db, "load_all_for_panel", None)
+        if callable(loader):
+            all_db_experiments = loader()
         experiments = data.get("experiments", [])
+        if all_db_experiments:
+            existing_names = {e.get("name") for e in experiments}
+            for db_exp in all_db_experiments:
+                if db_exp.get("name") not in existing_names:
+                    experiments.append(db_exp)
         completed_items = data.get("completed", [])
         archived_count = len(data.get("archived", []))
         if cluster_status is None:
@@ -2745,6 +1354,10 @@ class UnifiedDashboard:
         table.add_column("Wait", min_width=12, ratio=2)
         table.add_column("Terminal", width=15)
         table.add_column("Progress", min_width=18, ratio=2)
+        table.add_column("Phase", width=12)
+        table.add_column("Elapsed", width=8)
+        table.add_column("Stale?", width=5)
+        table.add_column("Δf1", width=8)
         table.add_column("testF1", width=7, justify="right")
         table.add_column("Peak", width=6, justify="right")
         table.add_column("MemFam", width=10)
@@ -3059,6 +1672,10 @@ class UnifiedDashboard:
                 color = "bright_yellow"
 
             progress_str = ""
+            phase_str = "-"
+            elapsed_str = "-"
+            stale_str = "-"
+            delta_text = "-"
             lifecycle_stage = "queued"
             wait_reason = "-"
             terminal_reason = get_terminal_reason(
@@ -3146,8 +1763,40 @@ class UnifiedDashboard:
                     epoch = progress.get("epoch", 0)
                     total = progress.get("total_epochs", 1)
                     val_f1 = progress.get("val_f1", 0)
+                    current_f1 = progress.get("val_f1", 0.0)
+                    prev_f1 = self._prev_val_f1.get(name, current_f1)
+                    delta = current_f1 - prev_f1
+                    self._prev_val_f1[name] = current_f1
+                    delta_text = (
+                        f"+{delta:.3f}"
+                        if delta > 0
+                        else f"{delta:.3f}"
+                        if delta < 0
+                        else "="
+                    )
                     progress_phase = progress.get("phase", "")
+                    if progress_phase:
+                        phase_str = str(progress_phase)
                     progress_ts = _parse_iso_ts(progress.get("timestamp"))
+                    ts_iso = str(progress.get("timestamp") or "").strip()
+                    if ts_iso:
+                        try:
+                            elapsed_seconds = (
+                                datetime.now() - datetime.fromisoformat(ts_iso)
+                            ).total_seconds()
+                            if elapsed_seconds >= 3600:
+                                elapsed_str = f"{int(elapsed_seconds // 3600)}h ago"
+                            else:
+                                elapsed_str = f"{int(elapsed_seconds // 60)}m ago"
+                            if elapsed_seconds > 900:
+                                stale_str = "🔴"
+                            elif elapsed_seconds > 300:
+                                stale_str = "⚠"
+                            else:
+                                stale_str = "-"
+                        except Exception:
+                            elapsed_str = "-"
+                            stale_str = "-"
                     warmup_anchor = (
                         progress_ts if progress_ts is not None else started_ts
                     )
@@ -3373,6 +2022,10 @@ class UnifiedDashboard:
                 str(wait_reason or ""),
                 str(format_terminal_reason_text(terminal_reason) or ""),
                 str(progress_str or ""),
+                str(phase_str or ""),
+                str(elapsed_str or ""),
+                str(stale_str or ""),
+                str(delta_text or ""),
                 str(f1 or ""),
                 str(peak_str or ""),
                 str(memory_fields["mem_family"] or ""),
@@ -3391,6 +2044,10 @@ class UnifiedDashboard:
             table.add_row(
                 "",
                 f"[dim]Page {self.exp_page + 1}/{self.exp_total_pages} · showing {page_start}-{page_end} of {len(display_experiments)}[/]",
+                "",
+                "",
+                "",
+                "",
                 "",
                 "",
                 "",
@@ -3606,7 +2263,9 @@ class UnifiedDashboard:
                     ].get("name")
             elif key in {"s", "S", "\x1b[B"}:
                 self.exp_two_step = TwoStepKeyHandler()
-                if panel_experiments:
+                if key == "S" and key in SCOPE_KEYS:
+                    self.exp_two_step.handle_key(key)
+                elif panel_experiments:
                     self.selected_exp_idx = min(
                         len(panel_experiments) - 1, self.selected_exp_idx + 1
                     )
@@ -3629,20 +2288,27 @@ class UnifiedDashboard:
                 self._change_experiment_page(-1)
             elif key == "p" and panel_experiments:
                 self.exp_two_step = TwoStepKeyHandler()
-                selected_exp = panel_experiments[self.selected_exp_idx]
-                if self._is_non_actionable_row(selected_exp):
+                name = self.selected_exp_name
+                if not name:
+                    self.set_message("No experiment selected")
+                    return True
+                exp_payload = next(
+                    (e for e in panel_experiments if e.get("name") == name), None
+                )
+                if exp_payload is None:
+                    self.set_message(f"Experiment {name} not found")
+                    return True
+                if self._is_non_actionable_row(exp_payload):
                     self.set_message("Condition node is display-only")
                     return True
-                name = str(selected_exp.get("name", ""))
-                if name:
-                    self._enqueue_action(
-                        {
-                            "type": "exp_repipeline",
-                            "name": name,
-                            "exp_payload": dict(selected_exp),
-                        },
-                        f"Re-pipeline {name}",
-                    )
+                self._enqueue_action(
+                    {
+                        "type": "exp_repipeline",
+                        "name": name,
+                        "exp_payload": dict(exp_payload),
+                    },
+                    f"Re-pipeline {name}",
+                )
             elif key.upper() == "T" and panel_experiments:
                 self.exp_two_step = TwoStepKeyHandler()
                 selected_exp = panel_experiments[self.selected_exp_idx]
@@ -3870,960 +2536,14 @@ class UnifiedDashboard:
 # =============================================================================
 
 
-class HybridLogger:
-    def __init__(self, filename):
-        self.filename = filename
-        self.permanent_offset = 0
-
-        mode = "a" if os.path.exists(filename) else "w"
-        with open(self.filename, mode) as f:
-            if mode == "w":
-                f.write(f"=== Experiment Log Started at {datetime.now()} ===\n")
-            else:
-                f.write(f"\n=== Runner Restarted at {datetime.now()} ===\n")
-        self.permanent_offset = os.path.getsize(self.filename)
-
-    def log(self, message):
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        line = f"[{timestamp}] {message}\n"
-
-        try:
-            lock_path = f"{self.filename}.lock"
-            got_lock = False
-            try:
-                fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-                os.close(fd)
-                got_lock = True
-            except FileExistsError:
-                try:
-                    age = time.time() - os.path.getmtime(lock_path)
-                    if age > 5:
-                        os.unlink(lock_path)
-                        fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-                        os.close(fd)
-                        got_lock = True
-                    else:
-                        got_lock = False
-                except Exception:
-                    got_lock = False
-            except Exception:
-                got_lock = False
-
-            try:
-                with open(self.filename, "a") as f:
-                    f.write(line)
-            finally:
-                if got_lock:
-                    try:
-                        os.unlink(lock_path)
-                    except Exception:
-                        pass
-        except Exception:
-            pass
-
-
 # =============================================================================
 # Experiment Runner
 # =============================================================================
 
 
-def cleanup_on_startup(logger):
-    """Clean orphan .tmp and .nfs files from Phase3 directory on runner start."""
-    from registry_io import cleanup_orphan_files
-
-    db_path = BASE_DIR / "experiments.json"
-    removed = cleanup_orphan_files(db_path, max_age_sec=3600)
-    if removed:
-        logger.log(f"Startup cleanup: removed {removed} orphan .tmp/.nfs files")
-
-
-def _get_active_runner_pids_from_db(
-    db: Optional[ExperimentsDB] = None,
-    stale_sec: int = HEARTBEAT_STALE_SEC,
-) -> Set[int]:
-    active_pids: Set[int] = set()
-    if db is None:
-        return active_pids
-    try:
-        heartbeats = db.get_cluster_heartbeats()
-        for wid, info in heartbeats.items():
-            if info.get("last_seen_sec", 999999) > stale_sec:
-                continue
-            pid = info.get("pid")
-            if isinstance(pid, int) and pid > 1:
-                active_pids.add(pid)
-    except Exception:
-        pass
-    return active_pids
-
-
-def _kill_local_pid_tree(pid: int) -> bool:
-    try:
-        subprocess.run(
-            ["pkill", "-TERM", "-P", str(pid)],
-            timeout=2,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except Exception:
-        pass
-    try:
-        os.kill(pid, signal.SIGTERM)
-    except ProcessLookupError:
-        return True
-    except Exception:
-        pass
-    time.sleep(0.8)
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return True
-    except Exception:
-        return False
-    try:
-        subprocess.run(
-            ["pkill", "-KILL", "-P", str(pid)],
-            timeout=2,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except Exception:
-        pass
-    try:
-        os.kill(pid, signal.SIGKILL)
-        return True
-    except ProcessLookupError:
-        return True
-    except Exception:
-        return False
-
-
-def enforce_running_pid_registration(db: ExperimentsDB, logger, grace_sec: int = 20):
-    fixed = db.enforce_running_pid_registration(grace_sec)
-    for name in fixed:
-        logger.log(f"PID registration missing, reset to NEEDS_RERUN: {name}")
-
-
-def reap_orphan_runner_processes(
-    logger, current_runner_pid: int, db: Optional[ExperimentsDB] = None
-):
-    active_runner_pids = _get_active_runner_pids_from_db(db)
-    try:
-        proc = subprocess.run(
-            ["ps", "-eo", "pid=,ppid=,etimes=,args="],
-            timeout=5,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except Exception as e:
-        logger.log(f"Orphan reaper skipped: {e}")
-        return
-    killed = 0
-    for raw in proc.stdout.splitlines():
-        line = raw.strip()
-        if not line:
-            continue
-        parts = line.split(None, 3)
-        if len(parts) < 4:
-            continue
-        try:
-            pid = int(parts[0])
-            ppid = int(parts[1])
-            etimes = int(parts[2])
-        except ValueError:
-            continue
-        args = parts[3]
-        if pid <= 1 or pid == current_runner_pid:
-            continue
-        if ppid != 1 or etimes < ORPHAN_ETIMES_SEC:
-            continue
-        if "experiments.py" not in args:
-            continue
-        if "--worker_id" not in args and "--watch" not in args:
-            continue
-        if pid in active_runner_pids:
-            continue
-        ok = _kill_local_pid_tree(pid)
-        if ok:
-            killed += 1
-            logger.log(f"Reaped orphan runner/watcher PID {pid}: {args[:140]}")
-    if killed:
-        logger.log(f"Orphan runner reaper killed {killed} process(es)")
-
-
-def _extract_exp_name_from_cmd(args: str) -> Optional[str]:
-    try:
-        tokens = shlex.split(args)
-    except Exception:
-        tokens = []
-    if tokens:
-        for i, tok in enumerate(tokens):
-            if tok == "--experiment-name" and i + 1 < len(tokens):
-                name = tokens[i + 1].strip()
-                if name:
-                    return name
-    marker2 = "/Phase3/experiments/"
-    marker3 = "/scripts/train.py"
-    if marker2 in args and marker3 in args:
-        tail = args.split(marker2, 1)[1]
-        prefix = tail.split(marker3, 1)[0]
-        if prefix:
-            return prefix.split("/", 1)[0]
-    return None
-
-
-def reap_orphan_training_processes(
-    db: ExperimentsDB,
-    logger,
-    worker_id: str,
-    active_experiment_names: Set[str],
-):
-    try:
-        proc = subprocess.run(
-            ["ps", "-eo", "pid=,ppid=,etimes=,args="],
-            timeout=5,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except Exception as e:
-        logger.log(f"Orphan training reaper skipped: {e}")
-        return
-
-    local_hb_running: Set[str] = set()
-    try:
-        hb_data = db.get_cluster_heartbeats().get(worker_id, {})
-        hb_running = hb_data.get("running_experiments") or []
-        if isinstance(hb_running, list):
-            local_hb_running = {str(x) for x in hb_running if str(x)}
-    except Exception:
-        pass
-
-    try:
-        snapshot = db.load()
-    except Exception as e:
-        logger.log(f"Orphan training reaper skipped (registry unreadable): {e}")
-        return
-
-    experiments_by_name: Dict[str, Dict[str, Any]] = {
-        str(exp.get("name", "")): exp
-        for exp in snapshot.get("experiments", [])
-        if isinstance(exp, dict) and exp.get("name")
-    }
-
-    allowed_names = set(active_experiment_names) | local_hb_running
-    killed = 0
-    now = time.time()
-    live_pids: Set[int] = set()
-    for raw in proc.stdout.splitlines():
-        line = raw.strip()
-        if not line:
-            continue
-        parts = line.split(None, 3)
-        if len(parts) < 4:
-            continue
-        try:
-            pid = int(parts[0])
-            ppid = int(parts[1])
-            etimes = int(parts[2])
-        except ValueError:
-            continue
-        live_pids.add(pid)
-        args = parts[3]
-        if ppid != 1 or etimes < ORPHAN_ETIMES_SEC:
-            continue
-        is_training_cmd = "train_ensemble_member.py" in args or (
-            "/Phase3/experiments/" in args and "/scripts/train.py" in args
-        )
-        if not is_training_cmd:
-            continue
-        exp_name = _extract_exp_name_from_cmd(args)
-        if not exp_name:
-            continue
-        if exp_name not in experiments_by_name:
-            logger.log(
-                f"Orphan training candidate skipped (unknown experiment): pid={pid} exp={exp_name}"
-            )
-            continue
-
-        exp_meta = experiments_by_name[exp_name]
-        running_on = exp_meta.get("running_on") or {}
-        reg_worker = str(running_on.get("worker", ""))
-        if (
-            normalize_status(exp_meta.get("status")) == STATUS_RUNNING
-            and reg_worker
-            and reg_worker != worker_id
-        ):
-            logger.log(
-                f"Orphan training candidate skipped (owned by other worker): pid={pid} exp={exp_name} owner={reg_worker}"
-            )
-            continue
-        if exp_name in allowed_names:
-            ORPHAN_TRAINING_SEEN.pop(pid, None)
-            continue
-
-        first_seen = ORPHAN_TRAINING_SEEN.get(pid)
-        if first_seen is None:
-            ORPHAN_TRAINING_SEEN[pid] = now
-            logger.log(
-                f"Orphan training candidate first-seen pid={pid} exp={exp_name}; waiting confirmation"
-            )
-            continue
-        if now - first_seen < ORPHAN_CONFIRMATION_SEC:
-            continue
-
-        ok = _kill_local_pid_tree(pid)
-        if not ok:
-            logger.log(f"Orphan training reap FAILED pid={pid} exp={exp_name}")
-            continue
-        ORPHAN_TRAINING_SEEN.pop(pid, None)
-
-        killed += 1
-        logger.log(f"Reaped orphan training PID {pid} exp={exp_name}")
-
-        try:
-            ok = db.update_experiment(
-                exp_name,
-                {
-                    "status": STATUS_NEEDS_RERUN,
-                    "running_on": None,
-                    "retry_count": (
-                        experiments_by_name.get(exp_name, {}).get("retry_count", 0) or 0
-                    )
-                    + 1,
-                    "error_info": {
-                        "type": "ORPHAN_REAP",
-                        "is_true_oom": False,
-                        "message": f"Orphan training process reaped pid={pid}",
-                        "peak_memory_mb": int(
-                            experiments_by_name.get(exp_name, {}).get(
-                                "peak_memory_mb", 0
-                            )
-                            or 0
-                        ),
-                        "failed_at": datetime.now().isoformat(),
-                    },
-                },
-            )
-            if ok:
-                logger.log(f"Registry updated after orphan reap: {exp_name}")
-        except Exception as e:
-            logger.log(f"Registry sync after orphan reap failed ({exp_name}): {e}")
-
-    for seen_pid in list(ORPHAN_TRAINING_SEEN.keys()):
-        if seen_pid not in live_pids:
-            ORPHAN_TRAINING_SEEN.pop(seen_pid, None)
-
-    if killed:
-        logger.log(f"Orphan training reaper killed {killed} process(es)")
-
-
-def check_stale_locks(
-    db: ExperimentsDB,
-    logger,
-    local_worker_id: Optional[str] = None,
-    cluster_mgr: Optional[ClusterManager] = None,
-):
-    stale_results = db.check_stale_experiments(
-        stale_sec=HEARTBEAT_STALE_SEC,
-        caller_worker=local_worker_id,
-    )
-    for name, stale_worker in stale_results:
-        logger.log(
-            f"Resetting stale experiment {name} (worker {stale_worker} heartbeat missing)"
-        )
-
-
-def self_heal_heartbeat_worker_conflicts(
-    db: ExperimentsDB,
-    cluster_mgr: ClusterManager,
-    logger,
-    min_age_sec: int = 20,
-):
-    data = db.load()
-    experiments = data.get("experiments", [])
-    if not isinstance(experiments, list) or not experiments:
-        return
-
-    cluster_status = cluster_mgr.get_cluster_status(db)
-    for exp in experiments:
-        if not isinstance(exp, dict):
-            continue
-        if normalize_status(exp.get("status")) != STATUS_RUNNING:
-            continue
-
-        name = str(exp.get("name", "")).strip()
-        if not name:
-            continue
-        running_on = exp.get("running_on") or {}
-        registry_worker = str(running_on.get("worker", "")).strip()
-        if not registry_worker:
-            continue
-
-        started_at = running_on.get("started_at")
-        if isinstance(started_at, str) and started_at:
-            try:
-                started_dt = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
-                age = (datetime.now(started_dt.tzinfo) - started_dt).total_seconds()
-                if age < float(min_age_sec):
-                    continue
-            except Exception:
-                pass
-
-        workers_reporting: List[str] = []
-        for worker_id, info in cluster_status.items():
-            if str(info.get("status", "")).upper() != "ONLINE":
-                continue
-            running = info.get("running_experiments") or []
-            if isinstance(running, str):
-                running = [running]
-            if not isinstance(running, list):
-                continue
-            normalized = {str(x).strip() for x in running if str(x).strip()}
-            if name in normalized:
-                workers_reporting.append(str(worker_id))
-
-        if registry_worker in workers_reporting:
-            continue
-
-        observed_workers = [w for w in workers_reporting if w != registry_worker]
-        if len(observed_workers) != 1:
-            continue
-
-        observed_worker = observed_workers[0]
-        ok = db.heal_running_worker_owner(name, observed_worker)
-        if ok:
-            logger.log(
-                f"Self-healed heartbeat worker conflict for {name}: "
-                f"registry={registry_worker}, observed={observed_worker} "
-                "-> updated RUNNING ownership"
-            )
-
-
-def check_zombie_processes(
-    db: ExperimentsDB,
-    worker_id: str,
-    logger,
-    protected_names: Optional[set[str]] = None,
-):
-    zombies = db.check_zombie_processes(worker_id, exclude_names=protected_names)
-    for name, pid in zombies:
-        logger.log(f"Zombie detected: {name} (PID {pid} dead)")
-
-
-def process_remote_termination_requests(db: ExperimentsDB, worker_id: str, logger):
-    requests = db.fetch_remote_termination_requests(worker_id)
-    for req in requests:
-        name = str(req.get("name") or "").strip()
-        if not name:
-            continue
-        action = str(req.get("action") or "rerun").strip().lower()
-        current_pid = req.get("pid")
-        requested_pid = req.get("requested_pid")
-        if not isinstance(current_pid, int) or current_pid <= 1:
-            db.clear_remote_termination_request(name, worker_id)
-            continue
-        if (
-            isinstance(requested_pid, int)
-            and requested_pid > 1
-            and requested_pid != current_pid
-        ):
-            db.clear_remote_termination_request(name, worker_id)
-            continue
-
-        killed = _kill_local_pid_tree(current_pid)
-        if not killed:
-            logger.log(
-                f"Remote termination request failed kill: exp={name} pid={current_pid} action={action}"
-            )
-            continue
-
-        if action == "kill":
-            ok = db.kill_experiment(name)
-        elif action == "freeze":
-            ok = db.freeze_experiment(name)
-        elif action == "start_now":
-            ok = db.start_experiment_now(name)
-        else:
-            ok = db.rerun_experiment(name)
-            if ok:
-                removed = _clean_experiment_artifacts(name)
-                logger.log(
-                    f"Clean rerun reset artifacts for {name}: {len(removed)} removed"
-                )
-        db.clear_remote_termination_request(name, worker_id)
-        logger.log(
-            f"Processed remote termination: exp={name} pid={current_pid} action={action} ok={ok}"
-        )
-
-
-def mark_running(
-    db: ExperimentsDB, exp_name: str, worker_hostname: str, gpu_id: int, pid: int
-):
-    return db.mark_running(exp_name, worker_hostname, gpu_id, pid)
-
-
-def mark_done(db: ExperimentsDB, exp_name: str, result: Dict, run_id: str):
-    return db.mark_done(exp_name, result, run_id)
-
-
-def mark_error(
-    db: ExperimentsDB,
-    exp_name: str,
-    error_type: str,
-    message: str,
-    is_true_oom: bool = False,
-    peak_memory_mb: int = 0,
-    run_id: Optional[str] = None,
-):
-    return db.mark_error(
-        exp_name,
-        error_type,
-        message,
-        is_true_oom,
-        peak_memory_mb,
-        run_id,
-    )
-
-
-def update_lock_pid(exp_name: str, worker_hostname: str, pid: int, gpu_id: int):
-    return
-
-
-def release_distributed_lock(exp_name: str):
-    return
-
-
-def run_experiment_process(
-    exp_config: Dict,
-    worker_hostname: str,
-    gpu_id: int,
-    logger,
-    db: ExperimentsDB,
-    running_processes: Optional[Dict[str, subprocess.Popen]] = None,
-    running_processes_lock: Optional[threading.Lock] = None,
-    python_env: Optional[str] = None,
-):
-    exp_name = exp_config["name"]
-    script_path = exp_config.get("script", f"experiments/{exp_name}/scripts/train.py")
-    full_script_path = BASE_DIR / script_path
-
-    if not full_script_path.exists():
-        logger.log(f"Script not found: {full_script_path}")
-        run_id = db.get_run_id(exp_name)
-        mark_error(
-            db,
-            exp_name,
-            "SCRIPT_ERROR",
-            f"Script not found: {script_path}",
-            run_id=run_id,
-        )
-        return
-
-    runtime_removed = _clear_runtime_markers(exp_name)
-    if runtime_removed:
-        logger.log(
-            f"Reset runtime markers for {exp_name}: {len(runtime_removed)} removed"
-        )
-    logger.log(f"Starting {exp_name} on GPU {gpu_id}...")
-    stdout_log = LOGS_DIR / f"{exp_name}.out"
-    stderr_log = LOGS_DIR / f"{exp_name}.err"
-    current_batch_size, current_eval_batch_size = _resolve_batch_overrides(
-        exp_name, exp_config, full_script_path
-    )
-    memory_contract = _copy_memory_contract(exp_config)
-    if memory_contract:
-        exp_config["memory_contract"] = memory_contract
-    soft_oom_retries = 0
-    max_soft_oom_retries = max(
-        0, int(exp_config.get("max_retries", MAX_RETRY_COUNT) or MAX_RETRY_COUNT)
-    )
-    run_id: Optional[str] = None
-    peak_memory_mb = int(exp_config.get("peak_memory_mb", 0) or 0)
-
-    with open(stdout_log, "w") as out, open(stderr_log, "w") as err:
-        python_path = os.path.expanduser(
-            python_env or "~/miniconda3/envs/gnn_fraud/bin/python"
-        )
-        while True:
-            env = os.environ.copy()
-            env["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
-            env["BATCH_SIZE"] = str(current_batch_size)
-            env["EVAL_BATCH_SIZE"] = str(current_eval_batch_size)
-            extra_env = exp_config.get("env") or {}
-            if isinstance(extra_env, dict):
-                for key, value in extra_env.items():
-                    if key is None or value is None:
-                        continue
-                    env[str(key)] = str(value)
-            out.write(
-                f"[Runner] launch attempt={soft_oom_retries + 1} BATCH_SIZE={current_batch_size} EVAL_BATCH_SIZE={current_eval_batch_size}\n"
-            )
-            out.flush()
-
-            process = subprocess.Popen(
-                [python_path, str(full_script_path)],
-                cwd=BASE_DIR,
-                env=env,
-                stdout=out,
-                stderr=err,
-                text=True,
-            )
-
-            if running_processes is not None:
-                if running_processes_lock is not None:
-                    with running_processes_lock:
-                        running_processes[exp_name] = process
-                else:
-                    running_processes[exp_name] = process
-
-            if not run_id:
-                run_id = db.get_run_id(exp_name)
-                if not run_id:
-                    run_id = mark_running(
-                        db, exp_name, worker_hostname, gpu_id, process.pid
-                    )
-                if not run_id:
-                    logger.log(f"Claim failed for {exp_name}. Terminating process.")
-                    try:
-                        process.terminate()
-                    except Exception:
-                        pass
-                    return
-            else:
-                db.update_experiment(
-                    exp_name,
-                    {
-                        "running_on": {
-                            "worker": worker_hostname,
-                            "gpu": gpu_id,
-                            "pid": process.pid,
-                            "started_at": datetime.now().isoformat(),
-                            "peak_memory_mb": peak_memory_mb,
-                        }
-                    },
-                )
-
-            update_lock_pid(exp_name, worker_hostname, process.pid, gpu_id)
-            last_memory_check = 0
-
-            while True:
-                retcode = process.poll()
-                if retcode is not None:
-                    break
-
-                current_time = time.time()
-                if current_time - last_memory_check >= MEMORY_CHECK_INTERVAL:
-                    pid_map = get_pid_gpu_map()
-                    current_mem = pid_map.get(process.pid, 0)
-                    if current_mem <= 0:
-                        try:
-                            detected = detect_running_experiments_from_gpu_pids(pid_map)
-                            inferred = detected.get(exp_name, [])
-                            if inferred:
-                                current_mem = max(
-                                    int(item.get("used_mb", 0)) for item in inferred
-                                )
-                        except Exception:
-                            current_mem = 0
-                    peak_memory_mb = max(peak_memory_mb, current_mem)
-                    update_running_peak(db, exp_name, peak_memory_mb)
-                    last_memory_check = current_time
-
-                time.sleep(1)
-
-            if retcode == 0:
-                logger.log(f"Finished {exp_name} successfully.")
-
-                result_file = RESULTS_DB_DIR / f"{exp_name}.json"
-                result = {
-                    "peak_memory_mb": peak_memory_mb,
-                    "batch_size": current_batch_size,
-                    "eval_batch_size": current_eval_batch_size,
-                }
-                if result_file.exists():
-                    try:
-                        with open(result_file, "r") as f:
-                            result.update(json.load(f))
-                    except Exception:
-                        pass
-
-                if result.get("f1_score") is None:
-                    preferred_f1 = result.get("test_f1")
-                    if preferred_f1 is not None:
-                        result["f1_score"] = preferred_f1
-
-                if result.get("auc_score") is None:
-                    preferred_auc = result.get("test_auc")
-                    if preferred_auc is not None:
-                        result["auc_score"] = preferred_auc
-
-                db.update_experiment(
-                    exp_name,
-                    {
-                        "extra": {
-                            "canonical_result": _build_canonical_result(result),
-                            "terminal_metadata": _build_terminal_metadata(result),
-                        }
-                    },
-                )
-
-                done_ok = mark_done(db, exp_name, result, run_id)
-                if not done_ok:
-                    latest_run_id = db.get_run_id_db(exp_name)
-                    if latest_run_id and latest_run_id != run_id:
-                        logger.log(
-                            f"mark_done fencing mismatch for {exp_name}; retry with latest run_id {latest_run_id[:8]}"
-                        )
-                        done_ok = mark_done(db, exp_name, result, latest_run_id)
-                if not done_ok:
-                    logger.log(
-                        f"mark_done failed for {exp_name}; experiment may be reset by zombie guard"
-                    )
-                break
-
-            logger.log(f"Failed {exp_name} with code {retcode}.")
-
-            is_oom, is_true_oom, requested_mb = parse_oom_from_stderr(stderr_log)
-            resource_path, resource_payload = _read_resource_usage(exp_name)
-            result_path, result_payload = _read_result_payload(exp_name)
-            if (not is_oom) and isinstance(resource_payload, dict):
-                resource_status = str(resource_payload.get("status") or "").upper()
-                resource_error = str(resource_payload.get("error_type") or "").upper()
-                if (
-                    bool(resource_payload.get("is_oom"))
-                    or resource_status == "OOM"
-                    or resource_error == "OOM"
-                ):
-                    is_oom = True
-                    requested_mb = int(resource_payload.get("peak_memory_mb") or 0)
-
-            if is_oom:
-                requested_mb_int = int(requested_mb or 0)
-                expected_base_mb = _best_error_peak_mb(
-                    int(peak_memory_mb),
-                    requested_mb_int,
-                    resource_payload,
-                    result_payload,
-                )
-                expected_required_free_mb = (
-                    expected_base_mb + OOM_EXPECTED_FREE_MARGIN_MB
-                )
-                runtime_batch_adjustable = bool(
-                    memory_contract.get("runtime_batch_adjustable", True)
-                )
-                oom_policy_mode = str(
-                    memory_contract.get("oom_policy_mode") or "batch_adjustable"
-                )
-                if (
-                    requested_mb_int > OOM_THRESHOLD_MB
-                    or expected_required_free_mb > OOM_THRESHOLD_MB
-                ):
-                    is_true_oom = True
-                peak_for_error = expected_base_mb
-                err_kind = "OOM"
-                err_message = (
-                    str(resource_payload.get("error_message") or "").strip()
-                    if isinstance(resource_payload, dict)
-                    else ""
-                )
-                if not err_message:
-                    err_message = f"CUDA OOM (peak: {peak_memory_mb}MB, requested: {requested_mb}MB, expected_free: {expected_required_free_mb}MB)"
-
-                next_batch_size, next_eval_batch_size = _next_smaller_batches(
-                    current_batch_size, current_eval_batch_size
-                )
-
-                if not runtime_batch_adjustable and oom_policy_mode == "not_applicable":
-                    old_est = int(
-                        memory_contract.get("est_mem_decision_mb")
-                        or memory_contract.get("est_mem_upper_mb")
-                        or 0
-                    )
-                    retry_est_mb = max(old_est + OOM_RETRY_EST_MEM_BUMP_MB, old_est + 1)
-                    force_true_mem = retry_est_mb > OOM_THRESHOLD_MB
-                    memory_contract = _update_oom_policy_contract(
-                        memory_contract,
-                        current_batch_size=current_batch_size,
-                        current_eval_batch_size=current_eval_batch_size,
-                        next_batch_size=current_batch_size,
-                        next_eval_batch_size=current_eval_batch_size,
-                        expected_required_free_mb=retry_est_mb,
-                        stop_reason=(
-                            "no_batch_path_estmem_threshold_exceeded"
-                            if force_true_mem
-                            else "no_batch_path_retry_with_higher_estmem"
-                        ),
-                        force_true_mem=force_true_mem,
-                    )
-                    exp_config["memory_contract"] = memory_contract
-                    _persist_oom_policy_contract(
-                        db, exp_name, memory_contract, soft_oom_retries + 1
-                    )
-                    if not force_true_mem:
-                        logger.log(
-                            f"Soft OOM for {exp_name}; bumping est_mem_decision_mb {old_est}->{retry_est_mb} and requeueing"
-                        )
-                    is_true_oom = force_true_mem
-                elif runtime_batch_adjustable and not is_true_oom:
-                    candidate_contract = _update_oom_policy_contract(
-                        memory_contract,
-                        current_batch_size=current_batch_size,
-                        current_eval_batch_size=current_eval_batch_size,
-                        next_batch_size=next_batch_size,
-                        next_eval_batch_size=next_eval_batch_size,
-                        expected_required_free_mb=expected_required_free_mb,
-                        stop_reason="retry_with_smaller_batch",
-                        force_true_mem=False,
-                    )
-                    candidate_est = int(
-                        candidate_contract.get("est_mem_after_retry")
-                        or candidate_contract.get("est_mem_decision_mb")
-                        or 0
-                    )
-                    can_retry_with_smaller_batch = (
-                        soft_oom_retries < max_soft_oom_retries
-                        and current_batch_size > MIN_RUNTIME_BATCH_SIZE
-                        and next_batch_size < current_batch_size
-                        and candidate_est <= OOM_THRESHOLD_MB
-                    )
-                    if can_retry_with_smaller_batch:
-                        memory_contract = candidate_contract
-                        exp_config["memory_contract"] = memory_contract
-                        _persist_oom_policy_contract(
-                            db,
-                            exp_name,
-                            memory_contract,
-                            soft_oom_retries + 1,
-                        )
-                        logger.log(
-                            f"Soft OOM for {exp_name}; retrying with smaller batch {current_batch_size}->{next_batch_size}, eval {current_eval_batch_size}->{next_eval_batch_size}"
-                        )
-                        current_batch_size = next_batch_size
-                        current_eval_batch_size = next_eval_batch_size
-                        soft_oom_retries += 1
-                        continue
-
-                    force_true_mem = candidate_est > OOM_THRESHOLD_MB
-                    stop_reason = (
-                        "estmem_threshold_exceeded"
-                        if force_true_mem
-                        else "batch_floor_reached_below_trueoom_threshold"
-                    )
-                    memory_contract = _update_oom_policy_contract(
-                        memory_contract,
-                        current_batch_size=current_batch_size,
-                        current_eval_batch_size=current_eval_batch_size,
-                        next_batch_size=next_batch_size,
-                        next_eval_batch_size=next_eval_batch_size,
-                        expected_required_free_mb=expected_required_free_mb,
-                        stop_reason=stop_reason,
-                        force_true_mem=force_true_mem,
-                    )
-                    exp_config["memory_contract"] = memory_contract
-                    _persist_oom_policy_contract(
-                        db, exp_name, memory_contract, soft_oom_retries + 1
-                    )
-                    is_true_oom = force_true_mem
-
-                err_ok = mark_error(
-                    db,
-                    exp_name,
-                    err_kind,
-                    err_message,
-                    is_true_oom,
-                    peak_for_error,
-                    run_id,
-                )
-                db.update_experiment(
-                    exp_name,
-                    {
-                        "extra": {
-                            "terminal_metadata": _build_terminal_metadata(
-                                _read_result_payload(exp_name)[1]
-                            )
-                        }
-                    },
-                )
-                if not err_ok:
-                    latest_run_id = db.get_run_id_db(exp_name)
-                    if latest_run_id and latest_run_id != run_id:
-                        err_ok = mark_error(
-                            db,
-                            exp_name,
-                            err_kind,
-                            err_message,
-                            is_true_oom,
-                            peak_for_error,
-                            latest_run_id,
-                        )
-                if not err_ok:
-                    logger.log(f"mark_error failed for {exp_name} (OOM)")
-                break
-
-            try:
-                with open(stderr_log, "r") as f:
-                    lines = f.readlines()
-                    error_msg = "".join(lines[-20:])
-            except Exception:
-                error_msg = f"Return code: {retcode}"
-            err_ok = mark_error(
-                db,
-                exp_name,
-                "SCRIPT_ERROR",
-                error_msg,
-                False,
-                peak_memory_mb,
-                run_id,
-            )
-            db.update_experiment(
-                exp_name,
-                {
-                    "extra": {
-                        "terminal_metadata": _build_terminal_metadata(
-                            _read_result_payload(exp_name)[1]
-                        )
-                    }
-                },
-            )
-            if not err_ok:
-                latest_run_id = db.get_run_id_db(exp_name)
-                if latest_run_id and latest_run_id != run_id:
-                    err_ok = mark_error(
-                        db,
-                        exp_name,
-                        "SCRIPT_ERROR",
-                        error_msg,
-                        False,
-                        peak_memory_mb,
-                        latest_run_id,
-                    )
-            if not err_ok:
-                logger.log(f"mark_error failed for {exp_name} (SCRIPT_ERROR)")
-            break
-
-
 # =============================================================================
 # Main
 # =============================================================================
-
-
-def get_key(input_stream=None):
-    try:
-        if input_stream is None:
-            input_stream = sys.stdin
-        ch = input_stream.read(1)
-        if ch == "\x1b":
-            if select.select([input_stream], [], [], 0.1)[0]:
-                ch += input_stream.read(1)
-                if select.select([input_stream], [], [], 0.1)[0]:
-                    ch += input_stream.read(1)
-        return ch
-    except Exception:
-        return None
 
 
 def main():  # pragma: no cover

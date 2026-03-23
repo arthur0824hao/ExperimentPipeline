@@ -1,0 +1,18 @@
+[
+  {"name": "EXP_P1_GS_H64_ORIGIN_V1", "description": "Phase 1 GS H64 ORIGIN", "features": []},
+  {"name": "EXP_P1_GS_H64_COMBINED_V1", "description": "Phase 1 GS H64 COMBINED", "features": []},
+  {"name": "EXP_P1_ZB_H30_ORIGIN_V1", "description": "Phase 1 ZB H30 ORIGIN", "features": []},
+  {"name": "EXP_P1_ZB_H30_COMBINED_V1", "description": "Phase 1 ZB H30 COMBINED", "features": []},
+  {"name": "EXP_P1_GS_H64_SENIOR10_V1", "description": "Phase 1 GS H64 SENIOR10", "features": []},
+  {"name": "EXP_P1_ZB_H30_SENIOR10_V1", "description": "Phase 1 ZB H30 SENIOR10", "features": []},
+  {"name": "EXP_P3_GS_H64_ORIGIN_V1", "description": "Phase 3 GS H64 ORIGIN", "features": []},
+  {"name": "EXP_P3_GS_H64_COMBINED_V1", "description": "Phase 3 GS H64 COMBINED", "features": []},
+  {"name": "EXP_P3_ZB_H30_ORIGIN_V1", "description": "Phase 3 ZB H30 ORIGIN", "features": []},
+  {"name": "EXP_P3_ZB_H30_COMBINED_V1", "description": "Phase 3 ZB H30 COMBINED", "features": []},
+  {"name": "EXP_P3_GS_H64_SENIOR10_V1", "description": "Phase 3 GS H64 SENIOR10", "features": []},
+  {"name": "EXP_P3_ZB_H30_SENIOR10_V1", "description": "Phase 3 ZB H30 SENIOR10", "features": []},
+  {"name": "EXP_P5_GS_H64_ORIGIN_V1", "description": "Phase 5 GS H64 ORIGIN", "features": []},
+  {"name": "EXP_P5_ZB_H30_ORIGIN_V1", "description": "Phase 5 ZB H30 ORIGIN", "features": []},
+  {"name": "EXP_P5_GS_H64_SENIOR10_V1", "description": "Phase 5 GS H64 SENIOR10", "features": []},
+  {"name": "EXP_P5_ZB_H30_SENIOR10_V1", "description": "Phase 5 ZB H30 SENIOR10", "features": []}
+]

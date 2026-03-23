@@ -1,0 +1,34 @@
+id: TKT-014
+bundle: B-007
+type: worker
+title: Add val_f1 delta (trend) display
+description: "FILE: pipeline/experiments.py\nLOCATION: UnifiedDashboard class\nADD\
+  \ an instance variable to __init__:\n  self._prev_val_f1: Dict[str, float] = {}\
+  \  # name -> previous val_f1\nIn build_experiments_panel, for each RUNNING experiment:\n\
+  \  progress = get_experiment_progress(name)\n  if progress:\n      current_f1 =\
+  \ progress.get(\"val_f1\", 0.0)\n      prev_f1 = self._prev_val_f1.get(name, current_f1)\n\
+  \      delta = current_f1 - prev_f1\n      self._prev_val_f1[name] = current_f1\n\
+  \      delta_text = f\"+{delta:.3f}\" if delta > 0 else f\"{delta:.3f}\" if delta\
+  \ < 0 else \"=\"\nAdd a \"Δf1\" column (width=8) to the experiment table that shows\
+  \ delta_text for RUNNING rows.\nVERIFY: grep -n \"_prev_val_f1\" pipeline/experiments.py\n"
+acceptance_criteria:
+- Task completed as described
+status: done
+claimed_by: null
+claimed_at: null
+started_at: null
+completed_at: '2026-03-22T12:49:07Z'
+category: null
+effort_estimate: null
+agent_type: null
+skills: []
+wave: 6
+qa_scenarios: []
+source_plan: null
+source_ticket_index: null
+result:
+  summary: Code implemented and verified as per ticket spec
+  artifacts: []
+  notes: null
+  evidence: py_compile pass, LSP diagnostics clean
+depends_on: []

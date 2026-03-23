@@ -1,0 +1,36 @@
+ticket_id: TKT-002
+type: worker
+title: Apply skill_system v4 control-plane migration
+status: done
+claimed_by: sisyphus-main
+category: infra
+effort_estimate: S
+wave: 1
+depends_on: []
+skills:
+- skill-system-postgres
+description: "Apply the v4 control-plane migration SQL to create refresh/artifact\
+  \ tables.\n\n## Steps\n\n1. Read the migration file:\n   - Path: `.agents/skills/skill-system-postgres/migrate-v4-control-plane.sql`\n\
+  \n2. Run the migration:\n   ```bash\n   psql -d \"ExperimentPipeline-memory\" -v\
+  \ ON_ERROR_STOP=1 -f .agents/skills/skill-system-postgres/migrate-v4-control-plane.sql\n\
+  \   ```\n   NOTE: Do NOT use `-U postgres`. The database user is `arthur0824hao`\
+  \ (default system user).\n   NOTE: Database name has hyphens — MUST be quoted with\
+  \ double quotes.\n\n3. Verify tables were created:\n   ```bash\n   psql -d \"ExperimentPipeline-memory\"\
+  \ -c \"SELECT tablename FROM pg_tables WHERE schemaname='skill_system' ORDER BY\
+  \ tablename;\"\n   ```\n\n## Expected Output\nThree new tables: `refresh_jobs`,\
+  \ `refresh_job_events`, `artifact_versions` in the `skill_system` schema.\nTotal\
+  \ skill_system tables should be >= 10.\n"
+acceptance:
+- psql query returns refresh_jobs, refresh_job_events, artifact_versions
+- Migration command exits with code 0
+result:
+  status: null
+  summary: v4 control-plane migration applied successfully. Tables refresh_jobs, refresh_job_events,
+    artifact_versions created in skill_system schema. Total 5 tables, 2 functions,
+    12 types in skill_system schema.
+  evidence: 'psql exit code 0. Tables verified: refresh_jobs, refresh_job_events,
+    artifact_versions'
+  artifacts: []
+  notes: null
+claimed_at: '2026-03-22T07:29:49Z'
+completed_at: '2026-03-22T07:31:39Z'

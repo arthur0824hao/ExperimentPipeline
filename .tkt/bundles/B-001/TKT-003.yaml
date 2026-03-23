@@ -1,0 +1,71 @@
+ticket_id: TKT-003
+type: worker
+title: Create docs/architecture.md — project architecture map
+status: done
+claimed_by: sisyphus-main
+category: docs
+effort_estimate: M
+wave: 1
+depends_on: []
+skills: []
+description: "Create a comprehensive architecture document for the ExperimentPipeline\
+  \ project.\nThis serves as the map for all future refactoring work.\n\n## Steps\n\
+  \n1. Create file: `docs/architecture.md`\n\n2. Document the following sections:\n\
+  \n### Section 1: Project Overview\n- Purpose: ML experiment pipeline for GNN-based\
+  \ fraud detection\n- Components: preprocessor, runner, dashboard, registry, tooling\n\
+  - Tech stack: Python 3.13, PostgreSQL 17, Rich TUI, psycopg2\n\n### Section 2: Directory\
+  \ Structure\n```\nExperimentPipeline/\n├── pipeline/              # Core pipeline\
+  \ code\n│   ├── experiments.py     # Runner + TUI Dashboard (5293 lines — needs\
+  \ refactoring)\n│   ├── db_registry.py     # PostgreSQL experiment registry (2054\
+  \ lines)\n│   ├── preprocess.py      # Preprocessing orchestrator (2000 lines)\n\
+  │   ├── experiment_registration.py  # Config builder\n│   ├── runtime_config.py\
+  \  # Runtime config helpers\n│   ├── registry_io.py     # File-based registry I/O\
+  \ (legacy)\n│   ├── tui_keys.py        # TUI key handling\n│   ├── cli_shared.py\
+  \      # Shared CLI utilities\n│   ├── preprocess_lib/    # Preprocessing library\
+  \ (13 modules)\n│   ├── templates/         # Training templates\n│   ├── tools/\
+  \             # Watcher, ready_register\n│   └── tests/             # Test suite\
+  \ (9 files, 4473 lines)\n├── configs/               # Runtime, database, machine\
+  \ configs\n├── experiments/           # Experiment output directory\n├── .agents/\
+  \               # AI agent skill system\n└── .tkt/                  # Ticket/roadmap\
+  \ system\n```\n\n### Section 3: Data Flow\n```\nready.json → preprocess.py → experiments.json\
+  \ → experiments.py (runner) → results\n                  ↓                     \
+  \               ↓\n            feature generation              PostgreSQL registry\
+  \ (db_registry.py)\n                  ↓                                    ↓\n \
+  \           gate validation                  TUI Dashboard (Rich)\n```\n\n### Section\
+  \ 4: Database Architecture\n- `ExperimentPipeline-experiment` DB: exp_registry schema\
+  \ (experiment state, registry)\n- `ExperimentPipeline-memory` DB: agent memory +\
+  \ skill system state (policy, runs, graph)\n- Connection: psycopg2 ThreadedConnectionPool,\
+  \ .pgpass auth\n- User: `arthur0824hao` (NOT `postgres`)\n- NOTE: Database names\
+  \ contain hyphens — always quote in psql: `psql -d \"ExperimentPipeline-memory\"\
+  `\n\n### Section 5: Key Classes (experiments.py)\n- `DBExperimentsDB` (db_registry.py)\
+  \ — PostgreSQL experiment registry\n- `ClusterManager` (experiments.py:1773) — Multi-node\
+  \ SSH cluster management\n- `GPUAllocator` (experiments.py:1984) — GPU memory-aware\
+  \ job allocation\n- `UnifiedDashboard` (experiments.py:2180) — Rich TUI dashboard\n\
+  - `HybridLogger` (experiments.py:3873) — File + console hybrid logger\n\n### Section\
+  \ 6: Planned Refactoring Target\n```\npipeline/\n├── experiments.py          → entrypoint\
+  \ only\n├── gpu.py                  → GPU monitoring + allocation utilities\n├──\
+  \ memory_contract.py      → Memory estimation + OOM policy\n├── artifact.py    \
+  \         → Result/artifact file helpers\n├── oom.py                  → OOM detection\
+  \ + batch size reduction\n├── formatting.py           → TUI formatting helpers\n\
+  ├── cluster.py              → ClusterManager class\n├── allocator.py           \
+  \ → GPUAllocator class\n├── worker.py               → run_experiment_process\n├──\
+  \ health.py               → Orphan reaping, stale detection, self-heal\n└── condition.py\
+  \            → Condition nodes + staged matrix\n```\n\n3. Ensure the document is\
+  \ >= 150 lines with actual content (not padding).\n"
+acceptance:
+- docs/architecture.md exists
+- File has >= 150 lines
+- Contains all 6 sections listed above
+result:
+  status: null
+  summary: 'Created docs/architecture.md with all 6 required sections: Project Overview,
+    Directory Structure, Data Flow, Database Architecture, Key Classes, Planned Refactoring
+    Target. Document is 261 lines.'
+  evidence: 'docs/architecture.md created with 261 lines, containing sections: project
+    overview, directory structure (pipeline/ + .agents/ + .tkt/), data flow diagram,
+    database architecture, key classes from experiments.py and db_registry.py, and
+    planned refactoring target modules'
+  artifacts: []
+  notes: null
+claimed_at: '2026-03-22T07:29:50Z'
+completed_at: '2026-03-22T07:32:58Z'

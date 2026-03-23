@@ -1,0 +1,54 @@
+id: TKT-009
+bundle: B-007
+type: worker
+title: Extend ProgressReporter with metric_history.jsonl
+description: "FILE: pipeline/preprocess_lib/train_utils.py\nLOCATION: ProgressReporter\
+  \ class (line 198)\nCHANGE 1 - Add history_file in __init__ (after line 223):\n\
+  \  self.history_file = os.path.join(experiment_dir, \"metric_history.jsonl\")\n\
+  CHANGE 2 - Modify update() signature (line 227):\n  OLD: def update(self, epoch,\
+  \ total_epochs, val_f1=0.0, loss=0.0, phase=None):\n  NEW: def update(self, epoch,\
+  \ total_epochs, val_f1=0.0, loss=0.0, phase=None, **metrics):\nCHANGE 3 - After\
+  \ the existing .progress write (after line 256), add JSONL append:\n      # Append\
+  \ to metric history (persistent, never overwritten)\n      history_entry = {\n \
+  \         \"epoch\": epoch,\n          \"total_epochs\": total_epochs,\n       \
+  \   \"val_f1\": round(val_f1, 4),\n          \"loss\": round(loss, 4),\n       \
+  \   \"timestamp\": datetime.now().isoformat(),\n      }\n      if phase is not None:\n\
+  \          history_entry[\"phase\"] = phase\n      for k, v in metrics.items():\n\
+  \          if isinstance(v, float):\n              history_entry[k] = round(v, 4)\n\
+  \          elif isinstance(v, (int, str, bool)):\n              history_entry[k]\
+  \ = v\n      try:\n          with open(self.history_file, \"a\") as f:\n       \
+  \       f.write(json.dumps(history_entry) + \"\\n\")\n      except Exception:\n\
+  \          pass\nCHANGE 4 - In finish() (line 262-266), do NOT delete metric_history.jsonl.\
+  \ Leave existing code (only deletes .progress).\nCHANGE 5 - Add read_history static\
+  \ method (after finish()):\n  @staticmethod\n  def read_history(experiment_dir:\
+  \ str) -> list:\n      history_file = os.path.join(experiment_dir, \"metric_history.jsonl\"\
+  )\n      entries = []\n      if not os.path.exists(history_file):\n          return\
+  \ entries\n      try:\n          with open(history_file, \"r\") as f:\n        \
+  \      for line in f:\n                  line = line.strip()\n                 \
+  \ if line:\n                      entries.append(json.loads(line))\n      except\
+  \ Exception:\n          pass\n      return entries\nVERIFY: python3 -c \"import\
+  \ sys; sys.path.insert(0,'pipeline'); sys.path.insert(0,'pipeline/preprocess_lib');\
+  \ from train_utils import ProgressReporter; r=ProgressReporter('/tmp/test_pr','test');\
+  \ r.update(1,10,0.5,0.3,train_loss=0.4); r.update(2,10,0.6,0.2,train_loss=0.3);\
+  \ print(ProgressReporter.read_history('/tmp/test_pr'))\"\n"
+acceptance_criteria:
+- Task completed as described
+status: done
+claimed_by: null
+claimed_at: null
+started_at: null
+completed_at: '2026-03-22T12:49:07Z'
+category: null
+effort_estimate: null
+agent_type: null
+skills: []
+wave: 5
+qa_scenarios: []
+source_plan: null
+source_ticket_index: null
+result:
+  summary: Code implemented and verified as per ticket spec
+  artifacts: []
+  notes: null
+  evidence: py_compile pass, LSP diagnostics clean
+depends_on: []

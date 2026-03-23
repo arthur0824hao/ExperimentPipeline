@@ -1,0 +1,51 @@
+ticket_id: TKT-001
+type: worker
+title: Test db_registry.py — status transition methods
+status: done
+claimed_by: sisyphus-main
+category: test
+effort_estimate: M
+wave: 1
+depends_on: []
+skills: []
+description: "Create unit tests for DBExperimentsDB status transition methods.\nThese\
+  \ tests MUST mock the PostgreSQL connection — do NOT require a live database.\n\n\
+  ## Target File\nCreate: `pipeline/tests/test_db_registry_status.py`\n\n## What to\
+  \ Test\n\nFile: `pipeline/db_registry.py`\nClass: `DBExperimentsDB` (line 444)\n\
+  \n### Test Group 1: mark_running (line 741)\n- Test that mark_running calls claim_experiment\
+  \ then updates status\n- Test that it sets worker_id, gpu_id, pid, started_at in\
+  \ DB\n- Test that run_id is generated and stored\n\n### Test Group 2: mark_done\
+  \ (line 765)\n- Test that mark_done updates status to COMPLETED\n- Test that it\
+  \ extracts f1, auc, peak_memory from result dict\n- Test that it calls _sync_snapshot\
+  \ after update\n- Test behavior when experiment not found (should handle gracefully)\n\
+  \n### Test Group 3: mark_error (line 798)\n- Test that mark_error updates status\
+  \ to ERROR/OOM\n- Test that it stores error_type, message, is_true_oom, peak_memory_mb\n\
+  - Test OOM vs non-OOM error differentiation\n- Test retry_count increment behavior\n\
+  \n### Test Group 4: normalize_status helper\n- Test _normalize_registry_status (line\
+  \ 144) with various inputs:\n  \"NEEDS_RERUN\", \"needs_rerun\", \"READY\", \"ready\"\
+  , \"RUNNING\", \"COMPLETED\", \"ERROR\", \"OOM\"\n\n## Implementation Pattern\n\
+  ```python\nimport pytest\nfrom unittest.mock import patch, MagicMock\n# Import from\
+  \ pipeline directory\nimport sys, os\nsys.path.insert(0, os.path.join(os.path.dirname(__file__),\
+  \ '..'))\nfrom db_registry import DBExperimentsDB, _normalize_registry_status\n\n\
+  @pytest.fixture\ndef mock_db():\n    with patch('db_registry.get_pool') as mock_pool:\n\
+  \        mock_conn = MagicMock()\n        mock_cur = MagicMock()\n        mock_conn.cursor.return_value\
+  \ = mock_cur\n        mock_pool.return_value.getconn.return_value = mock_conn\n\
+  \        db = DBExperimentsDB(dsn=\"mock://\")\n        yield db, mock_conn, mock_cur\n\
+  ```\n\n## Verification\n```bash\ncd pipeline && python -m pytest tests/test_db_registry_status.py\
+  \ -v\n```\n"
+acceptance:
+- test_db_registry_status.py exists in pipeline/tests/
+- Has >= 8 test functions
+- 'All tests pass with: cd pipeline && python -m pytest tests/test_db_registry_status.py
+  -v'
+- Tests mock DB connections — no live database required
+result:
+  status: null
+  summary: Created test_db_registry_status.py with 17 tests covering mark_running,
+    mark_done, mark_error, and _normalize_registry_status
+  evidence: 'cd pipeline && python -m pytest tests/test_db_registry_status.py -v:
+    17 passed'
+  artifacts: []
+  notes: null
+claimed_at: '2026-03-22T07:37:44Z'
+completed_at: '2026-03-22T07:45:24Z'

@@ -1,0 +1,92 @@
+ticket_id: TKT-002
+type: worker
+title: Test db_registry.py — claim + fencing logic
+status: done
+claimed_by: sisyphus-main
+category: test
+effort_estimate: M
+wave: 1
+depends_on: []
+skills: []
+description: 'Create unit tests for DBExperimentsDB claim and fencing logic.
+
+  Tests MUST mock PostgreSQL — no live database required.
+
+
+  ## Target File
+
+  Create: `pipeline/tests/test_db_registry_claim.py`
+
+
+  ## What to Test
+
+
+  File: `pipeline/db_registry.py`
+
+  Class: `DBExperimentsDB` (line 444)
+
+
+  ### Test Group 1: claim_experiment (line 681)
+
+  - Test successful claim returns run_id UUID
+
+  - Test claim with existing running experiment (should fail gracefully)
+
+  - Test that claim calls UPDATE with fencing token WHERE clause
+
+  - Test that run_id is generated via gen_random_uuid()
+
+
+  ### Test Group 2: _claim_allowed_for_worker (line 653)
+
+  - Test claim allowed when no preferred_worker set
+
+  - Test claim allowed when preferred_worker matches claiming worker
+
+  - Test claim blocked when preferred_worker differs AND fallback not allowed
+
+  - Test fallback path: preferred_worker max memory < est_mem_mb
+
+
+  ### Test Group 3: get_runnable_experiments (line 1603)
+
+  - Test returns only NEEDS_RERUN status experiments
+
+  - Test respects condition_parent blocking
+
+  - Test filters by worker when preferred_worker is set
+
+  - Test returns experiments ordered by queue_order
+
+
+  ### Test Group 4: run_id lifecycle
+
+  - Test set_run_id / get_run_id / clear_run_id (lines 469-477)
+
+  - Test thread-safety of _run_ids dict with _run_ids_lock
+
+
+  ## Verification
+
+  ```bash
+
+  cd pipeline && python -m pytest tests/test_db_registry_claim.py -v
+
+  ```
+
+  '
+acceptance:
+- test_db_registry_claim.py exists in pipeline/tests/
+- Has >= 8 test functions
+- All tests pass
+- Tests mock DB connections
+result:
+  status: null
+  summary: Created test_db_registry_claim.py with 12 tests covering claim_experiment,
+    _claim_allowed_for_worker, get_runnable_experiments, run_id lifecycle
+  evidence: 'cd pipeline && python -m pytest tests/test_db_registry_claim.py -v: 12
+    passed'
+  artifacts: []
+  notes: null
+claimed_at: '2026-03-22T07:37:44Z'
+completed_at: '2026-03-22T07:45:26Z'

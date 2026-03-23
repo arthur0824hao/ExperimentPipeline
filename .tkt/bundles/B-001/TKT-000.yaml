@@ -1,0 +1,20 @@
+ticket_id: TKT-000
+type: integrate
+title: 'Integrate B-001: Infrastructure Repair'
+status: done
+claimed_by: sisyphus-main
+description: 'Coordinate B-001 infrastructure repair. Verify all worker tickets complete
+  and infrastructure is healthy.
+
+  '
+acceptance:
+- psql -d "ExperimentPipeline-memory" -c "SELECT count(*) FROM pg_tables WHERE schemaname='skill_system';"
+  shows >= 12 tables
+- docs/architecture.md exists and has > 100 lines
+claimed_at: '2026-03-22T07:33:19Z'
+completed_at: '2026-03-22T07:37:06Z'
+result:
+  summary: Bundle B-001 integrated and closed
+  artifacts: []
+  notes: null
+  evidence: All 3 worker tickets done, audit passed, bundle ready for close

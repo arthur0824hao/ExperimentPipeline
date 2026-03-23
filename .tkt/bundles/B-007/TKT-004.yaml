@@ -1,0 +1,48 @@
+id: TKT-004
+bundle: B-007
+type: worker
+title: Add DB connection failure guard to DBExperimentsDB.load()
+description: "FILE: pipeline/db_registry.py\nPROBLEM: If the experiment DB doesn't\
+  \ exist or connection fails, load() catches the exception and returns {\"experiments\"\
+  : [], \"archived\": []}. Then _sync_snapshot() writes this empty data to experiments.json,\
+  \ wiping the JSON. Next time, there's no data anywhere.\nFIX at load() method (line\
+  \ ~483-500):\nIn the except block, BEFORE returning the empty fallback, check if\
+  \ json_path has data:\n  except Exception as e:\n      # Fallback: try reading from\
+  \ JSON snapshot if DB is unreachable\n      if self.json_path and self.json_path.exists():\n\
+  \          try:\n              data = json.loads(self.json_path.read_text(encoding=\"\
+  utf-8\"))\n              if isinstance(data, dict) and (data.get(\"experiments\"\
+  ) or data.get(\"archived\")):\n                  print(f\"[DBExperimentsDB] DB unreachable,\
+  \ using JSON snapshot: {e}\")\n                  return data\n          except Exception:\n\
+  \              pass\n      print(f\"[DBExperimentsDB] load error: {e}\")\n     \
+  \ return {\"experiments\": [], \"archived\": []}\n\nFIX at _sync_snapshot() (line\
+  \ ~462-465):\nAdd a guard: do NOT sync to JSON if the DB returned empty but JSON\
+  \ has data:\n  def _sync_snapshot(self):\n      if self.json_path:\n          #\
+  \ Guard: don't overwrite non-empty JSON with empty DB result\n          try:\n \
+  \             data = self.load()\n              if not data.get(\"experiments\"\
+  ) and not data.get(\"archived\"):\n                  if self.json_path.exists():\n\
+  \                      existing = json.loads(self.json_path.read_text(encoding=\"\
+  utf-8\"))\n                      if existing.get(\"experiments\") or existing.get(\"\
+  archived\"):\n                          return  # Don't wipe JSON with empty DB\n\
+  \          except Exception:\n              pass\n          sync_snapshot_to_json(self.json_path,\
+  \ self.dsn)\nVERIFY: Read the modified methods and confirm the guards are in place.\n"
+acceptance_criteria:
+- Task completed as described
+status: done
+claimed_by: null
+claimed_at: null
+started_at: null
+completed_at: '2026-03-22T12:34:59Z'
+category: null
+effort_estimate: null
+agent_type: null
+skills: []
+wave: 2
+qa_scenarios: []
+source_plan: null
+source_ticket_index: null
+result:
+  summary: Code changes verified in codebase
+  artifacts: []
+  notes: null
+  evidence: grep-based code verification
+depends_on: []

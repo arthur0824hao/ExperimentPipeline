@@ -1,0 +1,31 @@
+ticket_id: TKT-A00
+type: audit
+title: "Audit B-005: Final module split verification"
+status: done
+claimed_by: sisyphus-audit
+description: |
+  Comprehensive audit of the complete module split (B-004 + B-005 combined):
+
+  1. Run full test suite: cd pipeline && python -m pytest tests/ -v --tb=short
+     ALL tests MUST pass.
+
+  2. Verify experiments.py line count: wc -l pipeline/experiments.py
+     Must be < 2500 lines.
+
+  3. Verify 11 new modules exist in pipeline/:
+     gpu.py, memory_contract.py, artifact.py, oom.py, formatting.py,
+     condition.py, cluster.py, allocator.py, logger_hybrid.py, worker.py, health.py
+
+  4. Spot-check 3 random modules:
+     - Pick one function from each
+     - Verify it's identical to the original in git diff
+     - Verify it's properly imported in experiments.py
+
+  5. Verify no circular imports:
+     cd pipeline && python -c "import experiments" (should not error)
+
+  6. Cross-check against behavior spec:
+     Read pipeline/experiments.behavior.yaml and verify every function
+     listed in each module is in the correct file.
+
+  7. Verify experiments.py entrypoint: cd pipeline && python experiments.py --help

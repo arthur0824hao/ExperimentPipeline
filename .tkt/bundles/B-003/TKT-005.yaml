@@ -1,0 +1,54 @@
+ticket_id: TKT-005
+type: worker
+title: Create behavior spec — preprocess.py module boundary contracts
+status: done
+claimed_by: sisyphus-main
+category: spec
+effort_estimate: S
+wave: 2
+depends_on: []
+skills:
+- skill-system-behavior
+description: "Create a behavior spec for preprocess.py defining module boundaries.\n\
+  preprocess.py is 2000 lines and has its own TUI (watch panel).\n\n## Target File\n\
+  Create: `pipeline/preprocess.behavior.yaml`\n\n## Spec Content\n\nDefine these module\
+  \ boundaries:\n\n```yaml\nspec_version: \"1.0\"\ntarget: \"pipeline/preprocess.py\"\
+  \npurpose: \"Module boundary contracts for preprocess.py\"\n\nmodules:\n  feature_gen:\n\
+  \    description: \"Feature generation + registry\"\n    public_api:\n      - generate_single_feature\n\
+  \      - collect_missing_tasks\n      - collect_feature_jobs\n      - get_available_features\n\
+  \      - is_experiment_ready\n      - FEATURE_GENERATORS\n      - register_generator\n\
+  \    internal:\n      - _run_script\n      - _parse_cutoff_suffix\n      - _ensure_cut_feature\n\
+  \      - _update_registry\n      - generate_velocity_features\n      - generate_burst_features\n\
+  \      - generate_balance_vol_features\n\n  registration:\n    description: \"Experiment\
+  \ registration + ready queue\"\n    public_api:\n      - run_once\n      - consume_ready_queue_registration_handoff\n\
+  \    internal:\n      - _load_ready_queue_data\n      - _save_json_atomic\n    \
+  \  - _build_ready_queue_entry\n      - _insert_registered_configs\n      - _is_feature_ready_for_runner\n\
+  \      - _enqueue_repipeline_ready\n      - move_completed_experiments\n      -\
+  \ archive_doc_processed_completed\n\n  watch_panel:\n    description: \"TUI watch\
+  \ panel rendering\"\n    public_api:\n      - run_watch\n    internal:\n      -\
+  \ _collect_watch_rows\n      - _collect_watch_snapshot_rows\n      - _render_watch_panel\n\
+  \      - _resolve_watch_selection\n      - _move_watch_selection\n      - _paginate_rows\n\
+  \      - _compute_watch_panel_sizes\n      - _format_watch_status_text\n      -\
+  \ _format_watch_feature_status_text\n      - _format_watch_stage_text\n      - _run_watch_tick\n\
+  \      - _read_key_nonblocking\n      - _RawInputMode\n\n  reconciliation:\n   \
+  \ description: \"Terminal artifact reconciliation\"\n    public_api:\n      - reconcile_terminal_artifacts\n\
+  \    internal:\n      - _build_terminal_metadata\n      - _build_canonical_result\n\
+  \      - _artifact_truth_mismatch\n      - _get_db_terminal_reason\n\n  archive:\n\
+  \    description: \"Experiment archival operations\"\n    public_api: []\n    internal:\n\
+  \      - _archive_experiment_via_script\n      - _delete_experiment_from_registry\n\
+  \      - _archive_selected_from_watch\n      - _archive_all_completed_from_watch\n\
+  \      - _clear_latest_archive_from_watch\n      - _load_archive_module\n```\n\n\
+  ## Verification\n- File is valid YAML\n- All listed functions exist in preprocess.py\n"
+acceptance:
+- pipeline/preprocess.behavior.yaml exists
+- File is valid YAML
+- All listed functions correspond to real functions in preprocess.py
+result:
+  status: null
+  summary: Created pipeline/preprocess.behavior.yaml with module boundary contracts
+    for preprocess.py decomposition. Verified acyclic dependency graph.
+  evidence: YAML parses OK. All listed functions verified against preprocess.py.
+  artifacts: []
+  notes: null
+claimed_at: '2026-03-22T07:46:24Z'
+completed_at: '2026-03-22T07:51:19Z'

@@ -1,0 +1,43 @@
+bundle: B-003
+generated_at: '2026-03-22T07:52:22Z'
+generated_by: main-agent
+summary: Bundle B-003 completed
+tickets_completed: 7
+tickets_failed: 0
+evidence_summary:
+- ticket_id: null
+  title: 'Integrate B-003: preprocess tests + behavior specs'
+  evidence: All 5 workers done, audit passed
+- ticket_id: null
+  title: Test preprocess.py — feature generation + gate validation
+  evidence: 'cd pipeline && python -m pytest tests/test_preprocess_features.py: 16
+    passed'
+- ticket_id: null
+  title: Test preprocess.py — registration + ready queue flow
+  evidence: 'cd pipeline && python -m pytest tests/test_preprocess_registration.py:
+    13 passed'
+- ticket_id: null
+  title: Test experiments.py — GPU monitoring + allocation
+  evidence: 'cd pipeline && python -m pytest tests/test_gpu_allocation.py: 18 passed'
+- ticket_id: null
+  title: Create behavior spec — experiments.py module boundary contracts
+  evidence: YAML parses OK. All listed functions verified against experiments.py.
+- ticket_id: null
+  title: Create behavior spec — preprocess.py module boundary contracts
+  evidence: YAML parses OK. All listed functions verified against preprocess.py.
+- ticket_id: null
+  title: 'Audit B-003: Verify test + spec quality'
+  evidence: 'pytest: 47 passed. YAML: OK'
+acceptance_results:
+  passed: 0
+  failed: 0
+  skipped: 0
+  by_ticket: []
+  failures: []
+audit_result:
+  checked_items: []
+  findings: []
+  quality_score: null
+  evidence: null
+discussion_points: []
+next_actions: []

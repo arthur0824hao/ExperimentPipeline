@@ -1,0 +1,15 @@
+id: "B-006"
+goal_ref: null
+title: "Fix 20 Pre-existing Test Failures (13 in test_dashboard_keys.py + 7 in test_worker_disable.py)"
+status: closed
+closed_at: "2026-03-22T00:00:00Z"
+created_at: "2026-03-22T10:10:05Z"
+created_by: pm-agent
+main_agent: null
+ticket_count: 14
+priority: normal
+track: "stabilization"
+source_plan: null
+worktree_path: null
+worktree_branch: null
+depends_on: []

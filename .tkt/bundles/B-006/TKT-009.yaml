@@ -1,0 +1,67 @@
+id: TKT-009
+bundle: "B-006"
+type: worker
+title: "Update training loops to pass extra metrics to ProgressReporter"
+description: |
+  CONTEXT: TKT-008 extended ProgressReporter.update() to accept **metrics. Now training loops need to actually pass additional metrics.
+
+DEPENDS ON: TKT-008
+
+FILES TO EDIT: pipeline/preprocess_lib/train_utils.py
+
+CHANGE 1 — train_single_model() progress_callback call (line ~2645):
+  Find the line: progress_callback(epoch + 1, max_epochs, val_f1, avg_loss)
+  The progress_callback signature is: (epoch, total, val_f1, loss)
+  
+  Option A (PREFERRED): Change the callback interface.
+  In train_single_model (line ~2437), the parameter is:
+    progress_callback: Optional[Callable[[int, int, float, float], None]] = None
+  Change to:
+    progress_callback: Optional[Callable[..., None]] = None
+  Then the call becomes:
+    progress_callback(epoch + 1, max_epochs, val_f1, avg_loss, train_loss=avg_loss, val_loss=val_loss_val)
+  
+  NOTE: avg_loss is already computed in the training loop. Check if val_loss is available separately. If not, just pass what exists:
+    progress_callback(epoch + 1, max_epochs, val_f1, avg_loss, train_loss=avg_loss)
+
+CHANGE 2 — ProgressReporter.update() calls in docstring example (line ~204-206):
+  Update the usage example to show **metrics:
+    reporter.update(epoch + 1, max_epochs, val_f1, loss, train_loss=train_loss)
+
+CHANGE 3 — window_ensemble_flow (line ~3327 area):
+  Find where ProgressReporter is used in the window ensemble training flow.
+  If reporter.update() is called directly, add train_loss= kwarg.
+
+MUST NOT:
+  - Break any existing training scripts that call progress_callback(epoch, total, val_f1, loss) without kwargs
+  - The old 4-positional-arg call must still work (backward compat via **metrics default)
+
+VERIFY: grep -n 'reporter.update\|progress_callback(' pipeline/preprocess_lib/train_utils.py — all calls should be updated
+acceptance_criteria:
+  - "Task completed as described"
+status: done
+claimed_by: null
+claimed_at: null
+started_at: null
+completed_at: null
+category: null
+effort_estimate: null
+agent_type: null
+skills: []
+wave: 2
+qa_scenarios: 
+  - "Old-style progress_callback(e"
+  - "t"
+  - "f1"
+  - "loss) still works"
+  - "New kwargs (train_loss etc) appear in metric_history.jsonl"
+  - "No import errors in train_utils.py"
+source_plan: null
+source_ticket_index: null
+result:
+  summary: null
+  artifacts: []
+  notes: null
+  evidence: null
+depends_on: 
+  - "TKT-008"

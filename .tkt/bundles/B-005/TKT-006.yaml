@@ -1,0 +1,91 @@
+ticket_id: TKT-006
+type: worker
+title: "Final verification — experiments.py import cleanup + line count"
+status: done
+claimed_by: sisyphus-main
+category: refactor
+effort_estimate: M
+wave: 3
+depends_on: [TKT-001, TKT-002, TKT-003, TKT-004, TKT-005]
+skills: []
+
+description: |
+  After all module extractions are complete, clean up experiments.py imports
+  and verify the final state.
+
+  ## Steps
+
+  1. Open `pipeline/experiments.py` and review all import statements at the top.
+
+  2. Consolidate imports — all extracted functions should now be imported from their
+     new modules. Remove any leftover dead imports.
+
+  3. Remove any functions/constants that were moved but whose `from X import ...`
+     line was not yet added.
+
+  4. Verify no duplicate function definitions exist:
+     ```bash
+     # For each extracted function, verify it only exists in ONE file:
+     grep -r "def get_all_gpu_status" pipeline/ --include="*.py" | wc -l   # should be 1
+     grep -r "class ClusterManager" pipeline/ --include="*.py" | wc -l     # should be 1
+     grep -r "class GPUAllocator" pipeline/ --include="*.py" | wc -l       # should be 1
+     grep -r "class HybridLogger" pipeline/ --include="*.py" | wc -l       # should be 1
+     grep -r "def run_experiment_process" pipeline/ --include="*.py" | wc -l # should be 1
+     grep -r "def cleanup_on_startup" pipeline/ --include="*.py" | wc -l    # should be 1
+     ```
+
+  5. Count final lines:
+     ```bash
+     wc -l pipeline/experiments.py
+     # Target: ~2000-2500 lines (down from 5293)
+     ```
+
+  6. Verify experiments.py still contains:
+     - UnifiedDashboard class
+     - main() function
+     - scheduler_loop (nested inside main)
+     - All import statements for extracted modules
+     - Constants referenced by UnifiedDashboard
+
+  7. Run the full test suite:
+     ```bash
+     cd pipeline && python -m pytest tests/ -v --tb=short
+     ```
+
+  8. Verify the entrypoint works:
+     ```bash
+     cd pipeline && python experiments.py --help
+     ```
+
+  9. Verify all new modules are importable:
+     ```bash
+     cd pipeline
+     python -c "from gpu import collect_gpu_status_with_error"
+     python -c "from memory_contract import get_memory_contract"
+     python -c "from artifact import get_completed_result_summary"
+     python -c "from oom import parse_oom_from_stderr"
+     python -c "from formatting import format_time_ago"
+     python -c "from condition import RUNTIME_CONDITION_NODES"
+     python -c "from cluster import ClusterManager"
+     python -c "from allocator import GPUAllocator"
+     python -c "from logger_hybrid import HybridLogger"
+     python -c "from worker import run_experiment_process"
+     python -c "from health import cleanup_on_startup"
+     ```
+
+  ## MUST NOT DO
+  - Do NOT delete any code that is still used
+  - Do NOT add new features
+  - Do NOT refactor UnifiedDashboard (that's a future bundle)
+
+acceptance:
+  - "No duplicate function definitions across files"
+  - "experiments.py has < 2500 lines"
+  - "All 11 new modules importable"
+  - "All existing tests pass"
+  - "experiments.py --help works"
+
+result:
+  status: null
+  summary: null
+  evidence: null

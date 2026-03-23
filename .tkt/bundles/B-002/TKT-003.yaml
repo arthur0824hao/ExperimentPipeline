@@ -1,0 +1,90 @@
+ticket_id: TKT-003
+type: worker
+title: Test db_registry.py — heartbeat + stale detection
+status: done
+claimed_by: sisyphus-main
+category: test
+effort_estimate: M
+wave: 1
+depends_on: []
+skills: []
+description: 'Create unit tests for heartbeat and stale experiment detection.
+
+  Tests MUST mock PostgreSQL — no live database required.
+
+
+  ## Target File
+
+  Create: `pipeline/tests/test_db_registry_heartbeat.py`
+
+
+  ## What to Test
+
+
+  File: `pipeline/db_registry.py`
+
+  Class: `DBExperimentsDB` (line 444)
+
+
+  ### Test Group 1: update_heartbeat (line 1346)
+
+  - Test that heartbeat upserts with worker_id, pid, running_jobs, gpu_info, cpu_info
+
+  - Test that running_experiments list is stored as JSON
+
+  - Test the ON CONFLICT (worker_id) DO UPDATE behavior
+
+
+  ### Test Group 2: get_cluster_heartbeats (line 1373)
+
+  - Test returns dict of worker_id -> heartbeat info
+
+  - Test seconds_ago calculation from last_seen timestamp
+
+  - Test is_stale flag based on stale_sec threshold (default 120s)
+
+  - Test that gpu_info and cpu_info are properly parsed from JSONB
+
+
+  ### Test Group 3: check_stale_experiments (line 1412)
+
+  - Test detects experiments with no heartbeat for > stale_sec
+
+  - Test respects caller_worker filter
+
+  - Test returns list of (name, worker_id) tuples
+
+
+  ### Test Group 4: check_zombie_processes (line 1433)
+
+  - Test detects running experiments whose process is no longer alive
+
+  - Test exclude_names parameter works
+
+  - Test os.kill(pid, 0) check logic (mock os.kill)
+
+
+  ## Verification
+
+  ```bash
+
+  cd pipeline && python -m pytest tests/test_db_registry_heartbeat.py -v
+
+  ```
+
+  '
+acceptance:
+- test_db_registry_heartbeat.py exists in pipeline/tests/
+- Has >= 8 test functions
+- All tests pass
+- Tests mock DB connections and os.kill
+result:
+  status: null
+  summary: Created test_db_registry_heartbeat.py with 13 tests covering update_heartbeat,
+    get_cluster_heartbeats, check_stale_experiments, check_zombie_processes
+  evidence: 'cd pipeline && python -m pytest tests/test_db_registry_heartbeat.py -v:
+    13 passed'
+  artifacts: []
+  notes: null
+claimed_at: '2026-03-22T07:37:44Z'
+completed_at: '2026-03-22T07:45:28Z'

@@ -462,6 +462,17 @@ class DBExperimentsDB:
     def _sync_snapshot(self):
         """Best-effort sync DB state to experiments.json."""
         if self.json_path:
+            try:
+                data = self.load()
+                if not data.get("experiments") and not data.get("archived"):
+                    if self.json_path.exists():
+                        existing = json.loads(
+                            self.json_path.read_text(encoding="utf-8")
+                        )
+                        if existing.get("experiments") or existing.get("archived"):
+                            return
+            except Exception:
+                pass
             sync_snapshot_to_json(self.json_path, self.dsn)
 
     # --- Run ID management (fencing tokens) ---
@@ -515,11 +526,9 @@ class DBExperimentsDB:
                         data["completed"] = completed
                     return data
         except Exception as e:
-            print(f"[DBExperimentsDB] Load error: {e}")
             if self.json_path and self.json_path.exists():
                 try:
-                    with open(self.json_path, "r", encoding="utf-8") as f:
-                        data = json.load(f)
+                    data = json.loads(self.json_path.read_text(encoding="utf-8"))
                     if isinstance(data, dict):
                         experiments = data.get("experiments")
                         archived = data.get("archived")
@@ -527,22 +536,69 @@ class DBExperimentsDB:
                         if isinstance(experiments, list) and isinstance(archived, list):
                             if not isinstance(completed, list):
                                 completed = [
-                                    e
-                                    for e in experiments
-                                    if str(e.get("status", "")).upper()
+                                    exp
+                                    for exp in experiments
+                                    if str(exp.get("status", "")).upper()
                                     in ("DONE", "COMPLETED")
                                 ]
                                 data["experiments"] = [
-                                    e
-                                    for e in experiments
-                                    if str(e.get("status", "")).upper()
+                                    exp
+                                    for exp in experiments
+                                    if str(exp.get("status", "")).upper()
                                     not in ("DONE", "COMPLETED")
                                 ]
                                 data["completed"] = completed
+                            print(
+                                f"[DBExperimentsDB] DB unreachable, using JSON snapshot: {e}"
+                            )
                             return data
                 except Exception:
                     pass
-            return {"experiments": [], "completed": [], "archived": []}
+            print(f"[DBExperimentsDB] load error: {e}")
+            return {"experiments": [], "archived": []}
+
+    def load_all_for_panel(self) -> List[Dict[str, Any]]:
+        """Load ALL experiments from DB for panel display, including unclaimed queue entries."""
+        try:
+            with get_conn(self.dsn) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT name, status, preferred_worker, extra, display_order, "
+                        "parent_experiment, peak_memory_mb, started_at, claimed_at "
+                        "FROM exp_registry.experiments "
+                        "ORDER BY display_order NULLS LAST, name"
+                    )
+                    rows = cur.fetchall()
+                    result = []
+                    for row in rows:
+                        exp = {"name": row[0], "status": row[1] or "NEEDS_RERUN"}
+                        if row[2]:
+                            exp["preferred_worker"] = row[2]
+                        if row[3] and isinstance(row[3], dict):
+                            exp.update(row[3])
+                        if row[4] is not None:
+                            exp["display_order"] = row[4]
+                        if row[5]:
+                            exp["parent_experiment"] = row[5]
+                        if row[6]:
+                            exp["peak_memory_mb"] = row[6]
+                        if row[7]:
+                            exp["started_at"] = (
+                                row[7].isoformat()
+                                if hasattr(row[7], "isoformat")
+                                else str(row[7])
+                            )
+                        if row[8]:
+                            exp["claimed_at"] = (
+                                row[8].isoformat()
+                                if hasattr(row[8], "isoformat")
+                                else str(row[8])
+                            )
+                        result.append(exp)
+                    return result
+        except Exception as e:
+            print(f"[DBExperimentsDB] load_all_for_panel error: {e}")
+            return []
 
     def get_experiment(self, name: str) -> Optional[Dict]:
         """Get a single experiment as a dict."""

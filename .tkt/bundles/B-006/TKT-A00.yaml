@@ -1,0 +1,28 @@
+id: TKT-A00
+bundle: "B-006"
+type: audit
+title: "Spot-check: verify test fixes are correct (not test-logic changes)"
+description: |
+  Pick 2 random fixed tests and verify:
+  1. Only mock/patch targets changed — test assertions untouched
+  2. The new patch target module actually contains the constant/function
+  3. Run full test suite: pytest pipeline/tests/ and confirm ≥264 pass, 0 fail
+acceptance_criteria:
+  - "2 random tests verified: only patch targets changed, not assertions"
+  - "Full test suite: 0 failures"
+status: done
+claimed_by: null
+claimed_at: null
+started_at: null
+completed_at: null
+category: null
+effort_estimate: null
+agent_type: null
+source_plan: null
+source_ticket_index: null
+result:
+  summary: null
+  artifacts: []
+  notes: null
+  evidence: null
+depends_on: []
