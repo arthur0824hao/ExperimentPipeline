@@ -2457,7 +2457,7 @@ class UnifiedDashboard:
                             if str(exp.get("name", ""))
                             and not self._is_non_actionable_row(exp)
                         ]
-                        dedup_names = list(dict.fromkeys(names))
+                        dedup_names = sorted(dict.fromkeys(names))
                         for name in dedup_names:
                             verb = request_type.replace("exp_", "").replace("_", " ")
                             self._enqueue_action(

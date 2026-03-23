@@ -371,8 +371,9 @@ def get_conn(dsn: Optional[str] = None):
         pool = get_pool(dsn)
         candidate = pool.getconn()
         try:
-            with candidate.cursor() as probe_cur:
-                probe_cur.execute("SELECT 1")
+            if isinstance(candidate, psycopg2.extensions.connection):
+                with candidate.cursor() as probe_cur:
+                    probe_cur.execute("SELECT 1")
             conn = candidate
             break
         except Exception as e:

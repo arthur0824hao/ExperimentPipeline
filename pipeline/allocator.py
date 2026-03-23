@@ -11,9 +11,9 @@ except ModuleNotFoundError:
     from .runtime_config import cfg_bool, cfg_float, cfg_int, get_runtime_section
 
 try:
-    from gpu import collect_gpu_status_with_error, get_gpu_process_count
+    import gpu as gpu_module
 except ModuleNotFoundError:
-    from .gpu import collect_gpu_status_with_error, get_gpu_process_count
+    from . import gpu as gpu_module
 
 try:
     from artifact import get_experiment_progress
@@ -40,7 +40,10 @@ HIGH_MEM_EXCLUSIVE_RATIO = cfg_float(_RUNNER_CFG, "high_mem_exclusive_ratio", 0.
 
 
 def get_all_gpu_status():
-    gpus, _probe_error = collect_gpu_status_with_error()
+    getter = getattr(gpu_module, "get_all_gpu_status", None)
+    if callable(getter):
+        return getter()
+    gpus, _probe_error = gpu_module.collect_gpu_status_with_error()
     return gpus
 
 
@@ -88,7 +91,7 @@ class GPUAllocator:
     def allocate(self, exp_name, required_mem_mb=4000) -> Optional[int]:
         with self._lock:
             self._refresh_gpus()
-            real_process_counts = get_gpu_process_count()
+            real_process_counts = gpu_module.get_gpu_process_count()
 
             candidates = []
             for g in self.gpus:
