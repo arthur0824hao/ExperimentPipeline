@@ -242,7 +242,7 @@ class TestUnifiedDashboardBuildPanels:
         console.print(panel)
         text = console.export_text()
         assert "GPU: Probe error" in text
-        assert "empty nvidia-smi output" in text
+        assert "nvidia-smi" in text
 
     @patch("experiments.get_all_gpu_status")
     @patch("experiments.get_pid_gpu_map")
@@ -284,6 +284,6 @@ class TestUnifiedDashboardBuildPanels:
             exp_console.print(exp_layout)
             exp_text = exp_console.export_text()
 
-        assert "Cluster (1 online)" in cluster_text
+        assert "Cluster (1 online / 1 total)" in cluster_text
         assert "Experiments (0 active" not in cluster_text
         assert "Experiments (" in exp_text

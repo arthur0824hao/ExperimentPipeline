@@ -32,6 +32,15 @@ def make_bar(percent, width=15):
     return f"[{color}]{'█' * filled}[/][dim]{'░' * (width - filled)}[/]"
 
 
+def make_status_badge(status: str) -> str:
+    badges = {
+        "ONLINE": "[bold green]● ONLINE[/]",
+        "OFFLINE": "[bold red]○ OFFLINE[/]",
+        "DISABLED": "[bold yellow]◉ DISABLED[/]",
+    }
+    return badges.get(status, f"[dim]{status}[/]")
+
+
 def _parse_iso_ts(raw: Any) -> float | None:
     if not raw:
         return None

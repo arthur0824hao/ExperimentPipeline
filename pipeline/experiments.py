@@ -43,6 +43,7 @@ from rich.console import Group
 from rich import box
 from rich.text import Text
 from rich.markup import escape
+from rich.columns import Columns
 
 from cli_shared import add_common_args, emit_result, setup_logging
 from db_registry import DBExperimentsDB, derive_progression_status, get_conn
@@ -109,6 +110,7 @@ from artifact import (
 from formatting import (
     format_time_ago,
     make_bar,
+    make_status_badge,
     _parse_iso_ts,
     _SPINNER_FRAMES,
     _render_wait_progress,
@@ -1163,111 +1165,134 @@ class UnifiedDashboard:
         except Exception:
             return "Preprocess: status file unreadable"
 
+    @staticmethod
+    def _format_mem(val: int) -> str:
+        return f"{val / 1000:.0f}K" if val >= 1000 else f"{val}M"
+
     def build_cluster_panel(self, cluster_status: Dict, workers: List[str]) -> Panel:
-        elements = []
+        machine_cards = []
+        online_count = 0
 
-        for idx, w_id in enumerate(workers):
+        for i, w_id in enumerate(workers):
             info = cluster_status.get(w_id, {})
-            status = info.get("status", "OFFLINE")
-            last_seen = info.get("last_seen_sec", 999999)
-            gpus = info.get("gpus", [])
-            cpu = info.get("cpu", {})
-            gpu_probe_error = str(info.get("gpu_probe_error", "") or "")
-            jobs = info.get("running_jobs", 0)
+            status = info.get("status", "UNKNOWN")
 
-            # Override status if worker is disabled
             if self.db.is_worker_disabled(w_id):
                 status = "DISABLED"
 
-            status_color = (
-                "green"
-                if status == "ONLINE"
-                else ("yellow" if status == "DISABLED" else "red")
-            )
-            time_ago = format_time_ago(last_seen) if last_seen < 99999 else "N/A"
+            if status == "ONLINE":
+                online_count += 1
 
-            selected = "▶ " if idx == self.selected_node_idx else "  "
-            style = (
-                "reverse"
-                if idx == self.selected_node_idx and not self.action_mode
-                else ""
-            )
-            if self.action_mode and idx == self.selected_node_idx:
-                style = "bold yellow"
+            is_selected = i == self.selected_node_idx
 
-            header = f"{selected}[bold]{w_id}[/] [{status_color}]{status}[/]"
-            if status == "OFFLINE":
-                header += f" [dim]({time_ago} ago)[/]"
+            title = f"▶ {w_id}" if is_selected else w_id
+
+            if is_selected and not self.action_mode:
+                border_style = "bold cyan"
+            elif is_selected and self.action_mode:
+                border_style = "bold yellow"
+            elif status == "ONLINE":
+                border_style = "blue"
+            elif status == "OFFLINE":
+                border_style = "red"
             else:
-                header += f" [dim]Jobs: {jobs}[/]"
+                border_style = "yellow"
 
-            elements.append(Text.from_markup(header, style=style))
+            card_lines: List[Text] = []
 
-            runner_pid = info.get("pid")
-            if isinstance(runner_pid, int) and runner_pid > 0:
-                elements.append(
-                    Text.from_markup(f"    [dim]Runner PID: {runner_pid}[/]")
+            badge = make_status_badge(status)
+            last_seen = info.get("last_seen_sec", 999999)
+            gpus = info.get("gpus", [])
+
+            our_gpu_ids = {
+                int(gid)
+                for gid in info.get("our_gpu_ids", [])
+                if isinstance(gid, int) or (isinstance(gid, str) and gid.isdigit())
+            }
+
+            pid = info.get("pid", 0)
+            pid_str = f" [dim]PID:{pid}[/]" if pid and int(pid) > 0 else ""
+
+            if status == "OFFLINE" and last_seen < 99999:
+                card_lines.append(Text.from_markup(
+                    f"{badge}  [dim]({format_time_ago(last_seen)} ago)[/]{pid_str}"
+                ))
+            else:
+                jobs = int(info.get("running_jobs", 0) or 0)
+                other_procs = sum(
+                    1 for g in gpus
+                    if float(g.get("used", 0) or 0) > 500
+                    and g.get("index", 0) not in our_gpu_ids
                 )
+                card_lines.append(Text.from_markup(
+                    f"{badge}  Mine: {jobs}  ▲: {other_procs}{pid_str}"
+                ))
 
+            cpu = info.get("cpu", {})
             if cpu:
-                cpu_pct = cpu.get("load_percent", 0)
-                load1 = cpu.get("load1", 0)
-                load5 = cpu.get("load5", 0)
-                load15 = cpu.get("load15", 0)
-                cores = cpu.get("cpu_count", "?")
-                cpu_bar = make_bar(cpu_pct, 10)
-                elements.append(
-                    Text.from_markup(
-                        f"    CPU: {cpu_bar} {cpu_pct:.0f}% ({cores} cores) Load: {load1}/{load5}/{load15}"
-                    )
-                )
+                cpu_pct = cpu.get("load_percent", 0.0)
+                cores = cpu.get("cpu_count", 0)
+                load1 = cpu.get("load1", 0.0)
+                card_lines.append(Text.from_markup(
+                    f"CPU {make_bar(cpu_pct, 8)} {cpu_pct:.0f}% {cores}c L:{load1}"
+                ))
             else:
-                elements.append(Text.from_markup("    [dim]CPU: No data[/]"))
+                card_lines.append(Text.from_markup("[dim]CPU: --[/]"))
 
+            gpu_probe_error = str(info.get("gpu_probe_error", "") or "")
             if gpus:
                 for g in gpus:
-                    g_idx = g.get("index", 0)
+                    try:
+                        g_idx = int(g.get("index", 0))
+                    except (TypeError, ValueError):
+                        g_idx = 0
                     used = g.get("used", 0)
                     total = g.get("total", 1)
                     util = g.get("util", 0)
+
+                    if g_idx in our_gpu_ids:
+                        marker = "[green]★[/] "
+                    elif float(used or 0) > 500:
+                        marker = "[yellow]▲[/] "
+                    else:
+                        marker = "  "
+
                     mem_pct = used / total * 100 if total > 0 else 0
+                    util_color = "red" if util > 80 else ("yellow" if util > 50 else "green")
 
-                    mem_bar = make_bar(mem_pct, 12)
-                    util_color = (
-                        "green" if util < 50 else ("yellow" if util < 80 else "red")
-                    )
-
-                    elements.append(
-                        Text.from_markup(
-                            f"    GPU {g_idx}: {mem_bar} {used:,}/{total:,}MB [{util_color}]Util:{util}%[/]"
-                        )
-                    )
+                    card_lines.append(Text.from_markup(
+                        f"{marker}GPU{g_idx} {make_bar(mem_pct, 8)} "
+                        f"{self._format_mem(used)}/{self._format_mem(total)} "
+                        f"[{util_color}]{util}%[/]"
+                    ))
+            elif gpu_probe_error:
+                card_lines.append(Text.from_markup(
+                    f"[yellow]GPU: Probe error[/] [dim]({gpu_probe_error})[/]"
+                ))
             else:
-                if gpu_probe_error:
-                    elements.append(
-                        Text.from_markup(
-                            f"    [yellow]GPU: Probe error[/] [dim]({gpu_probe_error})[/]"
-                        )
-                    )
-                else:
-                    elements.append(Text.from_markup("    [dim]GPU: No data[/]"))
+                card_lines.append(Text.from_markup("[dim]GPU: --[/]"))
 
-            elements.append(Text(""))
+            machine_cards.append(Panel(
+                Group(*card_lines), title=title,
+                border_style=border_style, width=36,
+            ))
+
+        all_elements: List[Any] = [Columns(machine_cards, equal=True, expand=True)]
 
         if self.action_mode and workers:
             menu_items = []
             for i, act in enumerate(self.actions):
-                style = "reverse bold cyan" if i == self.action_idx else "dim"
-                menu_items.append(f"[{style}] {act.upper()} [/]")
-            elements.append(Text.from_markup(f"Action: " + "  ".join(menu_items)))
+                sty = "reverse bold cyan" if i == self.action_idx else "dim"
+                menu_items.append(f"[{sty}] {act.upper()} [/]")
+            all_elements.append(Text.from_markup("Action: " + "  ".join(menu_items)))
 
         preprocess_status = self._get_preprocess_status()
         if preprocess_status:
-            elements.append(Text.from_markup(f"[dim]{preprocess_status}[/]"))
+            all_elements.append(Text.from_markup(f"[dim]{preprocess_status}[/]"))
 
         return Panel(
-            Group(*elements),
-            title=f"[bold]Cluster[/] ({len([w for w in workers if cluster_status.get(w, {}).get('status') == 'ONLINE'])} online)",
+            Group(*all_elements),
+            title=f"[bold]Cluster[/] ({online_count} online / {len(workers)} total)",
             border_style="blue",
         )
 
