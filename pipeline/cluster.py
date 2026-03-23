@@ -337,7 +337,25 @@ class ClusterManager:
         except Exception:
             pass
 
-    def start_node(self, node_id):
+    def _is_remote_runner_alive(
+        self, node_id: str, host: str, port: Optional[int], session: str
+    ) -> bool:
+        probe_cmd = (
+            f"tmux has-session -t {session} 2>/dev/null && "
+            f"pgrep -f 'python experiments.py --worker_id {node_id}' >/dev/null"
+        )
+        try:
+            result = subprocess.run(
+                [*self._ssh_base_cmd(host, port), probe_cmd],
+                timeout=8,
+                capture_output=True,
+                text=True,
+            )
+            return result.returncode == 0
+        except Exception:
+            return False
+
+    def start_node(self, node_id, force_restart: bool = False):
         if node_id not in self.machines:
             return False, f"Unknown node: {node_id}"
 
@@ -348,6 +366,9 @@ class ClusterManager:
         port = conf.get("ssh_port")
         session = conf.get("tmux_session", "exp_runner")
         work_dir = conf.get("work_dir", str(BASE_DIR))
+
+        if not force_restart and self._is_remote_runner_alive(node_id, host, port, session):
+            return True, f"Already running {node_id}"
 
         self._setup_db_tunnel(conf)
 
@@ -365,10 +386,18 @@ class ClusterManager:
             f"echo 'Runner exited. Press Enter...'; read"
         )
 
-        full_cmd = (
-            f"tmux kill-session -t {session} 2>/dev/null; "
-            f"tmux new-session -d -s {session} bash -c '{runner_cmd}'"
-        )
+        if force_restart:
+            full_cmd = (
+                f"tmux kill-session -t {session} 2>/dev/null; "
+                f"tmux new-session -d -s {session} bash -c '{runner_cmd}'"
+            )
+        else:
+            full_cmd = (
+                f"if pgrep -f 'python experiments.py --worker_id {node_id}' >/dev/null; then "
+                f"echo 'Runner already alive'; exit 0; fi; "
+                f"tmux kill-session -t {session} 2>/dev/null; "
+                f"tmux new-session -d -s {session} bash -c '{runner_cmd}'"
+            )
 
         try:
             result = subprocess.run(
@@ -399,15 +428,19 @@ class ClusterManager:
 
         try:
             kill_cmd = (
-                f"pkill -TERM -f 'Phase3/experiments/.*/scripts/train' 2>/dev/null; "
-                f"pkill -TERM -f 'train_parallel_optimized\\.py' 2>/dev/null; "
+                "set +e; "
+                f"pkill -TERM -f 'Phase3/experiments/.*/scripts/[t]rain' 2>/dev/null || true; "
+                f"pkill -TERM -f 'Experiment/experiments/.*/scripts/[t]rain' 2>/dev/null || true; "
+                f"pkill -TERM -f '[t]rain_parallel_optimized\\.py' 2>/dev/null || true; "
                 f"sleep 1; "
-                f"pkill -9 -f 'Phase3/experiments/.*/scripts/train' 2>/dev/null; "
-                f"pkill -9 -f 'train_parallel_optimized\\.py' 2>/dev/null; "
-                f"pkill -TERM -f 'experiments\\.py --worker_id {node_id}' 2>/dev/null; "
+                f"pkill -9 -f 'Phase3/experiments/.*/scripts/[t]rain' 2>/dev/null || true; "
+                f"pkill -9 -f 'Experiment/experiments/.*/scripts/[t]rain' 2>/dev/null || true; "
+                f"pkill -9 -f '[t]rain_parallel_optimized\\.py' 2>/dev/null || true; "
+                f"pkill -TERM -f '[e]xperiments\\.py --worker_id {node_id}' 2>/dev/null || true; "
                 f"sleep 1; "
-                f"pkill -9 -f 'experiments\\.py --worker_id {node_id}' 2>/dev/null; "
-                f"tmux kill-session -t {session} 2>/dev/null"
+                f"pkill -9 -f '[e]xperiments\\.py --worker_id {node_id}' 2>/dev/null || true; "
+                f"tmux kill-session -t {session} 2>/dev/null || true; "
+                "exit 0"
             )
             result = subprocess.run(
                 [*self._ssh_base_cmd(host, port), kill_cmd],
@@ -427,7 +460,7 @@ class ClusterManager:
             return False, str(e)
 
     def restart_node(self, node_id):
-        return self.start_node(node_id)
+        return self.start_node(node_id, force_restart=True)
 
     def kill_remote_pid(self, node_id: str, pid: int) -> Tuple[bool, str]:
         if node_id not in self.machines:
