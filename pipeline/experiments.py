@@ -1773,6 +1773,9 @@ def format_terminal_reason_text(terminal_reason: str) -> Text:
 class ClusterManager:
     def __init__(self):
         self.machines = self.load_machines()
+        self._probe_cache: Dict[str, Dict[str, Any]] = {}
+        self._probe_cache_lock = threading.Lock()
+        self._probe_cache_ttl_sec = 60.0
 
     def load_machines(self):
         machine_paths = (
@@ -1833,6 +1836,7 @@ class ClusterManager:
                 "cpu": {},
                 "running_jobs": 0,
                 "running_experiments": [],
+                "our_gpu_ids": [],
             }
 
         heartbeats = db.get_cluster_heartbeats() if db else self._load_heartbeat_files()
@@ -1856,10 +1860,176 @@ class ClusterManager:
                 }
             )
 
+        now = time.time()
+
+        if db:
+            for w_id, info in status_map.items():
+                if not db.is_worker_disabled(w_id):
+                    continue
+                probe = self._get_probe_cache(w_id, now=now)
+                if not probe:
+                    continue
+                gpus = probe.get("gpus")
+                cpu = probe.get("cpu")
+                if isinstance(gpus, list):
+                    info["gpus"] = gpus
+                if isinstance(cpu, dict):
+                    info["cpu"] = cpu
+                if "gpu_probe_error" in probe:
+                    info["gpu_probe_error"] = str(probe.get("gpu_probe_error") or "")
+
+        worker_gpu_ids: Dict[str, Set[int]] = {}
+        if db:
+            try:
+                with get_conn(getattr(db, "dsn", None)) as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            """
+                            SELECT worker_id, gpu_id
+                            FROM exp_registry.experiments
+                            WHERE status = 'RUNNING'
+                              AND worker_id IS NOT NULL
+                              AND gpu_id IS NOT NULL
+                            """
+                        )
+                        rows = cur.fetchall() or []
+                for worker_id, gpu_id in rows:
+                    wid = str(worker_id or "").strip()
+                    if not wid:
+                        continue
+                    try:
+                        gid = int(gpu_id)
+                    except (TypeError, ValueError):
+                        continue
+                    worker_gpu_ids.setdefault(wid, set()).add(gid)
+            except Exception:
+                worker_gpu_ids = {}
+
+        for w_id, info in status_map.items():
+            gpu_ids = sorted(worker_gpu_ids.get(w_id, set()))
+            info["our_gpu_ids"] = gpu_ids
+
         return status_map
 
-    def _ssh_base_cmd(self, host: str) -> List[str]:
-        return [
+    def _set_probe_cache(self, node_id: str, probe: Dict[str, Any], now: Optional[float] = None) -> None:
+        ts = now if now is not None else time.time()
+        payload = dict(probe)
+        payload["probed_at"] = ts
+        with self._probe_cache_lock:
+            self._probe_cache[node_id] = payload
+
+    def _get_probe_cache(self, node_id: str, now: Optional[float] = None) -> Optional[Dict[str, Any]]:
+        ts = now if now is not None else time.time()
+        with self._probe_cache_lock:
+            cached = self._probe_cache.get(node_id)
+            if not isinstance(cached, dict):
+                return None
+            probed_at = float(cached.get("probed_at") or 0.0)
+            if ts - probed_at > self._probe_cache_ttl_sec:
+                self._probe_cache.pop(node_id, None)
+                return None
+            return dict(cached)
+
+    def _probe_machine_stats(self, node_id: str) -> Optional[Dict[str, Any]]:
+        conf = self.machines.get(node_id, {})
+        if not isinstance(conf, dict):
+            return None
+        host = conf.get("host")
+        if not host:
+            return None
+        port = conf.get("ssh_port")
+        probe_cmd = (
+            "nvidia-smi --query-gpu=index,memory.used,memory.total,utilization.gpu "
+            "--format=csv,noheader,nounits 2>/dev/null; "
+            "echo '---'; "
+            "uptime"
+        )
+        try:
+            result = subprocess.run(
+                [*self._ssh_base_cmd(host, port), probe_cmd],
+                timeout=8,
+                capture_output=True,
+                text=True,
+            )
+        except Exception:
+            return None
+
+        output = (result.stdout or "").strip()
+        if result.returncode != 0 and not output:
+            return None
+        if not output:
+            return None
+
+        parts = re.split(r"(?m)^---\s*$", output, maxsplit=1)
+        gpu_part = parts[0].strip() if parts else ""
+        uptime_part = parts[1].strip() if len(parts) > 1 else ""
+
+        gpus: List[Dict[str, int]] = []
+        for line in gpu_part.splitlines():
+            if not line.strip():
+                continue
+            cols = [part.strip() for part in line.split(",")]
+            if len(cols) < 4:
+                continue
+            try:
+                idx = _coerce_nvidia_int(cols[0])
+                used = _coerce_nvidia_int(cols[1])
+                total = _coerce_nvidia_int(cols[2])
+                util = _coerce_nvidia_int(cols[3])
+            except Exception:
+                continue
+            gpus.append(
+                {
+                    "index": idx,
+                    "free": max(0, total - used),
+                    "used": used,
+                    "total": total,
+                    "util": util,
+                }
+            )
+
+        load1 = 0.0
+        load5 = 0.0
+        load15 = 0.0
+        if uptime_part:
+            match = re.search(
+                r"load averages?:\\s*([0-9]+(?:\\.[0-9]+)?)\\s*[, ]\\s*([0-9]+(?:\\.[0-9]+)?)\\s*[, ]\\s*([0-9]+(?:\\.[0-9]+)?)",
+                uptime_part,
+            )
+            if not match:
+                match = re.search(
+                    r"load average[s]?:\\s*([0-9]+(?:\\.[0-9]+)?)\\s*,\\s*([0-9]+(?:\\.[0-9]+)?)\\s*,\\s*([0-9]+(?:\\.[0-9]+)?)",
+                    uptime_part,
+                )
+            if match:
+                try:
+                    load1 = float(match.group(1))
+                    load5 = float(match.group(2))
+                    load15 = float(match.group(3))
+                except Exception:
+                    load1 = 0.0
+                    load5 = 0.0
+                    load15 = 0.0
+
+        cpu_count_raw = conf.get("cpu_count")
+        try:
+            cpu_count = int(cpu_count_raw)
+            if cpu_count <= 0:
+                cpu_count = 1
+        except (TypeError, ValueError):
+            cpu_count = 1
+
+        cpu = {
+            "load1": round(load1, 2),
+            "load5": round(load5, 2),
+            "load15": round(load15, 2),
+            "cpu_count": cpu_count,
+            "load_percent": round(min(100.0, max(0.0, load1 / cpu_count * 100.0)), 1),
+        }
+        return {"gpus": gpus, "cpu": cpu, "gpu_probe_error": ""}
+
+    def _ssh_base_cmd(self, host: str, port: int = None) -> List[str]:
+        cmd = [
             "ssh",
             "-o",
             "BatchMode=yes",
@@ -1867,21 +2037,50 @@ class ClusterManager:
             "ConnectTimeout=8",
             "-o",
             "StrictHostKeyChecking=accept-new",
-            host,
         ]
+        if port:
+            cmd.extend(["-p", str(port)])
+        cmd.append(host)
+        return cmd
+
+    def _setup_db_tunnel(self, conf):
+        host = conf.get("host")
+        ssh_port = conf.get("ssh_port")
+        tunnel_port = conf.get("db_tunnel_port")
+        if not (host and ssh_port and tunnel_port):
+            return
+        tunnel_cmd = [
+            "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8",
+            "-o", "ExitOnForwardFailure=yes", "-o", "ServerAliveInterval=30",
+            "-p", str(ssh_port), "-fNR",
+            f"{tunnel_port}:localhost:5432",
+            f"{conf.get('user', 'arthur0824hao')}@{host}",
+        ]
+        subprocess.run(tunnel_cmd, timeout=10, capture_output=True)
 
     def start_node(self, node_id):
         if node_id not in self.machines:
             return False, f"Unknown node: {node_id}"
 
         conf = self.machines[node_id]
-        host = conf["host"]
+        host = conf.get("host")
+        if not host:
+            return False, f"No host configured for {node_id}"
+        port = conf.get("ssh_port")
         session = conf.get("tmux_session", "exp_runner")
         work_dir = conf.get("work_dir", str(BASE_DIR))
+
+        self._setup_db_tunnel(conf)
+
+        db_env = ""
+        tunnel_port = conf.get("db_tunnel_port")
+        if tunnel_port:
+            db_env = f"export EXP_PGHOST=localhost EXP_PGPORT={tunnel_port} && "
 
         runner_cmd = (
             f"source ~/miniconda3/etc/profile.d/conda.sh && "
             f"conda activate gnn_fraud && "
+            f"{db_env}"
             f"cd {work_dir} && "
             f"python experiments.py --worker_id {node_id}; "
             f"echo 'Runner exited. Press Enter...'; read"
@@ -1894,7 +2093,7 @@ class ClusterManager:
 
         try:
             result = subprocess.run(
-                [*self._ssh_base_cmd(host), full_cmd],
+                [*self._ssh_base_cmd(host, port), full_cmd],
                 timeout=15,
                 capture_output=True,
                 text=True,
@@ -1913,12 +2112,13 @@ class ClusterManager:
             return False, f"Unknown node: {node_id}"
 
         conf = self.machines[node_id]
-        host = conf["host"]
+        host = conf.get("host")
+        if not host:
+            return False, f"No host configured for {node_id}"
+        port = conf.get("ssh_port")
         session = conf.get("tmux_session", "exp_runner")
 
         try:
-            # Step 1: Kill all Phase3 training processes on the remote node
-            # Covers: train.py, train_parallel_optimized.py, and any python child processes
             kill_cmd = (
                 f"pkill -TERM -f 'Phase3/experiments/.*/scripts/train' 2>/dev/null; "
                 f"pkill -TERM -f 'train_parallel_optimized\\.py' 2>/dev/null; "
@@ -1931,7 +2131,7 @@ class ClusterManager:
                 f"tmux kill-session -t {session} 2>/dev/null"
             )
             result = subprocess.run(
-                [*self._ssh_base_cmd(host), kill_cmd],
+                [*self._ssh_base_cmd(host, port), kill_cmd],
                 timeout=15,
                 capture_output=True,
                 text=True,
@@ -1954,7 +2154,10 @@ class ClusterManager:
         if node_id not in self.machines:
             return False, f"Unknown node: {node_id}"
         conf = self.machines[node_id]
-        host = conf["host"]
+        host = conf.get("host")
+        if not host:
+            return False, f"No host configured for {node_id}"
+        port = conf.get("ssh_port")
         cmd = (
             f"kill -TERM {int(pid)} 2>/dev/null; "
             f"sleep 1; "
@@ -1962,7 +2165,7 @@ class ClusterManager:
         )
         try:
             result = subprocess.run(
-                [*self._ssh_base_cmd(host), cmd],
+                [*self._ssh_base_cmd(host, port), cmd],
                 timeout=10,
                 capture_output=True,
                 text=True,
@@ -2573,7 +2776,12 @@ class UnifiedDashboard:
             gpus = info.get("gpus", [])
             cpu = info.get("cpu", {})
             gpu_probe_error = str(info.get("gpu_probe_error", "") or "")
-            jobs = info.get("running_jobs", 0)
+            jobs = int(info.get("running_jobs", 0) or 0)
+            our_gpu_ids = {
+                int(gid)
+                for gid in info.get("our_gpu_ids", [])
+                if isinstance(gid, int) or (isinstance(gid, str) and gid.isdigit())
+            }
 
             # Override status if worker is disabled
             if self.db.is_worker_disabled(w_id):
@@ -2599,7 +2807,10 @@ class UnifiedDashboard:
             if status == "OFFLINE":
                 header += f" [dim]({time_ago} ago)[/]"
             else:
-                header += f" [dim]Jobs: {jobs}[/]"
+                gpu_procs = sum(
+                    1 for g in gpus if float(g.get("used", 0) or 0) > 500
+                )
+                header += f" [dim]Mine: {jobs} / GPU: {gpu_procs} procs[/]"
 
             elements.append(Text.from_markup(header, style=style))
 
@@ -2626,7 +2837,10 @@ class UnifiedDashboard:
 
             if gpus:
                 for g in gpus:
-                    g_idx = g.get("index", 0)
+                    try:
+                        g_idx = int(g.get("index", 0))
+                    except (TypeError, ValueError):
+                        g_idx = 0
                     used = g.get("used", 0)
                     total = g.get("total", 1)
                     util = g.get("util", 0)
@@ -2637,9 +2851,15 @@ class UnifiedDashboard:
                         "green" if util < 50 else ("yellow" if util < 80 else "red")
                     )
 
+                    marker = ""
+                    if g_idx in our_gpu_ids:
+                        marker = "[green]★[/] "
+                    elif float(used or 0) > 500:
+                        marker = "[yellow]▲[/] "
+
                     elements.append(
                         Text.from_markup(
-                            f"    GPU {g_idx}: {mem_bar} {used:,}/{total:,}MB [{util_color}]Util:{util}%[/]"
+                            f"    {marker}GPU {g_idx}: {mem_bar} {used:,}/{total:,}MB [{util_color}]Util:{util}%[/]"
                         )
                     )
             else:
@@ -4910,6 +5130,8 @@ def main():  # pragma: no cover
 
     auto_wake_interval = 60
     auto_wake_last: Dict[str, float] = {}
+    disabled_probe_interval = 30.0
+    disabled_probe_last: Dict[str, float] = {}
     orphan_reap_last = 0.0
     archive_trigger_count = 3
     archive_check_interval = 60.0
@@ -5030,6 +5252,25 @@ def main():  # pragma: no cover
                 auto_wake_last[node_id] = now
             auto_wake_last["_tick"] = now
 
+        def probe_disabled_nodes(now: float):
+            if now - disabled_probe_last.get("_tick", 0) < disabled_probe_interval:
+                return
+            cluster_status = cluster_mgr.get_cluster_status(db)
+            for node_id in cluster_mgr.machines:
+                if not db.is_worker_disabled(node_id):
+                    continue
+                status = cluster_status.get(node_id, {})
+                if status.get("status") == "ONLINE":
+                    continue
+                last_probe = disabled_probe_last.get(node_id, 0.0)
+                if now - last_probe < disabled_probe_interval:
+                    continue
+                probe = cluster_mgr._probe_machine_stats(node_id)
+                if probe is not None:
+                    cluster_mgr._set_probe_cache(node_id, probe, now=now)
+                disabled_probe_last[node_id] = now
+            disabled_probe_last["_tick"] = now
+
         def maybe_archive_completed(now: float):
             nonlocal archive_last_check
             nonlocal archive_last_signature
@@ -5085,8 +5326,10 @@ def main():  # pragma: no cover
             if args.watch:
                 try:
                     process_remote_termination_requests(db, args.worker_id, logger)
-                    maybe_archive_completed(time.time())
-                    auto_wake_offline_nodes(time.time())
+                    now = time.time()
+                    maybe_archive_completed(now)
+                    probe_disabled_nodes(now)
+                    auto_wake_offline_nodes(now)
                 except Exception as e:
                     logger.log(f"Watch auto-wake error: {e}")
                 time.sleep(max(0.2, float(args.interval)))

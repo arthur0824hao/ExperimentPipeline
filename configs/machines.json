@@ -1,21 +1,115 @@
 {
-  "local": {
-    "host": "localhost",
+  "nv960": {
+    "host": "nv960",
     "user": "arthur0824hao",
-    "work_dir": "/datas/store162/arthur0824hao/Project/ExperimentPipeline/pipeline",
+    "work_dir": "/share/nas165/arthur0824hao/Work/Study/GNN/FraudDetect/ExperimentPipeline/pipeline",
+    "tmux_session": "exp_runner",
+    "python_env": "~/miniconda3/envs/gnn_fraud/bin/python",
+    "max_jobs_per_gpu": 1,
+    "max_gpus": 0,
+    "description": "nv960 (no GPU, pipeline management only)"
+  },
+  "Bigram": {
+    "host": "Bigram",
+    "user": "arthur0824hao",
+    "work_dir": "/share/nas165/arthur0824hao/Work/Study/GNN/FraudDetect/ExperimentPipeline/pipeline",
     "tmux_session": "exp_runner",
     "python_env": "~/miniconda3/envs/gnn_fraud/bin/python",
     "max_jobs_per_gpu": 1,
     "max_gpus": 1,
-    "description": "Local default worker"
+    "preferred_gpu": 0,
+    "description": "RTX 3090 (24GB)"
   },
-  "_protected_tmux_sessions": {
-    "_comment": "Agent MUST NEVER kill these sessions. They are user-owned infrastructure.",
-    "sessions": [
-      "unified",
-      "unified-oc",
-      "mem-handoff",
-      "exp_runner"
-    ]
+  "dino2ur": {
+    "host": "dino2ur",
+    "user": "arthur0824hao",
+    "work_dir": "/share/nas165/arthur0824hao/Work/Study/GNN/FraudDetect/ExperimentPipeline/pipeline",
+    "tmux_session": "exp_runner",
+    "python_env": "~/miniconda3/envs/gnn_fraud/bin/python",
+    "max_jobs_per_gpu": 1,
+    "max_gpus": 1,
+    "preferred_gpu": 0,
+    "description": "RTX 3090 (24GB)"
+  },
+  "dino4ur": {
+    "host": "140.122.185.39",
+    "ssh_port": 3800,
+    "db_tunnel_port": 15433,
+    "user": "arthur0824hao",
+    "work_dir": "/share/nas165/arthur0824hao/Work/Study/GNN/FraudDetect/ExperimentPipeline/pipeline",
+    "tmux_session": "exp_runner",
+    "python_env": "~/miniconda3/envs/gnn_fraud/bin/python",
+    "max_jobs_per_gpu": 1,
+    "max_gpus": 4,
+    "description": "4x A10 (24GB each) via 140.122.185.39:3800"
+  },
+  "esp2080": {
+    "host": "esp2080",
+    "user": "arthur0824hao",
+    "work_dir": "/share/nas165/arthur0824hao/Work/Study/GNN/FraudDetect/ExperimentPipeline/pipeline",
+    "tmux_session": "exp_runner",
+    "python_env": "~/miniconda3/envs/gnn_fraud/bin/python",
+    "max_jobs_per_gpu": 1,
+    "max_gpus": 1,
+    "preferred_gpu": 0,
+    "description": "RTX 3090 (24GB)"
+  },
+  "espeon": {
+    "host": "espeon",
+    "user": "arthur0824hao",
+    "work_dir": "/share/nas165/arthur0824hao/Work/Study/GNN/FraudDetect/ExperimentPipeline/pipeline",
+    "tmux_session": "exp_runner",
+    "python_env": "~/miniconda3/envs/gnn_fraud/bin/python",
+    "max_jobs_per_gpu": 1,
+    "max_gpus": 1,
+    "preferred_gpu": 0,
+    "description": "RTX 4090 (24GB)"
+  },
+  "kl03": {
+    "host": "kl03",
+    "user": "arthur0824hao",
+    "work_dir": "/share/nas165/arthur0824hao/Work/Study/GNN/FraudDetect/ExperimentPipeline/pipeline",
+    "tmux_session": "exp_runner",
+    "python_env": "~/miniconda3/envs/gnn_fraud/bin/python",
+    "max_jobs_per_gpu": 1,
+    "max_gpus": 1,
+    "preferred_gpu": 0,
+    "description": "RTX 3090 (24GB)"
+  },
+
+  "nv2080": {
+    "host": "nv2080",
+    "user": "arthur0824hao",
+    "work_dir": "/share/nas165/arthur0824hao/Work/Study/GNN/FraudDetect/ExperimentPipeline/pipeline",
+    "tmux_session": "exp_runner",
+    "python_env": "~/miniconda3/envs/gnn_fraud/bin/python",
+    "max_jobs_per_gpu": 1,
+    "max_gpus": 1,
+    "preferred_gpu": 0,
+    "description": "RTX 2080 Ti (11GB)"
+  },
+  "nv3090": {
+    "host": "nv3090",
+    "user": "arthur0824hao",
+    "work_dir": "/share/nas165/arthur0824hao/Work/Study/GNN/FraudDetect/ExperimentPipeline/pipeline",
+    "tmux_session": "exp_runner",
+    "python_env": "~/miniconda3/envs/gnn_fraud/bin/python",
+    "max_jobs_per_gpu": 1,
+    "max_gpus": 1,
+    "preferred_gpu": 0,
+    "description": "RTX 3090 (24GB)"
+  },
+
+  "SOTA": {
+    "host": "140.122.185.39",
+    "ssh_port": 3900,
+    "db_tunnel_port": 15432,
+    "user": "arthur0824hao",
+    "work_dir": "/share/nas165/arthur0824hao/Work/Study/GNN/FraudDetect/ExperimentPipeline/pipeline",
+    "tmux_session": "exp_runner",
+    "python_env": "~/miniconda3/envs/gnn_fraud/bin/python",
+    "max_jobs_per_gpu": 1,
+    "max_gpus": 4,
+    "description": "4x TITAN RTX (24GB each) via 140.122.185.39:3900"
   }
 }

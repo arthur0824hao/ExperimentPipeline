@@ -1,25 +1,26 @@
 {
   "postgres_runtime": {
     "conda_env": "gnn_fraud",
-    "data_dir": "/datas/store162/arthur0824hao/postgres_data",
-    "required_major_version": 17,
-    "start_cmd": "conda run -n gnn_fraud pg_ctl -D /datas/store162/arthur0824hao/postgres_data -l /datas/store162/arthur0824hao/postgres_data/logfile start",
-    "stop_cmd": "conda run -n gnn_fraud pg_ctl -D /datas/store162/arthur0824hao/postgres_data stop"
+    "data_dir": "/share/nas165/arthur0824hao/Work/Study/GNN/FraudDetect/.pgdata",
+    "required_major_version": 18,
+    "start_cmd": "conda run -n gnn_fraud pg_ctl -D /share/nas165/arthur0824hao/Work/Study/GNN/FraudDetect/.pgdata -l /share/nas165/arthur0824hao/Work/Study/GNN/FraudDetect/.pgdata/server.log -o '-k /tmp -p 5432' start",
+    "stop_cmd": "conda run -n gnn_fraud pg_ctl -D /share/nas165/arthur0824hao/Work/Study/GNN/FraudDetect/.pgdata stop"
   },
   "memory": {
-    "canonical_name": "ExperimentPipeline-memory",
+    "canonical_name": "FraudDetect-memory",
     "legacy_names": [
-      "agent_memory"
+      "agent_memory",
+      "ExperimentPipeline-memory"
     ],
-    "host": "localhost",
+    "host": "/tmp",
     "port": 5432,
-    "dbname": "ExperimentPipeline-memory",
+    "dbname": "FraudDetect-memory",
     "user": "arthur0824hao"
   },
   "experiment": {
-    "host": "localhost",
+    "host": "192.168.1.4",
     "port": 5432,
-    "dbname": "ExperimentPipeline-experiment",
+    "dbname": "FraudDetect-experiment",
     "user": "arthur0824hao",
     "connect_timeout": 3,
     "schema": "exp_registry"
