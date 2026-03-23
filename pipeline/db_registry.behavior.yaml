@@ -1,0 +1,29 @@
+spec_version: "1.0"
+target: "pipeline/db_registry.py"
+purpose: "DB registry connection resilience and snapshot contract"
+
+modules:
+  connection_pool:
+    description: "DSN candidate resolution and pooled connection lifecycle"
+    public_api:
+      - get_pool
+      - close_pool
+      - get_conn
+    internal:
+      - _load_experiment_db_defaults
+      - _get_dsn
+      - _get_dsn_candidates
+    guarantees:
+      - "DSN candidate list must prioritize explicit env host, then database.json host"
+      - "get_conn probes candidate connections and retries once on stale/broken pooled connections"
+      - "psycopg2 connection failures trigger pool reset to avoid sticky OFFLINE loops"
+
+  snapshot_sync:
+    description: "DB to experiments.json compatibility snapshot"
+    public_api:
+      - sync_snapshot_to_json
+    internal:
+      - enrich_progression_snapshot
+    guarantees:
+      - "Snapshot failures are best-effort and must not crash runner loop"
+      - "Output remains backward-compatible with registry readers"

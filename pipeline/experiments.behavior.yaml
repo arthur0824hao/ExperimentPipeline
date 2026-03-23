@@ -208,3 +208,5 @@ cross_cutting:
   - "main() and scheduler_loop stay in experiments.py"
   - "Input/TTY handling (get_key) stays in experiments.py"
   - "Constants (STATUS_*, paths, thresholds) stay in experiments.py"
+  - "Cluster panel navigation uses WASD + arrow keys with grid semantics (W=up, A=left, S=down, D=right)"
+  - "Cluster machine cards remain dense with runtime detail (status, CPU, GPU, recent runs, last-seen)"

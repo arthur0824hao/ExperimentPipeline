@@ -800,6 +800,7 @@ class UnifiedDashboard:
         self.assign_workers: List[str] = []
         self.exp_two_step = TwoStepKeyHandler()
         self.actions = ["disable", "enable", "restart"]
+        self.cluster_cols = 1
         self.message = ""
         self.message_time = 0
         self._message_lock = threading.Lock()
@@ -1169,9 +1170,28 @@ class UnifiedDashboard:
     def _format_mem(val: int) -> str:
         return f"{val / 1000:.0f}K" if val >= 1000 else f"{val}M"
 
+    def _move_cluster_selection(self, delta_row: int, delta_col: int, total: int) -> None:
+        if total <= 0:
+            self.selected_node_idx = 0
+            return
+        cols = max(1, int(self.cluster_cols))
+        rows = (total + cols - 1) // cols
+        idx = max(0, min(self.selected_node_idx, total - 1))
+        row = idx // cols
+        col = idx % cols
+        next_row = max(0, min(rows - 1, row + delta_row))
+        next_col = max(0, min(cols - 1, col + delta_col))
+        next_idx = next_row * cols + next_col
+        if next_idx >= total:
+            next_idx = total - 1
+        self.selected_node_idx = next_idx
+
     def build_cluster_panel(self, cluster_status: Dict, workers: List[str]) -> Panel:
         machine_cards = []
         online_count = 0
+        card_width = 48
+        term_width = shutil.get_terminal_size((160, 40)).columns
+        self.cluster_cols = max(1, term_width // (card_width + 2))
 
         for i, w_id in enumerate(workers):
             info = cluster_status.get(w_id, {})
@@ -1228,6 +1248,11 @@ class UnifiedDashboard:
                     f"{badge}  Mine: {jobs}  ▲: {other_procs}{pid_str}"
                 ))
 
+            if last_seen < 99999:
+                card_lines.append(Text.from_markup(f"[dim]Seen: {format_time_ago(last_seen)} ago[/]"))
+            else:
+                card_lines.append(Text.from_markup("[dim]Seen: --[/]"))
+
             cpu = info.get("cpu", {})
             if cpu:
                 cpu_pct = cpu.get("load_percent", 0.0)
@@ -1272,12 +1297,32 @@ class UnifiedDashboard:
             else:
                 card_lines.append(Text.from_markup("[dim]GPU: --[/]"))
 
+            running_experiments = info.get("running_experiments") or []
+            if isinstance(running_experiments, str):
+                running_experiments = [running_experiments]
+            if isinstance(running_experiments, list) and running_experiments:
+                shown = [str(x) for x in running_experiments[:2] if str(x).strip()]
+                if shown:
+                    card_lines.append(Text.from_markup(f"[dim]Run:[/] {shown[0]}"))
+                    if len(shown) > 1:
+                        card_lines.append(Text.from_markup(f"[dim]     {shown[1]}[/]"))
+                remain = max(0, len(running_experiments) - len(shown))
+                if remain > 0:
+                    card_lines.append(Text.from_markup(f"[dim]+{remain} more[/]"))
+
             machine_cards.append(Panel(
                 Group(*card_lines), title=title,
-                border_style=border_style, width=36,
+                border_style=border_style, width=card_width,
             ))
 
-        all_elements: List[Any] = [Columns(machine_cards, equal=True, expand=True)]
+        all_elements: List[Any] = [
+            Columns(
+                machine_cards,
+                equal=True,
+                expand=True,
+                width=card_width,
+            )
+        ]
 
         if self.action_mode and workers:
             menu_items = []
@@ -2155,7 +2200,7 @@ class UnifiedDashboard:
                     options = "[dim](no workers available)[/]"
                 assign_hint_line = f"[bold yellow]Assign[/] {options}  [bold yellow][C][/bold yellow]Clear  [dim][Esc]Cancel[/]"
         else:
-            controls_line = "[dim]w/s[/]:Select  [dim]Enter[/]:Action  [dim]D[/]:Disable  [dim]E[/]:Enable  [dim]R[/]:Restart  [dim]F[/]:Retry Failed  [dim]Tab[/]:→Experiments  [dim]Q[/]:Quit"
+            controls_line = "[dim]W/A/S/D[/]:Move  [dim]Enter[/]:Action  [dim]D[/]:Disable  [dim]E[/]:Enable  [dim]R[/]:Restart  [dim]F[/]:Retry Failed  [dim]Tab[/]:→Experiments  [dim]Q[/]:Quit"
         last_log_line = self._read_last_log_line(RUNNER_LOG_FILE)
         status_parts: List[str] = []
         if pending_actions > 0:
@@ -2438,18 +2483,20 @@ class UnifiedDashboard:
 
         if key in {"w", "W", "\x1b[A"}:
             if not self.action_mode:
-                self.selected_node_idx = max(0, self.selected_node_idx - 1)
+                self._move_cluster_selection(-1, 0, len(workers))
         elif key in {"s", "\x1b[B"}:
             if not self.action_mode:
-                self.selected_node_idx = min(
-                    len(workers) - 1, self.selected_node_idx + 1
-                )
-        elif key == "a":
+                self._move_cluster_selection(1, 0, len(workers))
+        elif key in {"a", "A", "\x1b[D"}:
             if self.action_mode:
                 self.action_idx = max(0, self.action_idx - 1)
-        elif key == "d":
+            else:
+                self._move_cluster_selection(0, -1, len(workers))
+        elif key in {"d", "\x1b[C"}:
             if self.action_mode:
                 self.action_idx = min(len(self.actions) - 1, self.action_idx + 1)
+            else:
+                self._move_cluster_selection(0, 1, len(workers))
         elif key in ["\r", "\n"]:
             if not self.action_mode:
                 self.action_mode = True

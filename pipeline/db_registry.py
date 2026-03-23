@@ -237,10 +237,13 @@ def _get_dsn_candidates() -> List[str]:
         "EXP_PGCONNECT_TIMEOUT", defaults["connect_timeout"]
     )
     env_host = os.environ.get("EXP_PGHOST", os.environ.get("PGHOST", "")).strip()
+    cfg_host = defaults["host"]  # from database.json (e.g. 192.168.1.4)
     hosts: List[str] = []
     if env_host:
         hosts.append(env_host)
-    hosts.extend(["plusle", "localhost", ""])
+    if cfg_host:
+        hosts.append(cfg_host)
+    hosts.extend(["localhost", ""])
     deduped_hosts: List[str] = []
     for host in hosts:
         if host not in deduped_hosts:
@@ -359,16 +362,51 @@ def close_pool():
 @contextmanager
 def get_conn(dsn: Optional[str] = None):
     """Get a connection from the pool with auto-commit management."""
-    pool = get_pool(dsn)
-    conn = pool.getconn()
+    max_attempts = 2
+    pool = None
+    conn = None
+    last_exc: Optional[Exception] = None
+
+    for _ in range(max_attempts):
+        pool = get_pool(dsn)
+        candidate = pool.getconn()
+        try:
+            with candidate.cursor() as probe_cur:
+                probe_cur.execute("SELECT 1")
+            conn = candidate
+            break
+        except Exception as e:
+            last_exc = e
+            try:
+                pool.putconn(candidate, close=True)
+            except Exception:
+                pass
+            close_pool()
+
+    if pool is None or conn is None:
+        if last_exc is not None:
+            raise last_exc
+        raise RuntimeError("Failed to acquire PostgreSQL connection")
+
     try:
         yield conn
         conn.commit()
-    except Exception:
-        conn.rollback()
+    except Exception as e:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        if isinstance(e, psycopg2.Error):
+            try:
+                pool.putconn(conn, close=True)
+            except Exception:
+                pass
+            close_pool()
+            conn = None
         raise
     finally:
-        pool.putconn(conn)
+        if conn is not None:
+            pool.putconn(conn)
 
 
 # ---------------------------------------------------------------------------
