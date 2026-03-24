@@ -497,6 +497,7 @@ class DBExperimentsDB:
         # Store run_ids for fencing (experiment_name -> run_id)
         self._run_ids: Dict[str, str] = {}
         self._run_ids_lock = threading.Lock()
+        self._last_heartbeat_error = ""
 
     def _sync_snapshot(self):
         """Best-effort sync DB state to experiments.json."""
@@ -601,12 +602,25 @@ class DBExperimentsDB:
         try:
             with get_conn(self.dsn) as conn:
                 with conn.cursor() as cur:
-                    cur.execute(
-                        "SELECT name, status, preferred_worker, extra, display_order, "
-                        "parent_experiment, peak_memory_mb, started_at, claimed_at "
-                        "FROM exp_registry.experiments "
-                        "ORDER BY display_order NULLS LAST, name"
-                    )
+                    has_claimed_at = True
+                    try:
+                        cur.execute(
+                            "SELECT name, status, preferred_worker, extra, display_order, "
+                            "parent_experiment, peak_memory_mb, started_at, claimed_at "
+                            "FROM exp_registry.experiments "
+                            "ORDER BY display_order NULLS LAST, name"
+                        )
+                    except Exception as e:
+                        if "claimed_at" not in str(e).lower():
+                            raise
+                        has_claimed_at = False
+                        conn.rollback()
+                        cur.execute(
+                            "SELECT name, status, preferred_worker, extra, display_order, "
+                            "parent_experiment, peak_memory_mb, started_at "
+                            "FROM exp_registry.experiments "
+                            "ORDER BY display_order NULLS LAST, name"
+                        )
                     rows = cur.fetchall()
                     result = []
                     for row in rows:
@@ -627,7 +641,7 @@ class DBExperimentsDB:
                                 if hasattr(row[7], "isoformat")
                                 else str(row[7])
                             )
-                        if row[8]:
+                        if has_claimed_at and row[8]:
                             exp["claimed_at"] = (
                                 row[8].isoformat()
                                 if hasattr(row[8], "isoformat")
@@ -1446,8 +1460,8 @@ class DBExperimentsDB:
         running_experiments: List[str],
         gpu_info: Any = None,
         cpu_info: Any = None,
-    ):
-        """Write worker heartbeat to DB."""
+    ) -> bool:
+        """Write worker heartbeat to DB. Returns True on success."""
         try:
             with get_conn(self.dsn) as conn:
                 with conn.cursor() as cur:
@@ -1462,8 +1476,43 @@ class DBExperimentsDB:
                             json.dumps(cpu_info or {}),
                         ),
                     )
+            self._last_heartbeat_error = ""
+            return True
         except Exception as e:
-            print(f"[DBExperimentsDB] update_heartbeat error: {e}")
+            self._last_heartbeat_error = (
+                f"worker_id={worker_id} pid={pid} running_jobs={running_jobs} "
+                f"running_experiments={len(running_experiments)} err={type(e).__name__}: {e}"
+            )
+            print(f"[DBExperimentsDB] update_heartbeat error: {self._last_heartbeat_error}")
+            try:
+                close_pool()
+            except Exception:
+                pass
+            try:
+                with get_conn(self.dsn) as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            "SELECT exp_registry.update_heartbeat(%s, %s, %s, %s, %s, %s)",
+                            (
+                                worker_id,
+                                pid,
+                                running_jobs,
+                                running_experiments,
+                                json.dumps(gpu_info or []),
+                                json.dumps(cpu_info or {}),
+                            ),
+                        )
+                self._last_heartbeat_error = ""
+                return True
+            except Exception as retry_e:
+                self._last_heartbeat_error = (
+                    f"{self._last_heartbeat_error} retry_err={type(retry_e).__name__}: {retry_e}"
+                )
+                print(f"[DBExperimentsDB] update_heartbeat retry failed: {self._last_heartbeat_error}")
+                return False
+
+    def get_last_heartbeat_error(self) -> str:
+        return str(self._last_heartbeat_error or "")
 
     def get_cluster_heartbeats(self) -> Dict[str, Dict]:
         """Read all heartbeats from DB."""

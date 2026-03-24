@@ -3,6 +3,21 @@ target: "pipeline/db_registry.py"
 purpose: "DB registry connection resilience and snapshot contract"
 
 modules:
+  heartbeat:
+    description: "Worker heartbeat write/read durability contract"
+    public_api:
+      - update_heartbeat
+      - get_cluster_heartbeats
+      - check_stale_experiments
+    internal:
+      - _write_pool
+      - _read_pool
+    guarantees:
+      - "Heartbeat writes must be attempted every runner tick while worker loop is alive"
+      - "Heartbeat write failures must be surfaced to logs with worker_id and error details"
+      - "Transient DB failures should trigger reconnect path and retry on next tick"
+      - "Read path returns last_seen_sec and process metadata for stale/offline rendering"
+
   connection_pool:
     description: "DSN candidate resolution and pooled connection lifecycle"
     public_api:

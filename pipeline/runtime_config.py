@@ -6,7 +6,7 @@ from typing import Any, Dict, Iterable, List
 
 
 PHASE3_DIR = Path(__file__).resolve().parent
-PROJECT_ROOT = PHASE3_DIR.parent
+PROJECT_ROOT = PHASE3_DIR.parent.parent
 PHASE3_RUNTIME_CONFIG_FILE = PROJECT_ROOT / "configs" / "phase3_runtime.json"
 
 

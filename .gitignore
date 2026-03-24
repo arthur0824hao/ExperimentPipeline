@@ -6,3 +6,6 @@ experiments/*/checkpoints/
 *.egg-info/
 .env
 results_db/
+runner.log.lock
+.runner_launch_*.sh
+logs/worker_*.log
