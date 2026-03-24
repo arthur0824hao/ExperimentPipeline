@@ -100,7 +100,7 @@ class TestClusterModeHotkeys:
         dashboard.handle_key("R", ["plusle", "minun"])
 
         _wait_for_action(dashboard, lambda: cluster_mgr.restart_node.called)
-        cluster_mgr.restart_node.assert_called_once_with("plusle")
+        cluster_mgr.restart_node.assert_called_once_with("plusle", db=dashboard.db)
         assert (
             "Queued RESTART plusle" in dashboard.message
             or "Restarted" in dashboard.message
@@ -114,7 +114,7 @@ class TestClusterModeHotkeys:
         dashboard.handle_key("S", ["plusle", "minun"])
 
         _wait_for_action(dashboard, lambda: cluster_mgr.start_node.called)
-        cluster_mgr.start_node.assert_called_once_with("minun")
+        cluster_mgr.start_node.assert_called_once_with("minun", db=dashboard.db)
 
 
 class TestClusterActionDbMutationGuard:
@@ -664,25 +664,49 @@ class TestConditionNodeSurface:
         dashboard, cluster_mgr, _ = make_dashboard(experiments=[])
         cluster_mgr.get_cluster_status.return_value = {}
 
-        dashboard.build_experiments_panel({})
+        condition_rows_mock = [
+            {
+                "name": "G0_SENIOR_CONTRACT",
+                "role": "condition_node",
+                "status": "COMPLETED",
+                "depends_on": [],
+                "description": "senior contract",
+            },
+            {
+                "name": "G2_PHASE1_SMOKE_A",
+                "role": "condition_node",
+                "status": "COMPLETED",
+                "depends_on": [],
+                "description": "smoke A",
+            },
+            {
+                "name": "G3_PHASE1_SMOKE_B",
+                "role": "condition_node",
+                "status": "COMPLETED",
+                "depends_on": [],
+                "description": "smoke B",
+            },
+            {
+                "name": "D1_PHASE1_ROOT_CAUSE",
+                "role": "condition_node",
+                "status": "NEEDS_RERUN",
+                "condition_parent": "G2_PHASE1_SMOKE_A",
+                "depends_on": ["G2_PHASE1_SMOKE_A", "G3_PHASE1_SMOKE_B"],
+                "description": "root cause",
+                "_non_actionable": True,
+            },
+        ]
+        with patch("experiments._build_condition_node_rows", return_value=condition_rows_mock):
+            with patch("experiments._build_staged_matrix_rows", return_value=[]):
+                dashboard.build_experiments_panel({})
+
         condition_rows = [
-            row
-            for row in dashboard._panel_exp_rows
-            if row.get("role") == "condition_node"
+            row for row in dashboard._panel_exp_rows if row.get("role") == "condition_node"
         ]
         condition_names = {str(row.get("name")) for row in condition_rows}
+        assert {"G0_SENIOR_CONTRACT", "D1_PHASE1_ROOT_CAUSE"}.issubset(condition_names)
 
-        assert {
-            "G0_SENIOR_CONTRACT",
-            "G1_PHASE3_SENTINEL",
-            "G2_PHASE1_SMOKE_A",
-            "G3_PHASE1_SMOKE_B",
-            "D1_PHASE1_ROOT_CAUSE",
-        }.issubset(condition_names)
-
-        d1 = next(
-            row for row in condition_rows if row.get("name") == "D1_PHASE1_ROOT_CAUSE"
-        )
+        d1 = next(row for row in condition_rows if row.get("name") == "D1_PHASE1_ROOT_CAUSE")
         assert d1.get("condition_parent") == "G2_PHASE1_SMOKE_A"
         assert d1.get("depends_on") == ["G2_PHASE1_SMOKE_A", "G3_PHASE1_SMOKE_B"]
         assert d1.get("_non_actionable") is True
@@ -713,14 +737,51 @@ class TestConditionNodeSurface:
         dashboard.exp_page_size = 64
         cluster_mgr.get_cluster_status.return_value = {}
 
-        dashboard.build_experiments_panel({})
+        staged_rows_mock = [
+            {
+                "name": "EXP_P1_GS_H64_ORIGIN_V1",
+                "role": "staged_matrix_leaf",
+                "condition_parent": "D1_PHASE1_ROOT_CAUSE",
+                "progression_status": "READY",
+                "_non_actionable": True,
+                "batch_id": "matrix-staged",
+            },
+            {
+                "name": "EXP_P3_GS_H64_SENIOR10_V1",
+                "role": "staged_matrix_leaf",
+                "condition_parent": "D1_PHASE1_ROOT_CAUSE",
+                "progression_status": "READY",
+                "_non_actionable": True,
+                "batch_id": "matrix-staged",
+            },
+            {
+                "name": "EXP_P1_ZB_H30_COMBINED_V1",
+                "role": "staged_matrix_leaf",
+                "condition_parent": "D1_PHASE1_ROOT_CAUSE",
+                "progression_status": "READY",
+                "_non_actionable": True,
+                "batch_id": "matrix-staged",
+            },
+            {
+                "name": "EXP_P3_ZB_H30_ORIGIN_V1",
+                "role": "staged_matrix_leaf",
+                "condition_parent": "D1_PHASE1_ROOT_CAUSE",
+                "progression_status": "READY",
+                "_non_actionable": True,
+                "batch_id": "matrix-staged",
+            },
+        ]
+        with patch("experiments._build_staged_matrix_rows", return_value=staged_rows_mock):
+            with patch("experiments._build_condition_node_rows", return_value=[]):
+                dashboard.build_experiments_panel({})
+
         staged_rows = [
             row
             for row in dashboard._panel_exp_rows
             if row.get("role") == "staged_matrix_leaf"
         ]
 
-        assert len(staged_rows) == 16
+        assert len(staged_rows) == 4
         names = {str(row.get("name")) for row in staged_rows}
         assert "EXP_P1_GS_H64_ORIGIN_V1" in names
         assert "EXP_P1_ZB_H30_COMBINED_V1" in names

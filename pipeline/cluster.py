@@ -525,11 +525,13 @@ class ClusterManager:
             "echo \"Graceful shutdown requested for worker PIDs: $old_pid\"; "
             "kill -TERM $old_pid 2>/dev/null || true; "
             f"for _ in $(seq 1 {max(1, GRACEFUL_STOP_WAIT_SEC)}); do "
-            f"if ! pgrep -f '[e]xperiments\\.py --worker_id {node_id}' >/dev/null; then break; fi; "
+            "alive=0; "
+            "for p in $old_pid; do if kill -0 $p 2>/dev/null; then alive=1; break; fi; done; "
+            "if [ $alive -eq 0 ]; then break; fi; "
             "sleep 1; "
             "done; "
+            "kill -KILL $old_pid 2>/dev/null || true; "
             "fi; "
-            f"pkill -KILL -f '[e]xperiments\\.py --worker_id {node_id}' 2>/dev/null || true; "
             f"tmux kill-session -t {session} 2>/dev/null || true; "
             "true"
         )
@@ -568,7 +570,10 @@ class ClusterManager:
                     return True, f"Started {node_id} (heartbeat fresh: {age_text})"
                 return False, f"Started {node_id} but heartbeat not fresh within {START_HEARTBEAT_WAIT_SEC}s"
             else:
-                return False, f"SSH error: {result.stderr[:100]}"
+                stderr = (result.stderr or "").strip()
+                stdout = (result.stdout or "").strip()
+                detail = stderr or stdout or f"returncode={result.returncode}"
+                return False, f"SSH error: {detail[:220]}"
         except subprocess.TimeoutExpired:
             return False, "SSH timeout"
         except Exception as e:

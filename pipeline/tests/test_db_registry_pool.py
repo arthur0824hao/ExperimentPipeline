@@ -8,7 +8,12 @@ import pytest
 import sys, os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from db_registry import DBExperimentsDB, derive_progression_status, _get_dsn
+from db_registry import (
+    DBExperimentsDB,
+    derive_progression_status,
+    _get_dsn,
+    _get_dsn_candidates,
+)
 import db_registry
 
 
@@ -108,6 +113,67 @@ def test_get_dsn_falls_back_to_builtin_defaults_when_config_read_fails():
         dsn
         == "host=localhost port=5432 dbname=ExperimentPipeline-experiment user=fallback-user connect_timeout=3"
     )
+
+
+def test_get_dsn_candidates_prefers_local_tunnel_for_matched_machine():
+    fake_cfg = {
+        "experiment": {
+            "host": "192.168.1.4",
+            "port": "5432",
+            "dbname": "FraudDetect-experiment",
+            "user": "arthur0824hao",
+            "connect_timeout": "3",
+        }
+    }
+    fake_config_file = MagicMock()
+    fake_config_file.read_text.return_value = json.dumps(fake_cfg)
+    fake_machines = {
+        "SOTA": {"host": "140.122.185.39", "db_tunnel_port": 15432},
+        "dino4ur": {"host": "140.122.185.39", "db_tunnel_port": 15433},
+    }
+
+    with (
+        patch.dict(os.environ, {}, clear=True),
+        patch("db_registry.DATABASE_CONFIG_FILE", fake_config_file),
+        patch("db_registry._load_machine_constraints", return_value=fake_machines),
+        patch("db_registry.socket.gethostname", return_value="SOTA"),
+        patch("db_registry.socket.getfqdn", return_value="SOTA"),
+    ):
+        candidates = _get_dsn_candidates()
+
+    assert candidates[0].startswith(
+        "host=localhost port=15432 dbname=FraudDetect-experiment"
+    )
+    assert any(c.startswith("host=192.168.1.4 port=5432") for c in candidates)
+
+
+def test_get_dsn_candidates_keeps_env_host_first_then_tunnel():
+    fake_cfg = {
+        "experiment": {
+            "host": "192.168.1.4",
+            "port": "5432",
+            "dbname": "FraudDetect-experiment",
+            "user": "arthur0824hao",
+            "connect_timeout": "3",
+        }
+    }
+    fake_config_file = MagicMock()
+    fake_config_file.read_text.return_value = json.dumps(fake_cfg)
+    fake_machines = {
+        "SOTA": {"host": "140.122.185.39", "db_tunnel_port": 15432}
+    }
+
+    with (
+        patch.dict(os.environ, {"EXP_PGHOST": "db.override", "EXP_PGPORT": "6432"}, clear=True),
+        patch("db_registry.DATABASE_CONFIG_FILE", fake_config_file),
+        patch("db_registry._load_machine_constraints", return_value=fake_machines),
+        patch("db_registry.socket.gethostname", return_value="SOTA"),
+        patch("db_registry.socket.getfqdn", return_value="SOTA"),
+    ):
+        candidates = _get_dsn_candidates()
+
+    assert candidates[0].startswith("host=db.override port=6432")
+    assert candidates[1].startswith("host=localhost port=15432")
 
 
 def test_get_pool_uses_first_successful_candidate_and_closes_failed_pool():

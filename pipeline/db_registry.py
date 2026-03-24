@@ -20,6 +20,7 @@ Usage:
 import csv
 import json
 import os
+import socket
 import threading
 import time
 from contextlib import contextmanager
@@ -238,21 +239,64 @@ def _get_dsn_candidates() -> List[str]:
     )
     env_host = os.environ.get("EXP_PGHOST", os.environ.get("PGHOST", "")).strip()
     cfg_host = defaults["host"]  # from database.json (e.g. 192.168.1.4)
-    hosts: List[str] = []
+
+    local_aliases = set()
+    for value in [
+        socket.gethostname(),
+        socket.getfqdn(),
+        os.environ.get("HOSTNAME", ""),
+        os.environ.get("COMPUTERNAME", ""),
+    ]:
+        token = str(value or "").strip().lower()
+        if not token:
+            continue
+        local_aliases.add(token)
+        local_aliases.add(token.split(".")[0])
+
+    tunnel_port: Optional[str] = None
+    try:
+        machine_constraints = _load_machine_constraints()
+        for worker_id, conf in machine_constraints.items():
+            if not isinstance(conf, dict):
+                continue
+            raw_tunnel = conf.get("db_tunnel_port")
+            if raw_tunnel in (None, ""):
+                continue
+            candidates = {
+                str(worker_id or "").strip().lower(),
+                str(conf.get("host") or "").strip().lower(),
+            }
+            normalized_candidates = set()
+            for item in candidates:
+                if not item:
+                    continue
+                normalized_candidates.add(item)
+                normalized_candidates.add(item.split(".")[0])
+            if local_aliases & normalized_candidates:
+                tunnel_port = str(raw_tunnel).strip()
+                break
+    except Exception:
+        tunnel_port = None
+
+    host_port_pairs: List[Tuple[str, str]] = []
     if env_host:
-        hosts.append(env_host)
+        host_port_pairs.append((env_host, str(port)))
+    if tunnel_port:
+        host_port_pairs.append(("localhost", tunnel_port))
     if cfg_host:
-        hosts.append(cfg_host)
-    hosts.extend(["localhost", ""])
-    deduped_hosts: List[str] = []
-    for host in hosts:
-        if host not in deduped_hosts:
-            deduped_hosts.append(host)
+        host_port_pairs.append((cfg_host, str(port)))
+    host_port_pairs.extend([("localhost", str(port)), ("", str(port))])
+
+    deduped_host_port_pairs: List[Tuple[str, str]] = []
+    for pair in host_port_pairs:
+        if pair not in deduped_host_port_pairs:
+            deduped_host_port_pairs.append(pair)
+
     candidates: List[str] = []
-    for host in deduped_hosts:
+    for host, candidate_port in deduped_host_port_pairs:
         prefix = f"host={host} " if host else ""
         candidates.append(
-            f"{prefix}port={port} dbname={dbname} user={user} connect_timeout={connect_timeout}"
+            f"{prefix}port={candidate_port} dbname={dbname} user={user} connect_timeout={connect_timeout}"
         )
     return candidates
 
