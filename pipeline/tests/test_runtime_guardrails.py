@@ -191,7 +191,7 @@ def test_cluster_start_node_restarts_when_heartbeat_stale():
     assert "kill-session -t exp_runner" in remote_cmd
     assert ".runner_launch_node-a.sh" in remote_cmd
     assert "cat > /tmp/.runner_launch_node-a.sh" in remote_cmd
-    assert "nohup python experiments.py --worker_id node-a" in remote_cmd
+    assert "python experiments.py --worker_id node-a" in remote_cmd
     assert "Runner already alive" not in str(cmd_args[-1])
 
 
