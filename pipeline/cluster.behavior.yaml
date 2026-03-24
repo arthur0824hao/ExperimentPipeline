@@ -1,0 +1,95 @@
+spec_version: "1.0"
+target: "pipeline/cluster.py"
+purpose: "Multi-node SSH cluster lifecycle manager with heartbeat-aware recovery"
+
+modules:
+  lifecycle:
+    description: "Node start/stop/restart lifecycle with stale detection"
+    public_api:
+      - ClusterManager
+      - start_node
+      - stop_node
+      - restart_node
+      - kill_remote_pid
+    internal:
+      - _is_remote_runner_alive
+      - _probe_machine_stats
+      - _ssh_base_cmd
+      - _setup_db_tunnel
+      - _set_probe_cache
+      - _get_probe_cache
+    guarantees:
+      - "start_node returns success only when runner process is healthy AND heartbeat is fresh"
+      - "Non-destructive start: if runner process exists AND heartbeat is fresh (< HEARTBEAT_STALE_SEC), return 'Already running' and do not kill tmux/session"
+      - "Stale runner recovery: if process exists but heartbeat is stale (> HEARTBEAT_STALE_SEC), treat as unhealthy and restart"
+      - "Stale worker PID recovery also applies when tmux session is missing (unmanaged alive process): stale heartbeat forces restart"
+      - "force_restart=True bypasses all health checks and forces fresh start"
+      - "stop_node gracefully terminates: TERM then KILL after 1s, cleans tmux session"
+      - "start_node launches worker on configured remote target through SSH base command (host/port from machines config)"
+      - "stale/forced restart first attempts graceful worker SIGTERM with timeout before tmux kill-session"
+      - "runner start command uses nohup so SSH disconnect does not propagate SIGHUP to worker"
+      - "management-only nodes (max_gpus=0) on local host must refuse worker start"
+      - "GPU-less management nodes must never claim or execute experiments"
+
+  status:
+    description: "Cluster status derivation from heartbeats and DB queries"
+    public_api:
+      - get_cluster_status
+      - load_machines
+    internal:
+      - _load_heartbeat_files
+    guarantees:
+      - "ONLINE status requires last_seen_sec < HEARTBEAT_ONLINE_SEC (default 60s)"
+      - "STALE status means HEARTBEAT_ONLINE_SEC <= last_seen_sec < HEARTBEAT_STALE_SEC"
+      - "OFFLINE recoverable status means last_seen_sec >= HEARTBEAT_STALE_SEC OR no heartbeat exists"
+      - "DISABLED status is set by DB.is_worker_disabled() regardless of heartbeat"
+      - "our_gpu_ids are populated from DB query of RUNNING experiments with non-null gpu_id"
+
+stages:
+  - name: "check_existing_process"
+    intent: "Determine if remote tmux session + python process exists"
+    inputs: ["node_id", "host", "port", "session"]
+    outputs: ["process_exists"]
+  
+  - name: "check_heartbeat_freshness"
+    intent: "Determine if heartbeat is recent enough to consider runner healthy"
+    inputs: ["node_id", "cluster_status"]
+    outputs: ["is_heartbeat_fresh"]
+    precondition: "process_exists == True"
+  
+  - name: "decide_action_for_start"
+    intent: "Choose between: no-op (healthy), restart (stale), or fresh-start (no process)"
+    inputs: ["process_exists", "is_heartbeat_fresh", "force_restart"]
+    outputs: ["action"]
+    rules:
+      - "process_exists AND is_heartbeat_fresh AND NOT force_restart -> action=noop"
+      - "process_exists AND NOT is_heartbeat_fresh AND NOT force_restart -> action=restart_stale"
+      - "NOT process_exists AND NOT force_restart -> action=fresh_start"
+      - "force_restart -> action=restart"
+  
+  - name: "execute_start_action"
+    intent: "Run the chosen action via SSH"
+    inputs: ["action", "host", "port", "session", "work_dir", "node_id"]
+    outputs: ["success", "message"]
+
+error_paths:
+  - name: "stale_process_detected"
+    condition: "tmux session + python process exist but heartbeat is stale"
+    severity: "warning"
+    action: "log warning, treat as OFFLINE, restart if start_node is called"
+  
+  - name: "ssh_timeout"
+    condition: "SSH command times out (>15s for start, >8s for probe)"
+    severity: "error"
+    action: "return False with timeout message"
+  
+  - name: "unknown_node"
+    condition: "node_id not in machines config"
+    severity: "error"
+    action: "return False with 'Unknown node' message"
+
+cross_cutting:
+  - "HEARTBEAT_ONLINE_SEC (60s) and HEARTBEAT_STALE_SEC (120s) are intentionally differentiated: ONLINE is operator freshness, STALE is recovery threshold"
+  - "Both thresholds should be configurable via runtime_config; defaults are 60s (ONLINE) and 120s (STALE)"
+  - "stale-but-running workers should be recoverable via explicit enable/start action"
+  - "Manual cluster actions are the only allowed interactive SSH trigger surface"

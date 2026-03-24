@@ -203,10 +203,43 @@ modules:
     internal: []
     dependencies: []
 
+dashboard:
+    file: "pipeline/experiments.py"
+    description: "UnifiedDashboard cluster panel rendering with GPU marker logic"
+    public_api:
+      - UnifiedDashboard
+      - build_cluster_panel
+    internal:
+      - _render_gpu_row
+      - _format_mem
+    guarantees:
+      - "GPU markers may show both star (our job) and triangle (foreign usage) simultaneously"
+      - "Star marker (★) indicates GPU is used by one of our RUNNING experiments"
+      - "Triangle marker (▲) indicates GPU has >500MB VRAM used by non-our processes"
+      - "Both markers can coexist on the same GPU row when both conditions are met"
+      - "Blank marker (no ★, no ▲) indicates GPU is free"
+      - "Marker color: ★ is green, ▲ is yellow"
+      - "When worker is OFFLINE/STALE, PID/Run/Mine fields are labeled as stale or last-reported metadata"
+      - "OFFLINE cards must not visually imply live health from stale process remnants"
+    marker_logic:
+      - "Step1: Check if GPU index is in our_gpu_ids (from DB query)"
+      - "Step2: Check if VRAM used > 500MB by any process"
+      - "Step3: Render markers independently (not mutually exclusive)"
+      - "Result combinations: empty, ★ only, ▲ only, ★▲ combined"
+
 cross_cutting:
   - "UnifiedDashboard stays in experiments.py for now"
   - "main() and scheduler_loop stay in experiments.py"
   - "Input/TTY handling (get_key) stays in experiments.py"
   - "Constants (STATUS_*, paths, thresholds) stay in experiments.py"
+  - "Watch mode is a read-only DB monitor + manual control surface and allows multiple concurrent instances"
+  - "Watch mode has no singleton lock and must not create or depend on lock files"
+  - "Watch scheduler branch is passive-only: no background DB mutation jobs (no auto-archive, no remote-termination polling)"
   - "Cluster panel navigation uses WASD + arrow keys with grid semantics (W=up, A=left, S=down, D=right)"
   - "Cluster machine cards remain dense with runtime detail (status, CPU, GPU, recent runs, last-seen)"
+  - "GPU row markers ★ and ▲ are independent and may coexist on the same GPU"
+  - "Panel health semantics: ONLINE (<60s), STALE (60-120s), OFFLINE (>=120s or missing heartbeat)"
+  - "Watch mode is monitor-only and must not trigger SSH side effects (no implicit start/restart)"
+  - "Manual cluster actions (start/stop/restart/enable/disable) are the only interactive SSH path"
+  - "Runner process ignores SIGHUP to avoid accidental worker teardown from control-plane/session events"
+  - "Worker loop is self-contained for heartbeat + queue processing; any future auto-repair must be separate from watch"

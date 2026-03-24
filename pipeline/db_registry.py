@@ -20,6 +20,7 @@ Usage:
 import csv
 import json
 import os
+import socket
 import threading
 import time
 from contextlib import contextmanager
@@ -238,21 +239,64 @@ def _get_dsn_candidates() -> List[str]:
     )
     env_host = os.environ.get("EXP_PGHOST", os.environ.get("PGHOST", "")).strip()
     cfg_host = defaults["host"]  # from database.json (e.g. 192.168.1.4)
-    hosts: List[str] = []
+
+    local_aliases = set()
+    for value in [
+        socket.gethostname(),
+        socket.getfqdn(),
+        os.environ.get("HOSTNAME", ""),
+        os.environ.get("COMPUTERNAME", ""),
+    ]:
+        token = str(value or "").strip().lower()
+        if not token:
+            continue
+        local_aliases.add(token)
+        local_aliases.add(token.split(".")[0])
+
+    tunnel_port: Optional[str] = None
+    try:
+        machine_constraints = _load_machine_constraints()
+        for worker_id, conf in machine_constraints.items():
+            if not isinstance(conf, dict):
+                continue
+            raw_tunnel = conf.get("db_tunnel_port")
+            if raw_tunnel in (None, ""):
+                continue
+            candidates = {
+                str(worker_id or "").strip().lower(),
+                str(conf.get("host") or "").strip().lower(),
+            }
+            normalized_candidates = set()
+            for item in candidates:
+                if not item:
+                    continue
+                normalized_candidates.add(item)
+                normalized_candidates.add(item.split(".")[0])
+            if local_aliases & normalized_candidates:
+                tunnel_port = str(raw_tunnel).strip()
+                break
+    except Exception:
+        tunnel_port = None
+
+    host_port_pairs: List[Tuple[str, str]] = []
     if env_host:
-        hosts.append(env_host)
+        host_port_pairs.append((env_host, str(port)))
+    if tunnel_port:
+        host_port_pairs.append(("localhost", tunnel_port))
     if cfg_host:
-        hosts.append(cfg_host)
-    hosts.extend(["localhost", ""])
-    deduped_hosts: List[str] = []
-    for host in hosts:
-        if host not in deduped_hosts:
-            deduped_hosts.append(host)
+        host_port_pairs.append((cfg_host, str(port)))
+    host_port_pairs.extend([("localhost", str(port)), ("", str(port))])
+
+    deduped_host_port_pairs: List[Tuple[str, str]] = []
+    for pair in host_port_pairs:
+        if pair not in deduped_host_port_pairs:
+            deduped_host_port_pairs.append(pair)
+
     candidates: List[str] = []
-    for host in deduped_hosts:
+    for host, candidate_port in deduped_host_port_pairs:
         prefix = f"host={host} " if host else ""
         candidates.append(
-            f"{prefix}port={port} dbname={dbname} user={user} connect_timeout={connect_timeout}"
+            f"{prefix}port={candidate_port} dbname={dbname} user={user} connect_timeout={connect_timeout}"
         )
     return candidates
 
@@ -497,6 +541,7 @@ class DBExperimentsDB:
         # Store run_ids for fencing (experiment_name -> run_id)
         self._run_ids: Dict[str, str] = {}
         self._run_ids_lock = threading.Lock()
+        self._last_heartbeat_error = ""
 
     def _sync_snapshot(self):
         """Best-effort sync DB state to experiments.json."""
@@ -601,12 +646,25 @@ class DBExperimentsDB:
         try:
             with get_conn(self.dsn) as conn:
                 with conn.cursor() as cur:
-                    cur.execute(
-                        "SELECT name, status, preferred_worker, extra, display_order, "
-                        "parent_experiment, peak_memory_mb, started_at, claimed_at "
-                        "FROM exp_registry.experiments "
-                        "ORDER BY display_order NULLS LAST, name"
-                    )
+                    has_claimed_at = True
+                    try:
+                        cur.execute(
+                            "SELECT name, status, preferred_worker, extra, display_order, "
+                            "parent_experiment, peak_memory_mb, started_at, claimed_at "
+                            "FROM exp_registry.experiments "
+                            "ORDER BY display_order NULLS LAST, name"
+                        )
+                    except Exception as e:
+                        if "claimed_at" not in str(e).lower():
+                            raise
+                        has_claimed_at = False
+                        conn.rollback()
+                        cur.execute(
+                            "SELECT name, status, preferred_worker, extra, display_order, "
+                            "parent_experiment, peak_memory_mb, started_at "
+                            "FROM exp_registry.experiments "
+                            "ORDER BY display_order NULLS LAST, name"
+                        )
                     rows = cur.fetchall()
                     result = []
                     for row in rows:
@@ -627,7 +685,7 @@ class DBExperimentsDB:
                                 if hasattr(row[7], "isoformat")
                                 else str(row[7])
                             )
-                        if row[8]:
+                        if has_claimed_at and row[8]:
                             exp["claimed_at"] = (
                                 row[8].isoformat()
                                 if hasattr(row[8], "isoformat")
@@ -1446,8 +1504,8 @@ class DBExperimentsDB:
         running_experiments: List[str],
         gpu_info: Any = None,
         cpu_info: Any = None,
-    ):
-        """Write worker heartbeat to DB."""
+    ) -> bool:
+        """Write worker heartbeat to DB. Returns True on success."""
         try:
             with get_conn(self.dsn) as conn:
                 with conn.cursor() as cur:
@@ -1462,8 +1520,43 @@ class DBExperimentsDB:
                             json.dumps(cpu_info or {}),
                         ),
                     )
+            self._last_heartbeat_error = ""
+            return True
         except Exception as e:
-            print(f"[DBExperimentsDB] update_heartbeat error: {e}")
+            self._last_heartbeat_error = (
+                f"worker_id={worker_id} pid={pid} running_jobs={running_jobs} "
+                f"running_experiments={len(running_experiments)} err={type(e).__name__}: {e}"
+            )
+            print(f"[DBExperimentsDB] update_heartbeat error: {self._last_heartbeat_error}")
+            try:
+                close_pool()
+            except Exception:
+                pass
+            try:
+                with get_conn(self.dsn) as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            "SELECT exp_registry.update_heartbeat(%s, %s, %s, %s, %s, %s)",
+                            (
+                                worker_id,
+                                pid,
+                                running_jobs,
+                                running_experiments,
+                                json.dumps(gpu_info or []),
+                                json.dumps(cpu_info or {}),
+                            ),
+                        )
+                self._last_heartbeat_error = ""
+                return True
+            except Exception as retry_e:
+                self._last_heartbeat_error = (
+                    f"{self._last_heartbeat_error} retry_err={type(retry_e).__name__}: {retry_e}"
+                )
+                print(f"[DBExperimentsDB] update_heartbeat retry failed: {self._last_heartbeat_error}")
+                return False
+
+    def get_last_heartbeat_error(self) -> str:
+        return str(self._last_heartbeat_error or "")
 
     def get_cluster_heartbeats(self) -> Dict[str, Dict]:
         """Read all heartbeats from DB."""

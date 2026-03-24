@@ -90,7 +90,6 @@ from gpu import (
     _free_mb_for_worker_gpu,
 )
 from artifact import (
-    _load_json_dict,
     _artifact_timestamp,
     _failed_timestamp,
     _artifact_is_fresh,
@@ -230,6 +229,17 @@ GPU_JOB_COUNT_MIN_MEMORY_MB = cfg_int(_RUNNER_CFG, "gpu_job_count_min_memory_mb"
 
 RESULTS_DB_DIR.mkdir(exist_ok=True)
 LOGS_DIR.mkdir(exist_ok=True)
+LOCKS_DIR.mkdir(exist_ok=True)
+
+def _is_management_only_worker(worker_id: str, cluster_mgr: ClusterManager) -> bool:
+    conf = cluster_mgr.machines.get(worker_id)
+    if not isinstance(conf, dict):
+        return False
+    raw_max_gpus = conf.get("max_gpus")
+    try:
+        return int(raw_max_gpus) <= 0
+    except (TypeError, ValueError):
+        return False
 
 
 # =============================================================================
@@ -1231,7 +1241,9 @@ class UnifiedDashboard:
             }
 
             pid = info.get("pid", 0)
-            pid_str = f" [dim]PID:{pid}[/]" if pid and int(pid) > 0 else ""
+            stale_runtime = status != "ONLINE"
+            pid_label = "Last PID" if stale_runtime else "PID"
+            pid_str = f" [dim]{pid_label}:{pid}[/]" if pid and int(pid) > 0 else ""
 
             if status == "OFFLINE" and last_seen < 99999:
                 card_lines.append(Text.from_markup(
@@ -1244,8 +1256,10 @@ class UnifiedDashboard:
                     if float(g.get("used", 0) or 0) > 500
                     and g.get("index", 0) not in our_gpu_ids
                 )
+                mine_label = "Last Mine" if stale_runtime else "Mine"
+                other_label = "Last ▲" if stale_runtime else "▲"
                 card_lines.append(Text.from_markup(
-                    f"{badge}  Mine: {jobs}  ▲: {other_procs}{pid_str}"
+                    f"{badge}  {mine_label}: {jobs}  {other_label}: {other_procs}{pid_str}"
                 ))
 
             if last_seen < 99999:
@@ -1275,9 +1289,13 @@ class UnifiedDashboard:
                     total = g.get("total", 1)
                     util = g.get("util", 0)
 
-                    if g_idx in our_gpu_ids:
+                    star_on = g_idx in our_gpu_ids
+                    triangle_on = float(used or 0) > 500
+                    if star_on and triangle_on:
+                        marker = "[green]★[/][yellow]▲[/]"
+                    elif star_on:
                         marker = "[green]★[/] "
-                    elif float(used or 0) > 500:
+                    elif triangle_on:
                         marker = "[yellow]▲[/] "
                     else:
                         marker = "  "
@@ -1303,7 +1321,8 @@ class UnifiedDashboard:
             if isinstance(running_experiments, list) and running_experiments:
                 shown = [str(x) for x in running_experiments[:2] if str(x).strip()]
                 if shown:
-                    card_lines.append(Text.from_markup(f"[dim]Run:[/] {shown[0]}"))
+                    run_label = "Last Run" if stale_runtime else "Run"
+                    card_lines.append(Text.from_markup(f"[dim]{run_label}:[/] {shown[0]}"))
                     if len(shown) > 1:
                         card_lines.append(Text.from_markup(f"[dim]     {shown[1]}[/]"))
                 remain = max(0, len(running_experiments) - len(shown))
@@ -2583,19 +2602,19 @@ class UnifiedDashboard:
                 return f"✓ DISABLED {node_id}: {msg} | Killed {killed} experiment(s)"
             return f"✗ DISABLE {node_id} failed: {msg}"
         elif action == "enable":
-            ok, msg = self.cluster_mgr.start_node(node_id)
+            ok, msg = self.cluster_mgr.start_node(node_id, db=self.db)
             if ok:
                 self.db.enable_worker(node_id)
                 return f"✓ ENABLED {node_id}: {msg}"
             return f"✗ ENABLE {node_id} failed: {msg}"
         elif action == "restart":
-            ok, msg = self.cluster_mgr.restart_node(node_id)
+            ok, msg = self.cluster_mgr.restart_node(node_id, db=self.db)
             if ok:
                 killed = self.db.kill_experiments_on_worker(node_id)
                 return f"✓ RESTART {node_id}: {msg} | Killed {killed} experiment(s)"
             return f"✗ RESTART {node_id} failed: {msg}"
         elif action == "start":
-            ok, msg = self.cluster_mgr.start_node(node_id)
+            ok, msg = self.cluster_mgr.start_node(node_id, db=self.db)
             return f"{'✓' if ok else '✗'} START {node_id}: {msg}"
         elif action == "stop":
             ok, msg = self.cluster_mgr.stop_node(node_id)
@@ -2618,6 +2637,81 @@ class UnifiedDashboard:
 # =============================================================================
 
 
+def _handle_cli_command(args, cluster_mgr: ClusterManager, db: ExperimentsDB) -> int:
+    if args.command == "cluster":
+        if args.cluster_cmd == "status":
+            payload = {
+                "worker": args.worker_id,
+                "cluster": cluster_mgr.get_cluster_status(db),
+                "disabled_workers": sorted(
+                    [wid for wid in cluster_mgr.machines if db.is_worker_disabled(wid)]
+                ),
+            }
+            print(json.dumps(payload, ensure_ascii=True, default=str))
+            return 0
+        if args.cluster_cmd == "enable" and getattr(args, "all", False):
+            changed = []
+            skipped = []
+            for node_id in sorted(cluster_mgr.machines.keys()):
+                conf = cluster_mgr.machines.get(node_id, {})
+                raw_max_gpus = conf.get("max_gpus") if isinstance(conf, dict) else None
+                try:
+                    max_gpus = int(raw_max_gpus)
+                except (TypeError, ValueError):
+                    max_gpus = None
+                if max_gpus is not None and max_gpus <= 0:
+                    skipped.append(node_id)
+                    continue
+                if db.enable_worker(node_id):
+                    changed.append(node_id)
+            print(
+                json.dumps(
+                    {
+                        "ok": True,
+                        "command": "enable",
+                        "scope": "all",
+                        "changed": changed,
+                        "skipped": skipped,
+                    },
+                    ensure_ascii=True,
+                )
+            )
+            return 0
+
+        if not args.node:
+            print("cluster command requires --node", file=sys.stderr)
+            return 2
+        if args.cluster_cmd == "start":
+            ok, msg = cluster_mgr.start_node(args.node, force_restart=args.force_restart, db=db)
+        elif args.cluster_cmd == "stop":
+            ok, msg = cluster_mgr.stop_node(args.node)
+        elif args.cluster_cmd == "restart":
+            ok, msg = cluster_mgr.restart_node(args.node, db=db)
+        elif args.cluster_cmd == "enable":
+            ok = db.enable_worker(args.node)
+            msg = f"Enabled {args.node}" if ok else f"Enable failed for {args.node}"
+        elif args.cluster_cmd == "disable":
+            ok = db.disable_worker(args.node)
+            msg = f"Disabled {args.node}" if ok else f"Disable failed for {args.node}"
+        else:
+            print(f"unknown cluster subcommand: {args.cluster_cmd}", file=sys.stderr)
+            return 2
+        print(
+            json.dumps(
+                {
+                    "ok": ok,
+                    "command": args.cluster_cmd,
+                    "node": args.node,
+                    "message": msg,
+                },
+                ensure_ascii=True,
+            )
+        )
+        return 0 if ok else 1
+
+    return 2
+
+
 def main():  # pragma: no cover
     parser = argparse.ArgumentParser(description="Phase 3 Unified Runner & Dashboard")
     parser.add_argument(
@@ -2634,6 +2728,27 @@ def main():  # pragma: no cover
         type=int,
         default=1,
         help="Initial experiment page in --watch mode (1-based)",
+    )
+    subparsers = parser.add_subparsers(dest="command")
+    cluster_parser = subparsers.add_parser("cluster", help="Headless cluster operations")
+    cluster_parser.add_argument(
+        "--worker_id", default=platform.node(), help="Worker identifier"
+    )
+    cluster_parser.add_argument(
+        "cluster_cmd",
+        choices=["status", "start", "stop", "restart", "enable", "disable"],
+        help="Cluster subcommand",
+    )
+    cluster_parser.add_argument("--node", help="Target worker/node id")
+    cluster_parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Enable all non-management workers (for cluster enable)",
+    )
+    cluster_parser.add_argument(
+        "--force-restart",
+        action="store_true",
+        help="Force restart when using cluster start",
     )
     add_common_args(parser)
     args = parser.parse_args()
@@ -2656,6 +2771,9 @@ def main():  # pragma: no cover
 
     db = ExperimentsDB(json_path=EXPERIMENTS_FILE)
     cluster_mgr = ClusterManager()
+    if args.command:
+        raise SystemExit(_handle_cli_command(args, cluster_mgr, db))
+
     dashboard = UnifiedDashboard(args.worker_id, cluster_mgr, db, is_watch=args.watch)
     if args.watch:
         dashboard.exp_page = normalize_initial_exp_page(
@@ -2686,6 +2804,16 @@ def main():  # pragma: no cover
             current_python_env = conf["python_env"]
             logger.log(f"Config override: python_env={current_python_env}")
 
+    if not args.watch and _is_management_only_worker(args.worker_id, cluster_mgr):
+        logger.log(
+            "This machine (max_gpus=0) is management-only; refusing worker loop startup"
+        )
+        print(
+            "[worker-guard] This machine (max_gpus=0) is management-only",
+            file=sys.stderr,
+        )
+        return
+
     allocator = GPUAllocator(
         max_jobs_per_gpu=current_max_jobs,
         max_gpus=current_max_gpus,
@@ -2707,6 +2835,9 @@ def main():  # pragma: no cover
     archive_check_interval = 60.0
     archive_last_check = 0.0
     archive_last_signature = ""
+    heartbeat_failure_count = 0
+    heartbeat_last_error_log = 0.0
+    heartbeat_log_interval = 30.0
 
     stop_requested = {"value": False}
 
@@ -2729,6 +2860,9 @@ def main():  # pragma: no cover
                 pass
 
     def _signal_handler(signum, frame):
+        if signum == signal.SIGHUP:
+            logger.log("Signal received: 1 (SIGHUP). Ignored by runner.")
+            return
         stop_requested["value"] = True
         logger.log(f"Signal received: {signum}. Terminating running processes...")
         _terminate_running_processes()
@@ -2814,10 +2948,13 @@ def main():  # pragma: no cover
                 status = cluster_status.get(node_id, {})
                 if status.get("status") != "OFFLINE":
                     continue
+                last_seen_sec = status.get("last_seen_sec", 999999)
+                if isinstance(last_seen_sec, (int, float)) and last_seen_sec < HEARTBEAT_STALE_SEC:
+                    continue
                 last_wake = auto_wake_last.get(node_id, 0)
                 if now - last_wake < auto_wake_interval:
                     continue
-                ok, msg = cluster_mgr.start_node(node_id)
+                ok, msg = cluster_mgr.start_node(node_id, db=db)
                 logger.log(f"Auto-wake {node_id}: {'OK' if ok else 'FAIL'} {msg}")
                 auto_wake_last[node_id] = now
             auto_wake_last["_tick"] = now
@@ -2875,12 +3012,6 @@ def main():  # pragma: no cover
 
         while not stop_requested["value"]:
             if args.watch:
-                try:
-                    process_remote_termination_requests(db, args.worker_id, logger)
-                    maybe_archive_completed(time.time())
-                    auto_wake_offline_nodes(time.time())
-                except Exception as e:
-                    logger.log(f"Watch auto-wake error: {e}")
                 time.sleep(max(0.2, float(args.interval)))
                 continue
             try:
@@ -2913,7 +3044,9 @@ def main():  # pragma: no cover
 
                 now = time.time()
                 if now - orphan_reap_last >= ORPHAN_REAPER_INTERVAL_SEC:
-                    reap_orphan_runner_processes(logger, os.getpid(), db)
+                    reap_orphan_runner_processes(
+                        logger, os.getpid(), db, worker_id=args.worker_id
+                    )
                     with running_futures_lock:
                         active_exp_names = set(running_futures.keys())
                     reap_orphan_training_processes(
@@ -3011,11 +3144,26 @@ def main():  # pragma: no cover
                     dashboard.drain_async_updates()
 
                     try:
-                        sys_info = collect_system_info()
+                        sys_info: Dict[str, Any] = {"gpus": [], "cpu": {}}
+                        try:
+                            sys_info = collect_system_info()
+                        except Exception as sys_err:
+                            now = time.time()
+                            if (
+                                heartbeat_failure_count == 0
+                                or now - heartbeat_last_error_log >= heartbeat_log_interval
+                            ):
+                                heartbeat_last_error_log = now
+                                logger.log(
+                                    "System info probe failed; heartbeat uses empty payload: "
+                                    f"worker={args.worker_id} err={type(sys_err).__name__}: {sys_err}"
+                                )
+
                         if not args.watch:
                             with running_futures_lock:
                                 running_names = sorted(running_futures.keys())
-                            db.update_heartbeat(
+
+                            heartbeat_ok = db.update_heartbeat(
                                 args.worker_id,
                                 os.getpid(),
                                 len(running_names),
@@ -3023,8 +3171,43 @@ def main():  # pragma: no cover
                                 sys_info.get("gpus"),
                                 sys_info.get("cpu"),
                             )
-                    except Exception:
-                        pass
+
+                            if heartbeat_ok:
+                                if heartbeat_failure_count:
+                                    logger.log(
+                                        "Heartbeat write recovered: "
+                                        f"worker={args.worker_id} recover_after={heartbeat_failure_count}"
+                                    )
+                                heartbeat_failure_count = 0
+                            else:
+                                heartbeat_failure_count += 1
+                                now = time.time()
+                                if (
+                                    heartbeat_failure_count == 1
+                                    or now - heartbeat_last_error_log >= heartbeat_log_interval
+                                ):
+                                    heartbeat_last_error_log = now
+                                    logger.log(
+                                        "Heartbeat DB write failed: "
+                                        f"worker={args.worker_id} pid={os.getpid()} "
+                                        f"running_jobs={len(running_names)} "
+                                        f"running_names={running_names[:5]} "
+                                        f"consecutive_failures={heartbeat_failure_count} "
+                                        f"detail={db.get_last_heartbeat_error()}"
+                                    )
+                    except Exception as e:
+                        heartbeat_failure_count += 1
+                        now = time.time()
+                        if (
+                            heartbeat_failure_count == 1
+                            or now - heartbeat_last_error_log >= heartbeat_log_interval
+                        ):
+                            heartbeat_last_error_log = now
+                            logger.log(
+                                "Heartbeat loop failed: "
+                                f"worker={args.worker_id} err={type(e).__name__}: {e} "
+                                f"consecutive_failures={heartbeat_failure_count}"
+                            )
 
                     if use_input:
                         quit_requested = False

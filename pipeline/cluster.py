@@ -1,6 +1,9 @@
 import json
 import logging
+import platform
 import re
+import shlex
+import socket
 import subprocess
 import threading
 import time
@@ -35,6 +38,10 @@ MACHINES_FILE = _DEFAULT_MACHINES_FILE
 HEARTBEATS_DIR = BASE_DIR / "heartbeats"
 _RUNNER_CFG = get_runtime_section("experiments_runner")
 HEARTBEAT_STALE_SEC = cfg_int(_RUNNER_CFG, "heartbeat_stale_sec", 120)
+HEARTBEAT_ONLINE_SEC = cfg_int(_RUNNER_CFG, "heartbeat_online_sec", 60)
+START_HEARTBEAT_WAIT_SEC = cfg_int(_RUNNER_CFG, "start_heartbeat_wait_sec", 20)
+START_HEARTBEAT_POLL_SEC = cfg_int(_RUNNER_CFG, "start_heartbeat_poll_sec", 2)
+GRACEFUL_STOP_WAIT_SEC = cfg_int(_RUNNER_CFG, "graceful_stop_wait_sec", 12)
 
 
 class ClusterManager:
@@ -109,7 +116,7 @@ class ClusterManager:
         heartbeats = db.get_cluster_heartbeats() if db else self._load_heartbeat_files()
         for w_id, hb in heartbeats.items():
             seconds_ago = hb.get("last_seen_sec", 999999)
-            is_online = seconds_ago < 60
+            is_online = seconds_ago < HEARTBEAT_ONLINE_SEC
 
             if w_id not in status_map:
                 status_map[w_id] = {"config": {}, "is_known": False}
@@ -337,7 +344,128 @@ class ClusterManager:
         except Exception:
             pass
 
-    def start_node(self, node_id):
+    def _is_remote_runner_alive(
+        self, node_id: str, host: str, port: Optional[int], session: str
+    ) -> bool:
+        probe_cmd = (
+            f"tmux has-session -t {session} 2>/dev/null && "
+            f"pgrep -f 'python experiments.py --worker_id {node_id}' >/dev/null"
+        )
+        try:
+            result = subprocess.run(
+                [*self._ssh_base_cmd(host, port), probe_cmd],
+                timeout=8,
+                capture_output=True,
+                text=True,
+            )
+            return result.returncode == 0
+        except Exception:
+            return False
+
+    def _is_remote_worker_pid_alive(
+        self, node_id: str, host: str, port: Optional[int]
+    ) -> bool:
+        probe_cmd = f"pgrep -f 'python experiments.py --worker_id {node_id}' >/dev/null"
+        try:
+            result = subprocess.run(
+                [*self._ssh_base_cmd(host, port), probe_cmd],
+                timeout=8,
+                capture_output=True,
+                text=True,
+            )
+            return result.returncode == 0
+        except Exception:
+            return False
+
+    def _is_local_target(self, host: str) -> bool:
+        token = str(host or "").strip().lower()
+        if not token:
+            return False
+        local_hosts = {
+            "localhost",
+            "127.0.0.1",
+            "::1",
+            str(platform.node() or "").strip().lower(),
+            str(socket.gethostname() or "").strip().lower(),
+            str(socket.getfqdn() or "").strip().lower(),
+        }
+        normalized_local_hosts = set()
+        for item in local_hosts:
+            if not item:
+                continue
+            normalized_local_hosts.add(item)
+            normalized_local_hosts.add(item.split(".")[0])
+        return token in normalized_local_hosts or token.split(".")[0] in normalized_local_hosts
+
+    def _is_heartbeat_fresh(
+        self, node_id: str, db: Optional["DBExperimentsDB"] = None
+    ) -> Tuple[bool, Optional[int]]:
+        try:
+            if db:
+                heartbeats = db.get_cluster_heartbeats()
+            else:
+                heartbeats = self._load_heartbeat_files()
+            
+            hb = heartbeats.get(node_id, {})
+            last_seen_sec = hb.get("last_seen_sec")
+            
+            if last_seen_sec is None:
+                return (False, None)
+
+            is_fresh = last_seen_sec < HEARTBEAT_STALE_SEC
+            return (is_fresh, last_seen_sec)
+            
+        except Exception:
+            return (False, None)
+
+    def _wait_for_heartbeat_resume(
+        self,
+        node_id: str,
+        db: Optional["DBExperimentsDB"],
+        timeout_sec: int = START_HEARTBEAT_WAIT_SEC,
+    ) -> Tuple[bool, Optional[int]]:
+        if db is None:
+            return (True, None)
+        deadline = time.time() + max(1, timeout_sec)
+        poll = max(1, START_HEARTBEAT_POLL_SEC)
+        while time.time() <= deadline:
+            try:
+                hb = db.get_cluster_heartbeats().get(node_id, {})
+                last_seen = hb.get("last_seen_sec")
+                if last_seen is not None and last_seen < HEARTBEAT_ONLINE_SEC:
+                    return (True, int(last_seen))
+            except Exception:
+                pass
+            time.sleep(poll)
+        return (False, None)
+
+    def _build_runner_launcher(self, node_id: str, work_dir: str, db_env: str) -> Tuple[str, str]:
+        launcher_path = f"{work_dir}/.runner_launch_{node_id}.sh"
+        runner_log = f"{work_dir}/logs/worker_{node_id}.log"
+        launcher_lines = [
+            "#!/usr/bin/env bash",
+            "set -euo pipefail",
+            "source ~/miniconda3/etc/profile.d/conda.sh",
+            "conda activate gnn_fraud",
+        ]
+        if db_env:
+            launcher_lines.append(db_env)
+        launcher_lines.extend(
+            [
+                f"cd {shlex.quote(work_dir)}",
+                f"python experiments.py --worker_id {shlex.quote(node_id)} >> {shlex.quote(runner_log)} 2>&1",
+            ]
+        )
+        launcher_content = "\n".join(launcher_lines) + "\n"
+        launcher_setup_cmd = (
+            f"cat > {shlex.quote(launcher_path)} <<'EOF'\n"
+            f"{launcher_content}"
+            "EOF\n"
+            f"chmod +x {shlex.quote(launcher_path)}"
+        )
+        return launcher_path, launcher_setup_cmd
+
+    def start_node(self, node_id, force_restart: bool = False, db: Optional["DBExperimentsDB"] = None):
         if node_id not in self.machines:
             return False, f"Unknown node: {node_id}"
 
@@ -348,27 +476,80 @@ class ClusterManager:
         port = conf.get("ssh_port")
         session = conf.get("tmux_session", "exp_runner")
         work_dir = conf.get("work_dir", str(BASE_DIR))
+        restart_stale = False
+
+        try:
+            max_gpus = int(conf.get("max_gpus"))
+        except (TypeError, ValueError):
+            max_gpus = None
+        if max_gpus is not None and max_gpus <= 0 and self._is_local_target(str(host)):
+            return (
+                False,
+                f"Refusing to start {node_id}: this machine (max_gpus=0) is management-only",
+            )
+
+        if not force_restart:
+            runner_alive = self._is_remote_runner_alive(node_id, host, port, session)
+            if runner_alive:
+                heartbeat_fresh, last_seen = self._is_heartbeat_fresh(node_id, db)
+                if heartbeat_fresh:
+                    return True, f"Already running {node_id} (fresh heartbeat)"
+                restart_stale = True
+            else:
+                pid_alive = self._is_remote_worker_pid_alive(node_id, host, port)
+                if pid_alive:
+                    heartbeat_fresh, last_seen = self._is_heartbeat_fresh(node_id, db)
+                    if heartbeat_fresh:
+                        return (
+                            True,
+                            f"Already running {node_id} (fresh heartbeat, unmanaged tmux)",
+                        )
+                    restart_stale = True
 
         self._setup_db_tunnel(conf)
 
         db_env = ""
         tunnel_port = conf.get("db_tunnel_port")
         if tunnel_port:
-            db_env = f"export EXP_PGHOST=localhost EXP_PGPORT={tunnel_port} && "
-
-        runner_cmd = (
-            f"source ~/miniconda3/etc/profile.d/conda.sh && "
-            f"conda activate gnn_fraud && "
-            f"{db_env}"
-            f"cd {work_dir} && "
-            f"python experiments.py --worker_id {node_id}; "
-            f"echo 'Runner exited. Press Enter...'; read"
+            db_env = f"export EXP_PGHOST=localhost EXP_PGPORT={int(tunnel_port)}"
+        launcher_path, launcher_setup_cmd = self._build_runner_launcher(
+            node_id=node_id,
+            work_dir=str(work_dir),
+            db_env=db_env,
         )
 
-        full_cmd = (
-            f"tmux kill-session -t {session} 2>/dev/null; "
-            f"tmux new-session -d -s {session} bash -c '{runner_cmd}'"
+        graceful_restart_cmd = (
+            f"set +e; "
+            f"old_pid=$(pgrep -f '[e]xperiments\\.py --worker_id {node_id}' | tr '\\n' ' '); "
+            "if [ -n \"$old_pid\" ]; then "
+            "echo \"Graceful shutdown requested for worker PIDs: $old_pid\"; "
+            "kill -TERM $old_pid 2>/dev/null || true; "
+            f"for _ in $(seq 1 {max(1, GRACEFUL_STOP_WAIT_SEC)}); do "
+            "alive=0; "
+            "for p in $old_pid; do if kill -0 $p 2>/dev/null; then alive=1; break; fi; done; "
+            "if [ $alive -eq 0 ]; then break; fi; "
+            "sleep 1; "
+            "done; "
+            "kill -KILL $old_pid 2>/dev/null || true; "
+            "fi; "
+            f"tmux kill-session -t {session} 2>/dev/null || true; "
+            "true"
         )
+
+        if force_restart or restart_stale:
+            full_cmd = (
+                f"{graceful_restart_cmd}; "
+                f"{launcher_setup_cmd}; "
+                f"tmux new-session -d -s {shlex.quote(str(session))} {shlex.quote(launcher_path)}"
+            )
+        else:
+            full_cmd = (
+                f"if pgrep -f 'python experiments.py --worker_id {node_id}' >/dev/null; then "
+                f"echo 'Runner already alive'; exit 0; fi; "
+                f"{launcher_setup_cmd}; "
+                f"tmux kill-session -t {session} 2>/dev/null || true; "
+                f"tmux new-session -d -s {shlex.quote(str(session))} {shlex.quote(launcher_path)}"
+            )
 
         try:
             result = subprocess.run(
@@ -378,9 +559,21 @@ class ClusterManager:
                 text=True,
             )
             if result.returncode == 0:
-                return True, f"Started {node_id}"
+                resumed, age = self._wait_for_heartbeat_resume(node_id, db)
+                if resumed:
+                    age_text = f"{age}s" if age is not None else "ok"
+                    if force_restart or restart_stale:
+                        return (
+                            True,
+                            f"Started {node_id} after graceful shutdown attempt (heartbeat fresh: {age_text})",
+                        )
+                    return True, f"Started {node_id} (heartbeat fresh: {age_text})"
+                return False, f"Started {node_id} but heartbeat not fresh within {START_HEARTBEAT_WAIT_SEC}s"
             else:
-                return False, f"SSH error: {result.stderr[:100]}"
+                stderr = (result.stderr or "").strip()
+                stdout = (result.stdout or "").strip()
+                detail = stderr or stdout or f"returncode={result.returncode}"
+                return False, f"SSH error: {detail[:220]}"
         except subprocess.TimeoutExpired:
             return False, "SSH timeout"
         except Exception as e:
@@ -399,15 +592,19 @@ class ClusterManager:
 
         try:
             kill_cmd = (
-                f"pkill -TERM -f 'Phase3/experiments/.*/scripts/train' 2>/dev/null; "
-                f"pkill -TERM -f 'train_parallel_optimized\\.py' 2>/dev/null; "
+                "set +e; "
+                f"pkill -TERM -f 'Phase3/experiments/.*/scripts/[t]rain' 2>/dev/null || true; "
+                f"pkill -TERM -f 'Experiment/experiments/.*/scripts/[t]rain' 2>/dev/null || true; "
+                f"pkill -TERM -f '[t]rain_parallel_optimized\\.py' 2>/dev/null || true; "
                 f"sleep 1; "
-                f"pkill -9 -f 'Phase3/experiments/.*/scripts/train' 2>/dev/null; "
-                f"pkill -9 -f 'train_parallel_optimized\\.py' 2>/dev/null; "
-                f"pkill -TERM -f 'experiments\\.py --worker_id {node_id}' 2>/dev/null; "
+                f"pkill -9 -f 'Phase3/experiments/.*/scripts/[t]rain' 2>/dev/null || true; "
+                f"pkill -9 -f 'Experiment/experiments/.*/scripts/[t]rain' 2>/dev/null || true; "
+                f"pkill -9 -f '[t]rain_parallel_optimized\\.py' 2>/dev/null || true; "
+                f"pkill -TERM -f '[e]xperiments\\.py --worker_id {node_id}' 2>/dev/null || true; "
                 f"sleep 1; "
-                f"pkill -9 -f 'experiments\\.py --worker_id {node_id}' 2>/dev/null; "
-                f"tmux kill-session -t {session} 2>/dev/null"
+                f"pkill -9 -f '[e]xperiments\\.py --worker_id {node_id}' 2>/dev/null || true; "
+                f"tmux kill-session -t {session} 2>/dev/null || true; "
+                "exit 0"
             )
             result = subprocess.run(
                 [*self._ssh_base_cmd(host, port), kill_cmd],
@@ -426,8 +623,8 @@ class ClusterManager:
         except Exception as e:
             return False, str(e)
 
-    def restart_node(self, node_id):
-        return self.start_node(node_id)
+    def restart_node(self, node_id, db: Optional["DBExperimentsDB"] = None):
+        return self.start_node(node_id, force_restart=True, db=db)
 
     def kill_remote_pid(self, node_id: str, pid: int) -> Tuple[bool, str]:
         if node_id not in self.machines:

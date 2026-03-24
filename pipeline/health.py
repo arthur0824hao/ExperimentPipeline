@@ -165,7 +165,10 @@ def enforce_running_pid_registration(db: ExperimentsDB, logger, grace_sec: int =
 
 
 def reap_orphan_runner_processes(
-    logger, current_runner_pid: int, db: Optional[ExperimentsDB] = None
+    logger,
+    current_runner_pid: int,
+    db: Optional[ExperimentsDB] = None,
+    worker_id: Optional[str] = None,
 ):
     active_runner_pids = _get_active_runner_pids_from_db(db)
     try:
@@ -200,7 +203,11 @@ def reap_orphan_runner_processes(
             continue
         if "experiments.py" not in args:
             continue
+        if "python experiments.py" not in args and "python3 experiments.py" not in args:
+            continue
         if "--worker_id" not in args and "--watch" not in args:
+            continue
+        if worker_id and f"--worker_id {worker_id}" not in args:
             continue
         if pid in active_runner_pids:
             continue
