@@ -72,6 +72,7 @@ from runtime_config import (
     cfg_bool,
     cfg_float,
     cfg_int,
+    get_pre_warm_config,
     get_runtime_section,
 )
 from tui_keys import Action, SCOPE_KEYS, TwoStepKeyHandler
@@ -2782,6 +2783,22 @@ def main():  # pragma: no cover
     logger = HybridLogger(str(RUNNER_LOG_FILE))
 
     logger.log(f"Runner started on {args.worker_id} (watch={args.watch})")
+    pre_warm_cfg = get_pre_warm_config()
+    if not args.watch and bool(pre_warm_cfg.get("enabled", False)):
+        logger.log(
+            "Pre-warm enabled: "
+            f"workers={pre_warm_cfg.get('parallel_workers')} "
+            f"feature_sets={list(pre_warm_cfg.get('phase1_feature_sets', {}).keys())}"
+        )
+        from pre_warm import run_pre_warm
+
+        summary = run_pre_warm(
+            enabled=True,
+            parallel_workers=int(pre_warm_cfg.get("parallel_workers", 1)),
+            phase1_feature_sets=dict(pre_warm_cfg.get("phase1_feature_sets", {})),
+            force_rebuild=False,
+        )
+        logger.log(f"Pre-warm summary: {summary}")
     if not args.watch:
         cleanup_on_startup(logger)
 

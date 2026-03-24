@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
@@ -8,6 +9,25 @@ from typing import Any, Dict, Iterable, List
 PHASE3_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = PHASE3_DIR.parent.parent
 PHASE3_RUNTIME_CONFIG_FILE = PROJECT_ROOT / "configs" / "phase3_runtime.json"
+DEFAULT_PRE_WARM_FEATURE_SETS: Dict[str, List[str]] = {
+    "ORIGIN": ["base_basic12_cut_d152"],
+    "SENIOR10": ["base_basic12_cut_d152", "senior_gap_10dim_cut_d152"],
+    "YOUR32": [
+        "base_basic12_cut_d152",
+        "base_regen22_cut_d152",
+        "balance_vol_4dim_cut_d152",
+        "velocity_3dim_cut_d152",
+        "burst_3dim_cut_d152",
+    ],
+    "COMBINED": [
+        "base_basic12_cut_d152",
+        "base_regen22_cut_d152",
+        "balance_vol_4dim_cut_d152",
+        "velocity_3dim_cut_d152",
+        "burst_3dim_cut_d152",
+        "senior_gap_10dim_cut_d152",
+    ],
+}
 
 
 def load_phase3_runtime_config() -> Dict[str, Any]:
@@ -66,6 +86,33 @@ def cfg_list(section: Dict[str, Any], key: str, default: Iterable[int]) -> List[
         if values:
             return values
     return [int(x) for x in default]
+
+
+def get_pre_warm_config() -> Dict[str, Any]:
+    section = get_runtime_section("pre_warm")
+    workers_default = max((os.cpu_count() or 2) - 1, 1)
+    workers = max(1, cfg_int(section, "parallel_workers", workers_default))
+
+    raw_sets = section.get("phase1_feature_sets")
+    parsed_sets: Dict[str, List[str]] = {}
+    if isinstance(raw_sets, dict):
+        for name, values in raw_sets.items():
+            if not isinstance(values, list):
+                continue
+            feature_names = [
+                str(feature).strip() for feature in values if str(feature).strip()
+            ]
+            if feature_names:
+                parsed_sets[str(name).strip().upper()] = feature_names
+
+    if not parsed_sets:
+        parsed_sets = dict(DEFAULT_PRE_WARM_FEATURE_SETS)
+
+    return {
+        "enabled": cfg_bool(section, "enabled", False),
+        "parallel_workers": workers,
+        "phase1_feature_sets": parsed_sets,
+    }
 
 
 def resolve_project_path(path_value: str) -> Path:
