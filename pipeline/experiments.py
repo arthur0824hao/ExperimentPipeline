@@ -74,7 +74,8 @@ from runtime_config import (
     cfg_int,
     get_runtime_section,
 )
-from tui_keys import Action, SCOPE_KEYS, TwoStepKeyHandler
+from tui_keys import TwoStepKeyHandler
+from key_handler import dispatch_dashboard_key
 from gpu import (
     get_all_gpu_status,
     _coerce_nvidia_int,
@@ -226,6 +227,19 @@ HIGH_MEM_EXCLUSIVE_RATIO = cfg_float(_RUNNER_CFG, "high_mem_exclusive_ratio", 0.
 MEMORY_CHECK_INTERVAL = cfg_int(_RUNNER_CFG, "memory_check_interval_sec", 3)
 GPU_JOB_COUNT_MIN_MEMORY_MB = cfg_int(_RUNNER_CFG, "gpu_job_count_min_memory_mb", 512)
 
+ALLOCATION_STRATEGY_DISTRIBUTED = "distributed"
+ALLOCATION_STRATEGY_CENTRALIZED = "centralized"
+ALLOCATION_STRATEGY_ROUND_ROBIN = "round-robin"
+ALLOCATION_STRATEGY_FILL_FIRST = "fill-first"
+ALLOCATION_STRATEGY_MANUAL = "manual"
+ALLOCATION_STRATEGY_OPTIONS = (
+    ALLOCATION_STRATEGY_DISTRIBUTED,
+    ALLOCATION_STRATEGY_CENTRALIZED,
+    ALLOCATION_STRATEGY_ROUND_ROBIN,
+    ALLOCATION_STRATEGY_FILL_FIRST,
+    ALLOCATION_STRATEGY_MANUAL,
+)
+
 
 RESULTS_DB_DIR.mkdir(exist_ok=True)
 LOGS_DIR.mkdir(exist_ok=True)
@@ -240,6 +254,56 @@ def _is_management_only_worker(worker_id: str, cluster_mgr: ClusterManager) -> b
         return int(raw_max_gpus) <= 0
     except (TypeError, ValueError):
         return False
+
+
+def _normalize_allocation_strategy(raw: Any) -> str:
+    value = str(raw or "").strip().lower()
+    if value in ALLOCATION_STRATEGY_OPTIONS:
+        return value
+    return ALLOCATION_STRATEGY_DISTRIBUTED
+
+
+def _next_allocation_strategy(current: Any) -> str:
+    normalized = _normalize_allocation_strategy(current)
+    idx = ALLOCATION_STRATEGY_OPTIONS.index(normalized)
+    return ALLOCATION_STRATEGY_OPTIONS[(idx + 1) % len(ALLOCATION_STRATEGY_OPTIONS)]
+
+
+def _should_defer_new_claim_for_strategy(
+    strategy: Any,
+    worker_id: str,
+    cluster_status: Dict[str, Any],
+    has_local_running: bool,
+) -> bool:
+    normalized = _normalize_allocation_strategy(strategy)
+    if normalized == ALLOCATION_STRATEGY_MANUAL:
+        return True
+    if normalized not in {
+        ALLOCATION_STRATEGY_CENTRALIZED,
+        ALLOCATION_STRATEGY_FILL_FIRST,
+    }:
+        return False
+    if has_local_running:
+        return False
+    for wid, info in (cluster_status or {}).items():
+        if str(wid) == str(worker_id):
+            continue
+        if not isinstance(info, dict):
+            continue
+        status = str(info.get("status") or "").upper()
+        if status in {"DISABLED", "OFFLINE"}:
+            continue
+        running_jobs = int(info.get("running_jobs") or 0)
+        if running_jobs > 0:
+            return True
+    return False
+
+
+def _prefix_error_code(name_display: str, error_code: str) -> str:
+    code = str(error_code or "").strip().upper()
+    if not code:
+        return str(name_display)
+    return f"[{code}] {name_display}"
 
 
 # =============================================================================
@@ -800,7 +864,6 @@ class UnifiedDashboard:
         self.selected_exp_name: Optional[str] = None
         self._panel_exp_rows: List[Dict[str, Any]] = []
         self._panel_exp_total = 0
-        self._prev_val_f1: Dict[str, float] = {}
         self.exp_page = 0
         self.exp_page_size = 20
         self.exp_total_pages = 1
@@ -809,7 +872,10 @@ class UnifiedDashboard:
         self.assign_mode = False
         self.assign_workers: List[str] = []
         self.exp_two_step = TwoStepKeyHandler()
-        self.actions = ["disable", "enable", "restart"]
+        self.actions = ["disable", "enable", "restart", "strategy"]
+        self.strategy_hotkeys = {
+            str(i + 1): name for i, name in enumerate(ALLOCATION_STRATEGY_OPTIONS)
+        }
         self.cluster_cols = 1
         self.message = ""
         self.message_time = 0
@@ -873,6 +939,24 @@ class UnifiedDashboard:
         with self._pending_lock:
             return self._pending_actions
 
+    def _current_allocation_strategy(self) -> str:
+        getter = getattr(self.db, "get_allocation_strategy", None)
+        if callable(getter):
+            try:
+                return _normalize_allocation_strategy(getter())
+            except Exception:
+                return ALLOCATION_STRATEGY_DISTRIBUTED
+        return ALLOCATION_STRATEGY_DISTRIBUTED
+
+    def _set_allocation_strategy(self, strategy: str) -> bool:
+        setter = getattr(self.db, "set_allocation_strategy", None)
+        if not callable(setter):
+            return False
+        try:
+            return bool(setter(_normalize_allocation_strategy(strategy)))
+        except Exception:
+            return False
+
     def drain_async_updates(self) -> None:
         while True:
             try:
@@ -890,17 +974,21 @@ class UnifiedDashboard:
                 return "✗ Invalid node action"
             return self._do_action_sync(node_id, action)
 
+        if action_type == "scheduler_strategy":
+            strategy = _normalize_allocation_strategy(request.get("strategy"))
+            ok = self._set_allocation_strategy(strategy)
+            if ok:
+                return f"✓ Strategy set: {strategy}"
+            return f"✗ Strategy update failed: {strategy}"
+
         if action_type == "assign_worker":
             name = str(request.get("name", ""))
             new_worker_raw = request.get("new_worker")
             new_worker = (
                 str(new_worker_raw).strip() if new_worker_raw is not None else ""
             )
-            old_worker = str(request.get("old_worker", ""))
             if not name:
                 return "✗ Invalid assign action"
-            if old_worker and old_worker != new_worker:
-                self.cluster_mgr.stop_node(old_worker)
             ok = self.db.assign_experiment_worker(name, new_worker or None)
             if new_worker:
                 return f"{'✓' if ok else '✗'} Assign {name} -> {new_worker}"
@@ -1107,10 +1195,9 @@ class UnifiedDashboard:
     def _get_cascade_targets(self, root_name: str) -> List[str]:
         data = self.db.load()
         candidates = []
-        for key in ("experiments", "completed"):
-            items = data.get(key, [])
-            if isinstance(items, list):
-                candidates.extend(items)
+        items = data.get("experiments", [])
+        if isinstance(items, list):
+            candidates.extend(items)
 
         children_map: Dict[str, List[str]] = {}
         all_names: Set[str] = set()
@@ -1223,6 +1310,8 @@ class UnifiedDashboard:
                 border_style = "bold yellow"
             elif status == "ONLINE":
                 border_style = "blue"
+            elif status == "DB_DEGRADED":
+                border_style = "magenta"
             elif status == "OFFLINE":
                 border_style = "red"
             else:
@@ -1266,6 +1355,21 @@ class UnifiedDashboard:
                 card_lines.append(Text.from_markup(f"[dim]Seen: {format_time_ago(last_seen)} ago[/]"))
             else:
                 card_lines.append(Text.from_markup("[dim]Seen: --[/]"))
+
+            if status == "DB_DEGRADED":
+                buddy_reporter = str(info.get("buddy_reporter") or "?").strip() or "?"
+                buddy_age = info.get("buddy_report_age_sec")
+                if isinstance(buddy_age, (int, float)) and buddy_age < 99999:
+                    buddy_age_str = format_time_ago(float(buddy_age))
+                else:
+                    buddy_age_str = "--"
+                buddy_db = "ok" if bool(info.get("buddy_target_db_reachable")) else "fail"
+                buddy_gpu = "ok" if bool(info.get("buddy_target_gpu_ok")) else "fail"
+                card_lines.append(
+                    Text.from_markup(
+                        f"[magenta]Buddy:[/] {buddy_reporter} {buddy_age_str} DB={buddy_db} GPU={buddy_gpu}"
+                    )
+                )
 
             cpu = info.get("cpu", {})
             if cpu:
@@ -1343,6 +1447,7 @@ class UnifiedDashboard:
             )
         ]
 
+        strategy = self._current_allocation_strategy()
         if self.action_mode and workers:
             menu_items = []
             for i, act in enumerate(self.actions):
@@ -1350,9 +1455,16 @@ class UnifiedDashboard:
                 menu_items.append(f"[{sty}] {act.upper()} [/]")
             all_elements.append(Text.from_markup("Action: " + "  ".join(menu_items)))
 
+        strategy_items = []
+        for key, value in self.strategy_hotkeys.items():
+            sty = "bold cyan" if value == strategy else "dim"
+            strategy_items.append(f"[{sty}]({key}) {value}[/]")
+        all_elements.append(Text.from_markup("Strategies: " + "  ".join(strategy_items)))
+
         preprocess_status = self._get_preprocess_status()
         if preprocess_status:
             all_elements.append(Text.from_markup(f"[dim]{preprocess_status}[/]"))
+        all_elements.append(Text.from_markup(f"[dim]Alloc strategy: {strategy}[/]"))
 
         return Panel(
             Group(*all_elements),
@@ -1446,7 +1558,6 @@ class UnifiedDashboard:
         table.add_column("Phase", width=12)
         table.add_column("Elapsed", width=8)
         table.add_column("Stale?", width=5)
-        table.add_column("Δf1", width=8)
         table.add_column("testF1", width=7, justify="right")
         table.add_column("Peak", width=6, justify="right")
         table.add_column("MemFam", width=10)
@@ -1764,9 +1875,9 @@ class UnifiedDashboard:
             phase_str = "-"
             elapsed_str = "-"
             stale_str = "-"
-            delta_text = "-"
             lifecycle_stage = "queued"
             wait_reason = "-"
+            error_code = ""
             terminal_reason = get_terminal_reason(
                 name, status, truth_result, truth_error_info, truth_terminal_metadata
             )
@@ -1844,7 +1955,7 @@ class UnifiedDashboard:
                         hb_jobs = int(hb.get("running_jobs") or 0)
                     except (TypeError, ValueError):
                         hb_jobs = 0
-                    hb_alive = hb_status == "ONLINE" and (
+                    hb_alive = hb_status in {"ONLINE", "DB_DEGRADED"} and (
                         name in hb_running or hb_jobs > 0
                     )
                 if progress:
@@ -1852,17 +1963,6 @@ class UnifiedDashboard:
                     epoch = progress.get("epoch", 0)
                     total = progress.get("total_epochs", 1)
                     val_f1 = progress.get("val_f1", 0)
-                    current_f1 = progress.get("val_f1", 0.0)
-                    prev_f1 = self._prev_val_f1.get(name, current_f1)
-                    delta = current_f1 - prev_f1
-                    self._prev_val_f1[name] = current_f1
-                    delta_text = (
-                        f"+{delta:.3f}"
-                        if delta > 0
-                        else f"{delta:.3f}"
-                        if delta < 0
-                        else "="
-                    )
                     progress_phase = progress.get("phase", "")
                     if progress_phase:
                         phase_str = str(progress_phase)
@@ -1987,7 +2087,8 @@ class UnifiedDashboard:
                 except (TypeError, ValueError):
                     retry_limit = MAX_RETRY_COUNT
                 if error_info:
-                    err_type = error_info.get("type", "ERROR")
+                    err_type = str(error_info.get("type", "ERROR") or "ERROR").upper()
+                    error_code = err_type
                     oom_retry = int(exp.get("oom_retry_count", 0) or 0)
                     is_true_oom = bool(error_info.get("is_true_oom", False))
                     if is_true_oom:
@@ -2095,6 +2196,8 @@ class UnifiedDashboard:
                 name_display = f"  └─ {name}"
             else:
                 name_display = str(name)
+            name_display = _prefix_error_code(name_display, error_code)
+            safe_name_display = escape(name_display)
 
             parent_display = parent_name
             if role == "condition_node" and condition_parent:
@@ -2102,7 +2205,7 @@ class UnifiedDashboard:
 
             table.add_row(
                 f"[{color}]{icon}[/]",
-                f"{selected_prefix}[{color}]{name_display}[/]",
+                f"{selected_prefix}[{color}]{safe_name_display}[/]",
                 str(parent_display or ""),
                 str(lifecycle_stage or ""),
                 str(preferred_worker_str or ""),
@@ -2114,7 +2217,6 @@ class UnifiedDashboard:
                 str(phase_str or ""),
                 str(elapsed_str or ""),
                 str(stale_str or ""),
-                str(delta_text or ""),
                 str(f1 or ""),
                 str(peak_str or ""),
                 str(memory_fields["mem_family"] or ""),
@@ -2133,7 +2235,6 @@ class UnifiedDashboard:
             table.add_row(
                 "",
                 f"[dim]Page {self.exp_page + 1}/{self.exp_total_pages} · showing {page_start}-{page_end} of {len(display_experiments)}[/]",
-                "",
                 "",
                 "",
                 "",
@@ -2219,7 +2320,7 @@ class UnifiedDashboard:
                     options = "[dim](no workers available)[/]"
                 assign_hint_line = f"[bold yellow]Assign[/] {options}  [bold yellow][C][/bold yellow]Clear  [dim][Esc]Cancel[/]"
         else:
-            controls_line = "[dim]W/A/S/D[/]:Move  [dim]Enter[/]:Action  [dim]D[/]:Disable  [dim]E[/]:Enable  [dim]R[/]:Restart  [dim]F[/]:Retry Failed  [dim]Tab[/]:→Experiments  [dim]Q[/]:Quit"
+            controls_line = "[dim]W/A/S/D[/]:Move  [dim]Enter[/]:Action  [dim]D[/]:Disable  [dim]E[/]:Enable  [dim]R[/]:Restart  [dim]F[/]:Retry Failed  [dim]Y[/]:Next strategy  [dim]1-5[/]:Set strategy  [dim]Tab[/]:→Experiments  [dim]Q[/]:Quit"
         last_log_line = self._read_last_log_line(RUNNER_LOG_FILE)
         status_parts: List[str] = []
         if pending_actions > 0:
@@ -2257,314 +2358,21 @@ class UnifiedDashboard:
             self.message_time = time.time()
 
     def handle_key(self, key: Optional[str], workers: List[str]) -> bool:
-        if not key:
-            return True
-
-        if key.lower() == "q":
-            return False
-
-        if key == "\t":
-            self.focus_mode = (
-                "experiments" if self.focus_mode == "cluster" else "cluster"
-            )
-            self.action_mode = False
-            self.exp_two_step = TwoStepKeyHandler()
-            return True
-
-        if self.focus_mode == "experiments":
-            data = self.db.load()
-            panel_experiments = self._panel_exp_rows
-            if not panel_experiments:
-                panel_experiments = data.get("experiments", [])
-            self._resolve_exp_selection(panel_experiments)
-
-            if self.assign_mode:
-                if key == "\x1b":
-                    self.assign_mode = False
-                    self.set_message("Assign cancelled")
-                    self.exp_two_step = TwoStepKeyHandler()
-                elif key.upper() == "C":
-                    selected_exp = panel_experiments[self.selected_exp_idx]
-                    if self._is_non_actionable_row(selected_exp):
-                        self.assign_mode = False
-                        self.set_message("Condition node is display-only")
-                        return True
-                    name = str(selected_exp.get("name", ""))
-                    if name:
-                        self._enqueue_action(
-                            {
-                                "type": "assign_worker",
-                                "name": name,
-                                "old_worker": "",
-                                "new_worker": None,
-                            },
-                            f"Clear machine assignment for {name}",
-                        )
-                    self.assign_mode = False
-                elif key.isdigit():
-                    choice = int(key)
-                    if 1 <= choice <= len(self.assign_workers):
-                        selected_worker = self.assign_workers[choice - 1]
-                        selected_exp = panel_experiments[self.selected_exp_idx]
-                        if self._is_non_actionable_row(selected_exp):
-                            self.assign_mode = False
-                            self.set_message("Condition node is display-only")
-                            return True
-                        name = str(selected_exp.get("name", ""))
-                        running_on = selected_exp.get("running_on") or {}
-                        old_worker = (
-                            str(running_on.get("worker", "")) if running_on else ""
-                        )
-                        if name:
-                            self._enqueue_action(
-                                {
-                                    "type": "assign_worker",
-                                    "name": name,
-                                    "old_worker": old_worker,
-                                    "new_worker": selected_worker,
-                                },
-                                f"Assign {name} -> {selected_worker}",
-                            )
-                        self.assign_mode = False
-                return True
-            elif key == "A" and panel_experiments:
-                self.exp_two_step = TwoStepKeyHandler()
-                self.assign_mode = True
-                machine_keys = sorted(self.cluster_mgr.load_machines().keys())
-                candidate_workers = workers or machine_keys
-                self.assign_workers = list(dict.fromkeys(candidate_workers))
-                options = " ".join(
-                    f"[{i + 1}]{worker}" for i, worker in enumerate(self.assign_workers)
-                )
-                self.set_message(
-                    (
-                        f"Assign to: {options} [C]clear"
-                        if options
-                        else "Assign to: (no workers) [C]clear"
-                    )
-                )
-            elif key in {"w", "W", "\x1b[A"}:
-                self.exp_two_step = TwoStepKeyHandler()
-                self.selected_exp_idx = max(0, self.selected_exp_idx - 1)
-                if panel_experiments:
-                    self.selected_exp_name = panel_experiments[
-                        self.selected_exp_idx
-                    ].get("name")
-            elif key in {"s", "S", "\x1b[B"}:
-                self.exp_two_step = TwoStepKeyHandler()
-                if key == "S" and key in SCOPE_KEYS:
-                    self.exp_two_step.handle_key(key)
-                elif panel_experiments:
-                    self.selected_exp_idx = min(
-                        len(panel_experiments) - 1, self.selected_exp_idx + 1
-                    )
-                    self.selected_exp_name = panel_experiments[
-                        self.selected_exp_idx
-                    ].get("name")
-            elif key == "N":
-                self.exp_two_step = TwoStepKeyHandler()
-                total = self._panel_exp_total or (
-                    len(data.get("experiments", [])) + len(data.get("completed", []))
-                )
-                self._refresh_experiment_pagination(total)
-                self._change_experiment_page(1)
-            elif key == "P":
-                self.exp_two_step = TwoStepKeyHandler()
-                total = self._panel_exp_total or (
-                    len(data.get("experiments", [])) + len(data.get("completed", []))
-                )
-                self._refresh_experiment_pagination(total)
-                self._change_experiment_page(-1)
-            elif key == "p" and panel_experiments:
-                self.exp_two_step = TwoStepKeyHandler()
-                name = self.selected_exp_name
-                if not name:
-                    self.set_message("No experiment selected")
-                    return True
-                exp_payload = next(
-                    (e for e in panel_experiments if e.get("name") == name), None
-                )
-                if exp_payload is None:
-                    self.set_message(f"Experiment {name} not found")
-                    return True
-                if self._is_non_actionable_row(exp_payload):
-                    self.set_message("Condition node is display-only")
-                    return True
-                self._enqueue_action(
-                    {
-                        "type": "exp_repipeline",
-                        "name": name,
-                        "exp_payload": dict(exp_payload),
-                    },
-                    f"Re-pipeline {name}",
-                )
-            elif key.upper() == "T" and panel_experiments:
-                self.exp_two_step = TwoStepKeyHandler()
-                selected_exp = panel_experiments[self.selected_exp_idx]
-                if self._is_non_actionable_row(selected_exp):
-                    self.set_message("Condition node is display-only")
-                    return True
-                name = str(selected_exp.get("name", ""))
-                if name:
-                    self._enqueue_action(
-                        {"type": "exp_start_now", "name": name},
-                        f"Start-now {name}",
-                    )
-            elif key.upper() == "U" and panel_experiments:
-                self.exp_two_step = TwoStepKeyHandler()
-                selected_exp = panel_experiments[self.selected_exp_idx]
-                if self._is_non_actionable_row(selected_exp):
-                    self.set_message("Condition node is display-only")
-                    return True
-                name = str(selected_exp.get("name", ""))
-                if name:
-                    self._enqueue_action(
-                        {"type": "exp_move", "name": name, "direction": "up"},
-                        f"Move up {name}",
-                    )
-            elif key.upper() == "J" and panel_experiments:
-                self.exp_two_step = TwoStepKeyHandler()
-                selected_exp = panel_experiments[self.selected_exp_idx]
-                if self._is_non_actionable_row(selected_exp):
-                    self.set_message("Condition node is display-only")
-                    return True
-                name = str(selected_exp.get("name", ""))
-                if name:
-                    self._enqueue_action(
-                        {"type": "exp_move", "name": name, "direction": "down"},
-                        f"Move down {name}",
-                    )
-            else:
-                key_lower = "d" if key.lower() == "x" else key.lower()
-                action = self.exp_two_step.handle_key(key_lower)
-                if (
-                    action is None
-                    and self.exp_two_step.state == "idle"
-                    and key.lower() in {"k", "r", "d", "x", "v", "f"}
-                ):
-                    selected_action_map = {
-                        "k": "kill",
-                        "r": "rerun",
-                        "d": "delete",
-                        "x": "delete",
-                        "v": "archive",
-                        "f": "freeze",
-                    }
-                    mapped_action = selected_action_map.get(key_lower)
-                    if mapped_action:
-                        action = Action(scope="selected", action=mapped_action)
-                if key == "\x1b" and self.exp_two_step.state == "idle":
-                    self.set_message("Scope cancelled")
-                if action and panel_experiments:
-                    action_map = {
-                        "kill": "exp_kill",
-                        "delete": "exp_delete",
-                        "archive": "exp_archive",
-                        "rerun": "exp_rerun",
-                        "freeze": "exp_freeze",
-                    }
-                    request_type = action_map.get(action.action)
-                    if request_type is None:
-                        self.set_message(
-                            f"Unsupported experiment action: {action.action}"
-                        )
-                        return True
-                    if action.scope == "all":
-                        names = [
-                            str(exp.get("name", ""))
-                            for exp in panel_experiments
-                            if str(exp.get("name", ""))
-                            and not self._is_non_actionable_row(exp)
-                        ]
-                        dedup_names = sorted(dict.fromkeys(names))
-                        for name in dedup_names:
-                            verb = request_type.replace("exp_", "").replace("_", " ")
-                            self._enqueue_action(
-                                {"type": request_type, "name": name},
-                                f"{verb.title()} {name}",
-                            )
-                    else:
-                        selected_exp = panel_experiments[self.selected_exp_idx]
-                        if self._is_non_actionable_row(selected_exp):
-                            self.set_message("Condition node is display-only")
-                            return True
-                        name = str(selected_exp.get("name", ""))
-                        if name:
-                            verb = request_type.replace("exp_", "").replace("_", " ")
-                            self._enqueue_action(
-                                {"type": request_type, "name": name},
-                                f"{verb.title()} {name}",
-                            )
-            return True
-
-        if not workers:
-            return True
-
-        if key in {"w", "W", "\x1b[A"}:
-            if not self.action_mode:
-                self._move_cluster_selection(-1, 0, len(workers))
-        elif key in {"s", "\x1b[B"}:
-            if not self.action_mode:
-                self._move_cluster_selection(1, 0, len(workers))
-        elif key in {"a", "A", "\x1b[D"}:
-            if self.action_mode:
-                self.action_idx = max(0, self.action_idx - 1)
-            else:
-                self._move_cluster_selection(0, -1, len(workers))
-        elif key in {"d", "\x1b[C"}:
-            if self.action_mode:
-                self.action_idx = min(len(self.actions) - 1, self.action_idx + 1)
-            else:
-                self._move_cluster_selection(0, 1, len(workers))
-        elif key in ["\r", "\n"]:
-            if not self.action_mode:
-                self.action_mode = True
-                self.action_idx = 0
-            else:
-                self._execute_action(workers)
-                self.action_mode = False
-        elif key.upper() == "D":
-            node_id = workers[self.selected_node_idx]
-            self._enqueue_action(
-                {"type": "node_action", "node_id": node_id, "action": "disable"},
-                f"DISABLE {node_id}",
-            )
-        elif key.upper() == "E":
-            node_id = workers[self.selected_node_idx]
-            self._enqueue_action(
-                {"type": "node_action", "node_id": node_id, "action": "enable"},
-                f"ENABLE {node_id}",
-            )
-        elif key.upper() == "R":
-            node_id = workers[self.selected_node_idx]
-            self._enqueue_action(
-                {"type": "node_action", "node_id": node_id, "action": "restart"},
-                f"RESTART {node_id}",
-            )
-        elif key.upper() == "S":
-            node_id = workers[self.selected_node_idx]
-            self._enqueue_action(
-                {"type": "node_action", "node_id": node_id, "action": "start"},
-                f"START {node_id}",
-            )
-        elif key.upper() == "K":
-            node_id = workers[self.selected_node_idx]
-            self._enqueue_action(
-                {"type": "node_action", "node_id": node_id, "action": "stop"},
-                f"STOP {node_id}",
-            )
-        elif key.upper() == "F":
-            self._enqueue_action({"type": "reset_failed"}, "Reset failed experiments")
-        elif key == "\x1b":
-            self.action_mode = False
-
-        return True
+        return dispatch_dashboard_key(self, key, workers)
 
     def _execute_action(self, workers: List[str]):
+        action = self.actions[self.action_idx]
+        if action == "strategy":
+            current = self._current_allocation_strategy()
+            target = _next_allocation_strategy(current)
+            self._enqueue_action(
+                {"type": "scheduler_strategy", "strategy": target},
+                f"STRATEGY {target}",
+            )
+            return
         if not workers:
             return
         node_id = workers[self.selected_node_idx]
-        action = self.actions[self.action_idx]
         self._enqueue_action(
             {"type": "node_action", "node_id": node_id, "action": action},
             f"{action.upper()} {node_id}",
@@ -2640,9 +2448,13 @@ class UnifiedDashboard:
 def _handle_cli_command(args, cluster_mgr: ClusterManager, db: ExperimentsDB) -> int:
     if args.command == "cluster":
         if args.cluster_cmd == "status":
+            network_health = cluster_mgr.get_network_health(db)
+            postgres_health = db.get_connection_health()
             payload = {
                 "worker": args.worker_id,
                 "cluster": cluster_mgr.get_cluster_status(db),
+                "network_health": network_health,
+                "postgres_health": postgres_health,
                 "disabled_workers": sorted(
                     [wid for wid in cluster_mgr.machines if db.is_worker_disabled(wid)]
                 ),
@@ -2788,6 +2600,7 @@ def main():  # pragma: no cover
     current_max_jobs = MAX_JOBS_PER_GPU
     current_max_gpus = None
     current_preferred_gpu = None
+    current_claim_headroom_mb = GPU_CLAIM_HEADROOM_MB
     current_python_env = "~/miniconda3/envs/gnn_fraud/bin/python"
     if args.worker_id in cluster_mgr.machines:
         conf = cluster_mgr.machines[args.worker_id]
@@ -2803,6 +2616,19 @@ def main():  # pragma: no cover
         if "python_env" in conf:
             current_python_env = conf["python_env"]
             logger.log(f"Config override: python_env={current_python_env}")
+        if "gpu_claim_headroom_mb" in conf:
+            try:
+                parsed_headroom = int(conf["gpu_claim_headroom_mb"])
+                if parsed_headroom < 0:
+                    raise ValueError("gpu_claim_headroom_mb must be >= 0")
+                current_claim_headroom_mb = parsed_headroom
+                logger.log(
+                    f"Config override: gpu_claim_headroom_mb={current_claim_headroom_mb}"
+                )
+            except (TypeError, ValueError):
+                logger.log(
+                    f"Ignored invalid gpu_claim_headroom_mb={conf.get('gpu_claim_headroom_mb')}"
+                )
 
     if not args.watch and _is_management_only_worker(args.worker_id, cluster_mgr):
         logger.log(
@@ -2818,6 +2644,7 @@ def main():  # pragma: no cover
         max_jobs_per_gpu=current_max_jobs,
         max_gpus=current_max_gpus,
         preferred_gpu=current_preferred_gpu,
+        claim_headroom_mb=current_claim_headroom_mb,
     )
 
     running_futures: Dict[str, Future] = {}
@@ -2838,6 +2665,25 @@ def main():  # pragma: no cover
     heartbeat_failure_count = 0
     heartbeat_last_error_log = 0.0
     heartbeat_log_interval = 30.0
+
+    sentinel_cfg = get_runtime_section("sentinel")
+    sentinel_enabled = cfg_bool(sentinel_cfg, "enabled", True)
+    sentinel_check_interval_sec = max(
+        5, cfg_int(sentinel_cfg, "check_interval_sec", 30)
+    )
+    sentinel_buddy_report_ttl_sec = max(
+        1, cfg_int(sentinel_cfg, "buddy_report_ttl_sec", 90)
+    )
+    sentinel_ssh_timeout_sec = max(1, cfg_int(sentinel_cfg, "ssh_timeout_sec", 10))
+    sentinel_checks_raw = sentinel_cfg.get("checks", ["process", "db", "gpu"])
+    if isinstance(sentinel_checks_raw, list):
+        sentinel_checks = {
+            str(item).strip().lower() for item in sentinel_checks_raw if str(item).strip()
+        }
+    else:
+        sentinel_checks = {"process", "db", "gpu"}
+    if not sentinel_checks:
+        sentinel_checks = {"process", "db", "gpu"}
 
     stop_requested = {"value": False}
 
@@ -2866,6 +2712,177 @@ def main():  # pragma: no cover
         stop_requested["value"] = True
         logger.log(f"Signal received: {signum}. Terminating running processes...")
         _terminate_running_processes()
+
+    def _run_remote_check(
+        *, host: str, port: Optional[int], command: str, timeout_sec: int
+    ) -> bool:
+        if not host:
+            return False
+        try:
+            result = subprocess.run(
+                [*cluster_mgr._ssh_base_cmd(host, port), command],
+                timeout=max(1, int(timeout_sec)),
+                capture_output=True,
+                text=True,
+            )
+            return result.returncode == 0
+        except Exception:
+            return False
+
+    def _attempt_buddy_tunnel_recovery(
+        target_id: str,
+        conf: Dict[str, Any],
+        *,
+        timeout_sec: int,
+    ) -> None:
+        host = str(conf.get("host") or "").strip()
+        if not host:
+            return
+        raw_port = conf.get("ssh_port")
+        try:
+            ssh_port = int(raw_port) if raw_port not in (None, "") else None
+        except (TypeError, ValueError):
+            ssh_port = None
+        try:
+            tunnel_port = int(conf.get("db_tunnel_port") or 0)
+        except (TypeError, ValueError):
+            tunnel_port = 0
+        if tunnel_port <= 0:
+            return
+
+        target_host = str(conf.get("db_tunnel_db_host") or "192.168.1.4").strip()
+        target_db_port = int(conf.get("db_tunnel_db_port") or 5432)
+        gateway_host = str(conf.get("db_tunnel_gateway") or "nv960").strip()
+        if not target_host or not gateway_host:
+            return
+
+        tunnel_spec = f"{tunnel_port}:{target_host}:{target_db_port}"
+        tunnel_cmd = f"ssh -fNL {tunnel_spec} {gateway_host}"
+        remote_cmd = (
+            f"pg_isready -h localhost -p {tunnel_port} >/dev/null 2>&1 || "
+            f"(pkill -f {shlex.quote(tunnel_cmd)} >/dev/null 2>&1 || true; "
+            f"{tunnel_cmd} >/dev/null 2>&1 || true)"
+        )
+        try:
+            result = subprocess.run(
+                [*cluster_mgr._ssh_base_cmd(host, ssh_port), remote_cmd],
+                timeout=max(1, int(timeout_sec)),
+                capture_output=True,
+                text=True,
+            )
+            detail = (result.stderr or result.stdout or "").strip()
+            logger.log(
+                "Sentinel tunnel recovery "
+                f"target={target_id} rc={result.returncode} "
+                f"detail={(detail[:180] if detail else 'ok')}"
+            )
+        except Exception as e:
+            logger.log(
+                f"Sentinel tunnel recovery failed: target={target_id} err={type(e).__name__}: {e}"
+            )
+
+    def sentinel_loop() -> None:
+        logger.log(
+            "Sentinel enabled: "
+            f"interval={sentinel_check_interval_sec}s ttl={sentinel_buddy_report_ttl_sec}s "
+            f"timeout={sentinel_ssh_timeout_sec}s checks={sorted(sentinel_checks)}"
+        )
+        while not stop_requested["value"]:
+            cycle_started = time.time()
+            try:
+                buddy_ids: List[str] = []
+                for worker_id in sorted(cluster_mgr.machines.keys()):
+                    if str(worker_id) == str(args.worker_id):
+                        continue
+                    if db.is_worker_disabled(str(worker_id)):
+                        continue
+                    buddy_ids.append(str(worker_id))
+
+                for buddy_id in buddy_ids:
+                    if stop_requested["value"]:
+                        break
+                    conf = cluster_mgr.machines.get(buddy_id, {})
+                    if not isinstance(conf, dict):
+                        continue
+
+                    host = str(conf.get("host") or "").strip()
+                    if not host:
+                        continue
+                    raw_port = conf.get("ssh_port")
+                    try:
+                        ssh_port = int(raw_port) if raw_port not in (None, "") else None
+                    except (TypeError, ValueError):
+                        ssh_port = None
+
+                    process_alive = False
+                    db_reachable = True
+                    gpu_ok = True
+                    process_checked = "process" in sentinel_checks
+
+                    if process_checked:
+                        buddy_token = re.escape(str(buddy_id))
+                        proc_cmd = (
+                            "pgrep -f "
+                            f"'experiments\\.py([[:space:]]|$).*--worker_id([[:space:]]|=){buddy_token}([[:space:]]|$)' >/dev/null"
+                        )
+                        process_alive = _run_remote_check(
+                            host=host,
+                            port=ssh_port,
+                            command=proc_cmd,
+                            timeout_sec=sentinel_ssh_timeout_sec,
+                        )
+
+                    if "db" in sentinel_checks:
+                        try:
+                            tunnel_port = int(conf.get("db_tunnel_port") or 0)
+                        except (TypeError, ValueError):
+                            tunnel_port = 0
+                        if tunnel_port > 0:
+                            db_cmd = (
+                                "psql -h localhost "
+                                f"-p {tunnel_port} -d postgres -tAc 'SELECT 1' >/dev/null 2>&1"
+                            )
+                            db_reachable = _run_remote_check(
+                                host=host,
+                                port=ssh_port,
+                                command=db_cmd,
+                                timeout_sec=sentinel_ssh_timeout_sec,
+                            )
+                        else:
+                            db_reachable = False
+
+                    if "gpu" in sentinel_checks:
+                        gpu_ok = _run_remote_check(
+                            host=host,
+                            port=ssh_port,
+                            command="nvidia-smi -L >/dev/null 2>&1",
+                            timeout_sec=sentinel_ssh_timeout_sec,
+                        )
+
+                    db.record_buddy_report(
+                        reporter_id=args.worker_id,
+                        target_id=buddy_id,
+                        target_process_alive=process_alive,
+                        target_db_reachable=db_reachable,
+                        target_gpu_ok=gpu_ok,
+                    )
+
+                    if process_checked and process_alive and not db_reachable:
+                        _attempt_buddy_tunnel_recovery(
+                            target_id=buddy_id,
+                            conf=conf,
+                            timeout_sec=sentinel_ssh_timeout_sec,
+                        )
+            except Exception as e:
+                logger.log(
+                    f"Sentinel loop error: {type(e).__name__}: {e}"
+                )
+
+            elapsed = time.time() - cycle_started
+            sleep_for = max(1.0, float(sentinel_check_interval_sec) - elapsed)
+            deadline = time.time() + sleep_for
+            while not stop_requested["value"] and time.time() < deadline:
+                time.sleep(0.2)
 
     def run_and_cleanup(exp, gpu_id):
         try:
@@ -3035,6 +3052,8 @@ def main():  # pragma: no cover
                     allocator,
                     paused_formal_jobs,
                     logger,
+                    db=db,
+                    worker_id=args.worker_id,
                 )
                 with running_futures_lock:
                     protected_names = set(running_futures.keys())
@@ -3063,6 +3082,19 @@ def main():  # pragma: no cover
                 runnable = db.get_runnable_experiments(
                     local_max_gpu, worker_id=args.worker_id
                 )
+                allocation_strategy = db.get_allocation_strategy(
+                    default=ALLOCATION_STRATEGY_DISTRIBUTED
+                )
+                cluster_status = cluster_mgr.get_cluster_status(db)
+                with running_futures_lock:
+                    has_local_running = bool(running_futures)
+                if _should_defer_new_claim_for_strategy(
+                    strategy=allocation_strategy,
+                    worker_id=args.worker_id,
+                    cluster_status=cluster_status,
+                    has_local_running=has_local_running,
+                ):
+                    continue
 
                 for exp in runnable:
                     if db.is_worker_disabled(args.worker_id):
@@ -3132,11 +3164,23 @@ def main():  # pragma: no cover
         if use_input and fd is not None:
             tty.setcbreak(fd)
 
+        sentinel_thread: Optional[threading.Thread] = None
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             scheduler_thread = threading.Thread(
                 target=scheduler_loop, args=(executor,), daemon=True
             )
             scheduler_thread.start()
+            if sentinel_enabled and not args.watch:
+                sentinel_thread = threading.Thread(
+                    target=sentinel_loop,
+                    daemon=True,
+                    name="buddy-sentinel",
+                )
+                sentinel_thread.start()
+            else:
+                logger.log(
+                    f"Sentinel disabled (enabled={sentinel_enabled}, watch={args.watch})"
+                )
             with Live(
                 dashboard.build_layout(0), refresh_per_second=8, screen=True
             ) as live:
@@ -3252,6 +3296,8 @@ def main():  # pragma: no cover
 
             stop_requested["value"] = True
             scheduler_thread.join(timeout=2)
+            if sentinel_thread is not None:
+                sentinel_thread.join(timeout=2)
 
     except KeyboardInterrupt:
         logger.log("Runner interrupted by user")
