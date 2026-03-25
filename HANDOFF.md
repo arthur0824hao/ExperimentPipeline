@@ -116,10 +116,10 @@ User:     arthur0824hao (system user, NOT postgres)
 
 | Config Name | Actual DB | Status |
 |-------------|-----------|--------|
-| `ExperimentPipeline-memory` | `ExperimentPipeline-memory` | ✅ Exists, 381 memories |
-| `ExperimentPipeline-experiment` | ❌ Does NOT exist | Config says it should, but only `FraudDetect-experiment` exists |
+| `ExperimentPipeline-memory` | `ExperimentPipeline-memory` | ✅ Exists |
+| `ExperimentPipeline-database` | `ExperimentPipeline-database` | ✅ Exists, cloned from `FraudDetect-experiment` |
 
-**CRITICAL NOTE:** The experiment DB name mismatch is a known issue. `configs/database.json` says `ExperimentPipeline-experiment` but only `FraudDetect-experiment` exists on disk. B-007 TKT-004 added a fallback guard (load from JSON if DB unreachable), but the root cause (DB doesn't exist) is NOT fixed.
+**STATUS NOTE:** Project-level deployment naming is now available. Runtime config/defaults target `ExperimentPipeline-database`, and the DB exists with `exp_registry` cloned from `FraudDetect-experiment`.
 
 ### PostgreSQL Management
 ```bash
@@ -191,9 +191,7 @@ Protected tmux sessions (never kill): `unified`, `unified-oc`, `mem-handoff`, `e
 
 1. **Close resolved issues** (#3, #4, #5, #7, #9, #10)
 2. **Fix pre-existing test failure** — `test_gpu_allocator_warmup_overlap` (1 test, allocator.py warmup logic)
-3. **Create `ExperimentPipeline-experiment` DB** — the experiment DB doesn't exist. Either:
-   - Create it: `createdb -h localhost "ExperimentPipeline-experiment"` + apply exp_registry schema
-   - Or update config to point to existing `FraudDetect-experiment`
+3. **Naming-policy migration completed** — experiment runtime now targets `ExperimentPipeline-database`. Keep `FraudDetect-experiment` only as legacy/source snapshot unless you explicitly retire it.
 
 ### Roadmap Goals (Ready to Unblock)
 

@@ -7,20 +7,20 @@
     "stop_cmd": "conda run -n gnn_fraud pg_ctl -D /share/nas165/arthur0824hao/Work/Study/GNN/FraudDetect/.pgdata stop"
   },
   "memory": {
-    "canonical_name": "FraudDetect-memory",
+    "canonical_name": "ExperimentPipeline-memory",
     "legacy_names": [
       "agent_memory",
-      "ExperimentPipeline-memory"
+      "FraudDetect-memory"
     ],
     "host": "/tmp",
     "port": 5432,
-    "dbname": "FraudDetect-memory",
+    "dbname": "ExperimentPipeline-memory",
     "user": "arthur0824hao"
   },
   "experiment": {
     "host": "192.168.1.4",
     "port": 5432,
-    "dbname": "FraudDetect-experiment",
+    "dbname": "ExperimentPipeline-database",
     "user": "arthur0824hao",
     "connect_timeout": 3,
     "schema": "exp_registry"

@@ -7,7 +7,7 @@ Usage:
     python experiments.py              # Full mode: Dashboard + Worker
     python experiments.py --watch      # Watch-only mode: Dashboard without worker
 
-State is stored in PostgreSQL (exp_registry schema in FraudDetect-experiment DB).
+State is stored in PostgreSQL (exp_registry schema in ExperimentPipeline-database).
 experiments.json is synced as a read-only snapshot for backward compat.
 """
 

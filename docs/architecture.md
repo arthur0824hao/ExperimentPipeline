@@ -138,7 +138,7 @@ experiments.json ──► experiments.py (runner)
 
 ## 4. Database Architecture
 
-### Database 1: `FraudDetect-experiment` (or `ExperimentPipeline-experiment`)
+### Database 1: `ExperimentPipeline-database`
 - **Schema**: `exp_registry`
 - **Purpose**: Persistent experiment state tracking
 - **Tables**: experiment registry, best run snapshots

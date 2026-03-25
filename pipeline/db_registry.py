@@ -75,7 +75,7 @@ def _load_experiment_db_defaults() -> Dict[str, str]:
     defaults: Dict[str, str] = {
         "host": "localhost",
         "port": "5432",
-        "dbname": "ExperimentPipeline-experiment",
+        "dbname": "ExperimentPipeline-database",
         "user": os.environ.get("USER", "arthur0824hao"),
         "connect_timeout": "3",
     }

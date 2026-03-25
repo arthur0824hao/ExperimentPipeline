@@ -111,7 +111,7 @@ def test_get_dsn_falls_back_to_builtin_defaults_when_config_read_fails():
 
     assert (
         dsn
-        == "host=localhost port=5432 dbname=ExperimentPipeline-experiment user=fallback-user connect_timeout=3"
+        == "host=localhost port=5432 dbname=ExperimentPipeline-database user=fallback-user connect_timeout=3"
     )
 
 
@@ -120,7 +120,7 @@ def test_get_dsn_candidates_prefers_local_tunnel_for_matched_machine():
         "experiment": {
             "host": "192.168.1.4",
             "port": "5432",
-            "dbname": "FraudDetect-experiment",
+            "dbname": "ExperimentPipeline-database",
             "user": "arthur0824hao",
             "connect_timeout": "3",
         }
@@ -142,7 +142,7 @@ def test_get_dsn_candidates_prefers_local_tunnel_for_matched_machine():
         candidates = _get_dsn_candidates()
 
     assert candidates[0].startswith(
-        "host=localhost port=15432 dbname=FraudDetect-experiment"
+        "host=localhost port=15432 dbname=ExperimentPipeline-database"
     )
     assert any(c.startswith("host=192.168.1.4 port=5432") for c in candidates)
 
@@ -152,7 +152,7 @@ def test_get_dsn_candidates_keeps_env_host_first_then_tunnel():
         "experiment": {
             "host": "192.168.1.4",
             "port": "5432",
-            "dbname": "FraudDetect-experiment",
+            "dbname": "ExperimentPipeline-database",
             "user": "arthur0824hao",
             "connect_timeout": "3",
         }
