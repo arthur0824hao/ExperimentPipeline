@@ -2,7 +2,6 @@
 
 import json
 import os
-import select
 import shutil
 import subprocess
 import sys
@@ -35,6 +34,7 @@ from artifact import (
     _best_error_peak_mb,
     update_running_peak,
 )
+from dashboard_input import read_dashboard_key
 from formatting import normalize_status
 from db_registry import DBExperimentsDB
 from runtime_config import cfg_bool, cfg_float, cfg_int, get_runtime_section
@@ -271,6 +271,7 @@ def run_experiment_process(
                 stdout=out,
                 stderr=err,
                 text=True,
+                start_new_session=True,
             )
 
             if running_processes is not None:
@@ -607,15 +608,4 @@ def run_experiment_process(
 
 
 def get_key(input_stream=None):
-    try:
-        if input_stream is None:
-            input_stream = sys.stdin
-        ch = input_stream.read(1)
-        if ch == "\x1b":
-            if select.select([input_stream], [], [], 0.1)[0]:
-                ch += input_stream.read(1)
-                if select.select([input_stream], [], [], 0.1)[0]:
-                    ch += input_stream.read(1)
-        return ch
-    except Exception:
-        return None
+    return read_dashboard_key(input_stream)

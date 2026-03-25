@@ -34,6 +34,13 @@ import psycopg2
 import psycopg2.extras
 import psycopg2.pool
 
+from machine_constraints import (
+    filter_worker_heartbeats,
+    get_worker_heartbeat as _get_worker_heartbeat,
+    load_machine_constraints,
+    load_worker_whitelist,
+)
+
 # ---------------------------------------------------------------------------
 # Connection pool (module-level singleton)
 # ---------------------------------------------------------------------------
@@ -302,16 +309,11 @@ def _get_dsn_candidates() -> List[str]:
 
 
 def _load_machine_constraints() -> Dict[str, Dict[str, Any]]:
-    for config_path in MACHINES_FILES:
-        try:
-            if not config_path.exists():
-                continue
-            data = json.loads(config_path.read_text(encoding="utf-8"))
-            if isinstance(data, dict):
-                return {str(k): v for k, v in data.items() if isinstance(v, dict)}
-        except Exception:
-            continue
-    return {}
+    return load_machine_constraints(MACHINES_FILES)
+
+
+def _load_worker_whitelist() -> List[str]:
+    return load_worker_whitelist(MACHINES_FILES)
 
 
 def _max_allowed_gpu_total_mb(
@@ -558,6 +560,230 @@ class DBExperimentsDB:
             except Exception:
                 pass
             sync_snapshot_to_json(self.json_path, self.dsn)
+
+    def get_connection_health(self) -> Dict[str, Any]:
+        attempts: List[Dict[str, Any]] = []
+        dsn_candidates = [self.dsn] if self.dsn else _get_dsn_candidates()
+        started = time.monotonic()
+        for candidate in dsn_candidates:
+            if not candidate:
+                continue
+            conn = None
+            attempt_started = time.monotonic()
+            try:
+                conn = psycopg2.connect(candidate)
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT 1, to_regnamespace('exp_registry') IS NOT NULL"
+                    )
+                    row = cur.fetchone() or (0, False)
+                healthy = bool(row[0] == 1)
+                schema_ready = bool(row[1])
+                latency_ms = int((time.monotonic() - attempt_started) * 1000)
+                attempts.append(
+                    {
+                        "dsn": candidate,
+                        "ok": healthy,
+                        "schema_ready": schema_ready,
+                        "latency_ms": latency_ms,
+                        "error": "",
+                    }
+                )
+                if healthy:
+                    return {
+                        "ok": True,
+                        "schema_ready": schema_ready,
+                        "active_dsn": candidate,
+                        "duration_ms": int((time.monotonic() - started) * 1000),
+                        "attempts": attempts,
+                    }
+            except Exception as exc:
+                attempts.append(
+                    {
+                        "dsn": candidate,
+                        "ok": False,
+                        "schema_ready": False,
+                        "latency_ms": int((time.monotonic() - attempt_started) * 1000),
+                        "error": str(exc),
+                    }
+                )
+            finally:
+                if conn is not None:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+
+        return {
+            "ok": False,
+            "schema_ready": False,
+            "active_dsn": "",
+            "duration_ms": int((time.monotonic() - started) * 1000),
+            "attempts": attempts,
+        }
+
+    def _ensure_runtime_settings_table(self, cur) -> None:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS exp_registry.runtime_settings (
+                key text PRIMARY KEY,
+                value_json jsonb NOT NULL,
+                updated_at timestamptz NOT NULL DEFAULT NOW()
+            )
+            """
+        )
+
+    def _ensure_buddy_reports_table(self, cur) -> None:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS exp_registry.buddy_reports (
+                id BIGSERIAL PRIMARY KEY,
+                reporter_id TEXT NOT NULL,
+                target_id TEXT NOT NULL,
+                target_process_alive BOOLEAN NOT NULL,
+                target_db_reachable BOOLEAN NOT NULL,
+                target_gpu_ok BOOLEAN NOT NULL,
+                checked_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_buddy_reports_target_checked
+            ON exp_registry.buddy_reports(target_id, checked_at DESC)
+            """
+        )
+
+    def record_buddy_report(
+        self,
+        reporter_id: str,
+        target_id: str,
+        target_process_alive: bool,
+        target_db_reachable: bool,
+        target_gpu_ok: bool,
+    ) -> bool:
+        try:
+            with get_conn(self.dsn) as conn:
+                with conn.cursor() as cur:
+                    self._ensure_buddy_reports_table(cur)
+                    cur.execute(
+                        """
+                        INSERT INTO exp_registry.buddy_reports(
+                            reporter_id,
+                            target_id,
+                            target_process_alive,
+                            target_db_reachable,
+                            target_gpu_ok,
+                            checked_at
+                        )
+                        VALUES (%s, %s, %s, %s, %s, NOW())
+                        """,
+                        (
+                            str(reporter_id),
+                            str(target_id),
+                            bool(target_process_alive),
+                            bool(target_db_reachable),
+                            bool(target_gpu_ok),
+                        ),
+                    )
+            return True
+        except Exception as e:
+            print(f"[DBExperimentsDB] record_buddy_report error: {e}")
+            return False
+
+    def get_latest_buddy_reports(self, ttl_sec: int = 90) -> Dict[str, Dict[str, Any]]:
+        safe_ttl = max(1, int(ttl_sec or 90))
+        try:
+            with get_conn(self.dsn) as conn:
+                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                    self._ensure_buddy_reports_table(cur)
+                    cur.execute(
+                        """
+                        SELECT DISTINCT ON (target_id)
+                            target_id,
+                            reporter_id,
+                            target_process_alive,
+                            target_db_reachable,
+                            target_gpu_ok,
+                            checked_at,
+                            EXTRACT(EPOCH FROM (NOW() - checked_at)) AS age_sec
+                        FROM exp_registry.buddy_reports
+                        WHERE checked_at >= NOW() - (%s * INTERVAL '1 second')
+                        ORDER BY target_id, checked_at DESC
+                        """,
+                        (safe_ttl,),
+                    )
+                    rows = cur.fetchall() or []
+            result: Dict[str, Dict[str, Any]] = {}
+            for row in rows:
+                target_id = str(row.get("target_id") or "").strip()
+                if not target_id:
+                    continue
+                result[target_id] = {
+                    "target_id": target_id,
+                    "reporter_id": str(row.get("reporter_id") or "").strip(),
+                    "target_process_alive": bool(row.get("target_process_alive")),
+                    "target_db_reachable": bool(row.get("target_db_reachable")),
+                    "target_gpu_ok": bool(row.get("target_gpu_ok")),
+                    "checked_at": row.get("checked_at"),
+                    "age_sec": float(row.get("age_sec") or 999999),
+                }
+            return result
+        except Exception as e:
+            print(f"[DBExperimentsDB] get_latest_buddy_reports error: {e}")
+            return {}
+
+    def get_allocation_strategy(self, default: str = "distributed") -> str:
+        allowed = {
+            "distributed",
+            "centralized",
+            "round-robin",
+            "fill-first",
+            "manual",
+        }
+        try:
+            with get_conn(self.dsn) as conn:
+                with conn.cursor() as cur:
+                    self._ensure_runtime_settings_table(cur)
+                    cur.execute(
+                        "SELECT value_json->>'value' FROM exp_registry.runtime_settings WHERE key = %s",
+                        ("allocation_strategy",),
+                    )
+                    row = cur.fetchone()
+                    value = str(row[0]).strip().lower() if row and row[0] else ""
+                    if value in allowed:
+                        return value
+                    return default
+        except Exception:
+            return default
+
+    def set_allocation_strategy(self, strategy: str) -> bool:
+        value = str(strategy or "").strip().lower()
+        if value not in {
+            "distributed",
+            "centralized",
+            "round-robin",
+            "fill-first",
+            "manual",
+        }:
+            return False
+        try:
+            with get_conn(self.dsn) as conn:
+                with conn.cursor() as cur:
+                    self._ensure_runtime_settings_table(cur)
+                    cur.execute(
+                        """
+                        INSERT INTO exp_registry.runtime_settings(key, value_json, updated_at)
+                        VALUES (%s, %s::jsonb, NOW())
+                        ON CONFLICT (key)
+                        DO UPDATE SET value_json = EXCLUDED.value_json, updated_at = NOW()
+                        """,
+                        ("allocation_strategy", json.dumps({"value": value})),
+                    )
+                    conn.commit()
+            return True
+        except Exception:
+            return False
 
     # --- Run ID management (fencing tokens) ---
 
@@ -1506,13 +1732,25 @@ class DBExperimentsDB:
         cpu_info: Any = None,
     ) -> bool:
         """Write worker heartbeat to DB. Returns True on success."""
+        worker_token = str(worker_id or "").strip()
+        if not worker_token:
+            self._last_heartbeat_error = "worker_id is empty"
+            return False
+
+        whitelist = set(_load_worker_whitelist())
+        if whitelist and worker_token not in whitelist:
+            self._last_heartbeat_error = (
+                f"worker_id={worker_token} ignored: not in machines whitelist"
+            )
+            return True
+
         try:
             with get_conn(self.dsn) as conn:
                 with conn.cursor() as cur:
                     cur.execute(
                         "SELECT exp_registry.update_heartbeat(%s, %s, %s, %s, %s, %s)",
                         (
-                            worker_id,
+                            worker_token,
                             pid,
                             running_jobs,
                             running_experiments,
@@ -1524,7 +1762,7 @@ class DBExperimentsDB:
             return True
         except Exception as e:
             self._last_heartbeat_error = (
-                f"worker_id={worker_id} pid={pid} running_jobs={running_jobs} "
+                f"worker_id={worker_token} pid={pid} running_jobs={running_jobs} "
                 f"running_experiments={len(running_experiments)} err={type(e).__name__}: {e}"
             )
             print(f"[DBExperimentsDB] update_heartbeat error: {self._last_heartbeat_error}")
@@ -1538,7 +1776,7 @@ class DBExperimentsDB:
                         cur.execute(
                             "SELECT exp_registry.update_heartbeat(%s, %s, %s, %s, %s, %s)",
                             (
-                                worker_id,
+                                worker_token,
                                 pid,
                                 running_jobs,
                                 running_experiments,
@@ -1554,6 +1792,22 @@ class DBExperimentsDB:
                 )
                 print(f"[DBExperimentsDB] update_heartbeat retry failed: {self._last_heartbeat_error}")
                 return False
+
+    def cleanup_worker_heartbeats(self, whitelist: List[str]) -> int:
+        allowed = sorted({str(worker_id or "").strip() for worker_id in whitelist if str(worker_id or "").strip()})
+        if not allowed:
+            return 0
+        try:
+            with get_conn(self.dsn) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "DELETE FROM exp_registry.worker_heartbeats WHERE NOT (worker_id = ANY(%s))",
+                        (allowed,),
+                    )
+                    return int(cur.rowcount or 0)
+        except Exception as e:
+            print(f"[DBExperimentsDB] cleanup_worker_heartbeats error: {e}")
+            return 0
 
     def get_last_heartbeat_error(self) -> str:
         return str(self._last_heartbeat_error or "")
@@ -1595,20 +1849,100 @@ class DBExperimentsDB:
             print(f"[DBExperimentsDB] get_cluster_heartbeats error: {e}")
             return {}
 
+    def get_filtered_cluster_heartbeats(
+        self,
+        whitelist: Optional[List[str]] = None,
+        *,
+        fail_closed: bool = True,
+    ) -> Dict[str, Dict]:
+        allowed = whitelist if whitelist is not None else _load_worker_whitelist()
+        return filter_worker_heartbeats(
+            self.get_cluster_heartbeats(),
+            allowed,
+            fail_closed=fail_closed,
+        )
+
+    def get_worker_heartbeat(
+        self,
+        worker_id: str,
+        whitelist: Optional[List[str]] = None,
+        *,
+        fail_closed: bool = True,
+    ) -> Dict[str, Any]:
+        allowed = whitelist if whitelist is not None else _load_worker_whitelist()
+        return _get_worker_heartbeat(
+            self.get_cluster_heartbeats(),
+            worker_id,
+            allowed,
+            fail_closed=fail_closed,
+        )
+
     # --- Stale check (THE key improvement over file-based) ---
 
     def check_stale_experiments(
-        self, stale_sec: int = DEFAULT_STALE_SEC, caller_worker: Optional[str] = None
+        self,
+        stale_sec: int = DEFAULT_STALE_SEC,
+        caller_worker: Optional[str] = None,
+        buddy_report_ttl_sec: Optional[int] = None,
     ) -> List[Tuple[str, str]]:
         """Atomic stale detection + reset. Returns [(name, stale_worker)]."""
         try:
             with get_conn(self.dsn) as conn:
                 with conn.cursor() as cur:
-                    cur.execute(
-                        "SELECT experiment_name, stale_worker FROM exp_registry.check_stale_experiments(%s, %s)",
-                        (stale_sec, caller_worker),
-                    )
-                    results = cur.fetchall()
+                    if buddy_report_ttl_sec is None:
+                        cur.execute(
+                            "SELECT experiment_name, stale_worker FROM exp_registry.check_stale_experiments(%s, %s)",
+                            (stale_sec, caller_worker),
+                        )
+                        results = cur.fetchall()
+                    else:
+                        safe_ttl = max(1, int(buddy_report_ttl_sec))
+                        self._ensure_buddy_reports_table(cur)
+                        cur.execute(
+                            """
+                            WITH stale_candidates AS (
+                                SELECT e.name, e.worker_id
+                                FROM exp_registry.experiments AS e
+                                LEFT JOIN exp_registry.worker_heartbeats AS h
+                                  ON h.worker_id = e.worker_id
+                                WHERE e.status = 'RUNNING'
+                                  AND e.worker_id IS NOT NULL
+                                  AND (%s IS NULL OR e.worker_id <> %s)
+                                  AND (
+                                    h.last_seen IS NULL
+                                    OR NOW() - h.last_seen > (%s * INTERVAL '1 second')
+                                  )
+                                  AND NOT EXISTS (
+                                    SELECT 1
+                                    FROM exp_registry.buddy_reports AS b
+                                    WHERE b.target_id = e.worker_id
+                                      AND b.target_process_alive IS TRUE
+                                      AND b.checked_at >= NOW() - (%s * INTERVAL '1 second')
+                                  )
+                                FOR UPDATE OF e
+                            ),
+                            updated AS (
+                                UPDATE exp_registry.experiments AS e
+                                SET status = 'NEEDS_RERUN',
+                                    retry_count = e.retry_count + 1,
+                                    error_type = 'STALE_LOCK',
+                                    error_message = CONCAT('Heartbeat stale for worker ', c.worker_id),
+                                    failed_at = NOW(),
+                                    run_id = NULL,
+                                    worker_id = NULL,
+                                    gpu_id = NULL,
+                                    pid = NULL,
+                                    started_at = NULL
+                                FROM stale_candidates AS c
+                                WHERE e.name = c.name
+                                  AND e.status = 'RUNNING'
+                                RETURNING e.name, c.worker_id
+                            )
+                            SELECT name, worker_id FROM updated
+                            """,
+                            (caller_worker, caller_worker, stale_sec, safe_ttl),
+                        )
+                        results = cur.fetchall()
             if results:
                 self._sync_snapshot()
             return [(r[0], r[1]) for r in results]

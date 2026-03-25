@@ -10,6 +10,8 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
 
+from machine_constraints import filter_worker_heartbeats, load_machine_constraints
+
 try:
     from artifact import _load_json_dict
     from formatting import _parse_iso_ts, format_time_ago
@@ -37,8 +39,10 @@ MACHINES_FILES = [
 MACHINES_FILE = _DEFAULT_MACHINES_FILE
 HEARTBEATS_DIR = BASE_DIR / "heartbeats"
 _RUNNER_CFG = get_runtime_section("experiments_runner")
+_SENTINEL_CFG = get_runtime_section("sentinel")
 HEARTBEAT_STALE_SEC = cfg_int(_RUNNER_CFG, "heartbeat_stale_sec", 120)
 HEARTBEAT_ONLINE_SEC = cfg_int(_RUNNER_CFG, "heartbeat_online_sec", 60)
+SENTINEL_BUDDY_REPORT_TTL_SEC = cfg_int(_SENTINEL_CFG, "buddy_report_ttl_sec", 90)
 START_HEARTBEAT_WAIT_SEC = cfg_int(_RUNNER_CFG, "start_heartbeat_wait_sec", 20)
 START_HEARTBEAT_POLL_SEC = cfg_int(_RUNNER_CFG, "start_heartbeat_poll_sec", 2)
 GRACEFUL_STOP_WAIT_SEC = cfg_int(_RUNNER_CFG, "graceful_stop_wait_sec", 12)
@@ -50,6 +54,7 @@ class ClusterManager:
         self._probe_cache: Dict[str, Dict[str, Any]] = {}
         self._probe_cache_lock = threading.Lock()
         self._probe_cache_ttl_sec = 60.0
+        self._last_status_by_worker: Dict[str, str] = {}
 
     def load_machines(self):
         machine_paths = (
@@ -57,17 +62,7 @@ class ClusterManager:
             if MACHINES_FILE != _DEFAULT_MACHINES_FILE
             else MACHINES_FILES
         )
-        for config_path in machine_paths:
-            if not config_path.exists():
-                continue
-            try:
-                with open(config_path, "r") as f:
-                    data = json.load(f)
-                if isinstance(data, dict):
-                    return data
-            except Exception:
-                continue
-        return {}
+        return load_machine_constraints(machine_paths)
 
     def _load_heartbeat_files(self) -> Dict[str, Dict[str, Any]]:
         heartbeats: Dict[str, Dict[str, Any]] = {}
@@ -99,6 +94,8 @@ class ClusterManager:
 
     def get_cluster_status(self, db: Optional["DBExperimentsDB"] = None) -> Dict:
         status_map = {}
+        logger = logging.getLogger(__name__)
+        whitelist = sorted(self.machines.keys())
 
         for mid, conf in self.machines.items():
             status_map[mid] = {
@@ -113,17 +110,40 @@ class ClusterManager:
                 "our_gpu_ids": [],
             }
 
-        heartbeats = db.get_cluster_heartbeats() if db else self._load_heartbeat_files()
+        if db:
+            heartbeats = db.get_filtered_cluster_heartbeats(
+                whitelist,
+                fail_closed=False,
+            )
+        else:
+            heartbeats = filter_worker_heartbeats(
+                self._load_heartbeat_files(),
+                whitelist,
+                fail_closed=False,
+            )
+        if db and whitelist and hasattr(db, "cleanup_worker_heartbeats"):
+            try:
+                db.cleanup_worker_heartbeats(whitelist)
+            except Exception:
+                pass
+        buddy_reports: Dict[str, Dict[str, Any]] = {}
+        if db and hasattr(db, "get_latest_buddy_reports"):
+            try:
+                buddy_reports = db.get_latest_buddy_reports(
+                    ttl_sec=SENTINEL_BUDDY_REPORT_TTL_SEC
+                )
+            except Exception:
+                buddy_reports = {}
         for w_id, hb in heartbeats.items():
             seconds_ago = hb.get("last_seen_sec", 999999)
-            is_online = seconds_ago < HEARTBEAT_ONLINE_SEC
-
-            if w_id not in status_map:
-                status_map[w_id] = {"config": {}, "is_known": False}
+            is_online = seconds_ago < HEARTBEAT_STALE_SEC
+            buddy = buddy_reports.get(w_id, {})
+            buddy_alive = bool(buddy.get("target_process_alive", False))
+            status = "ONLINE" if is_online else ("DB_DEGRADED" if buddy_alive else "OFFLINE")
 
             status_map[w_id].update(
                 {
-                    "status": "ONLINE" if is_online else "OFFLINE",
+                    "status": status,
                     "last_seen_sec": seconds_ago,
                     "gpus": hb.get("gpus", []),
                     "cpu": hb.get("cpu", {}),
@@ -131,8 +151,47 @@ class ClusterManager:
                     "running_jobs": hb.get("running_jobs", 0),
                     "running_experiments": hb.get("running_experiments", []),
                     "pid": hb.get("pid"),
+                    "buddy_reporter": str(buddy.get("reporter_id") or "").strip(),
+                    "buddy_report_age_sec": float(buddy.get("age_sec") or 999999),
+                    "buddy_target_db_reachable": bool(
+                        buddy.get("target_db_reachable", False)
+                    ),
+                    "buddy_target_gpu_ok": bool(buddy.get("target_gpu_ok", False)),
                 }
             )
+
+        whitelist_set = set(whitelist)
+        for w_id, buddy in buddy_reports.items():
+            if whitelist_set and w_id not in whitelist_set:
+                continue
+            if not bool(buddy.get("target_process_alive", False)):
+                continue
+            if str(status_map[w_id].get("status") or "") != "ONLINE":
+                status_map[w_id]["status"] = "DB_DEGRADED"
+            status_map[w_id]["buddy_reporter"] = str(
+                buddy.get("reporter_id") or ""
+            ).strip()
+            status_map[w_id]["buddy_report_age_sec"] = float(
+                buddy.get("age_sec") or 999999
+            )
+            status_map[w_id]["buddy_target_db_reachable"] = bool(
+                buddy.get("target_db_reachable", False)
+            )
+            status_map[w_id]["buddy_target_gpu_ok"] = bool(
+                buddy.get("target_gpu_ok", False)
+            )
+
+        for w_id, info in status_map.items():
+            previous = self._last_status_by_worker.get(w_id)
+            current = str(info.get("status") or "OFFLINE")
+            if previous and previous != current:
+                logger.info(
+                    "cluster health transition worker=%s %s -> %s",
+                    w_id,
+                    previous,
+                    current,
+                )
+            self._last_status_by_worker[w_id] = current
 
         now = time.time()
 
@@ -316,6 +375,172 @@ class ClusterManager:
         cmd.append(host)
         return cmd
 
+    def _infer_master_node(self) -> Tuple[Optional[str], str]:
+        if not self.machines:
+            return None, "no_nodes"
+        local_candidates: List[str] = []
+        management_candidates: List[str] = []
+        for node_id, conf in self.machines.items():
+            if not isinstance(conf, dict):
+                continue
+            host = str(conf.get("host") or "").strip()
+            if host and self._is_local_target(host):
+                local_candidates.append(node_id)
+            raw_max_gpus = conf.get("max_gpus")
+            try:
+                max_gpus = int(raw_max_gpus)
+            except (TypeError, ValueError):
+                max_gpus = None
+            if max_gpus is not None and max_gpus <= 0:
+                management_candidates.append(node_id)
+        if len(local_candidates) == 1:
+            return local_candidates[0], "single_local_host"
+        if len(local_candidates) > 1:
+            return None, "ambiguous_local_hosts"
+        if len(management_candidates) == 1:
+            return management_candidates[0], "single_management_node"
+        if len(management_candidates) > 1:
+            return None, "ambiguous_management_nodes"
+        if len(self.machines) == 1:
+            return next(iter(self.machines.keys())), "single_node"
+        return None, "ambiguous_no_master_signal"
+
+    def _check_node_connectivity(
+        self,
+        node_id: str,
+        conf: Dict[str, Any],
+        timeout_sec: int = 8,
+    ) -> Dict[str, Any]:
+        host = str(conf.get("host") or "").strip()
+        raw_port = conf.get("ssh_port")
+        try:
+            ssh_port = int(raw_port) if raw_port not in (None, "") else None
+        except (TypeError, ValueError):
+            ssh_port = None
+
+        if not host:
+            return {
+                "ok": False,
+                "host": "",
+                "ssh_port": ssh_port,
+                "latency_ms": None,
+                "error": "missing_host",
+            }
+
+        if self._is_local_target(host):
+            return {
+                "ok": True,
+                "host": host,
+                "ssh_port": ssh_port,
+                "latency_ms": 0,
+                "error": "",
+            }
+
+        probe_cmd = "echo __exp_cluster_ping__"
+        started_at = time.monotonic()
+        try:
+            result = subprocess.run(
+                [*self._ssh_base_cmd(host, ssh_port), probe_cmd],
+                timeout=max(1, timeout_sec),
+                capture_output=True,
+                text=True,
+            )
+        except subprocess.TimeoutExpired:
+            return {
+                "ok": False,
+                "host": host,
+                "ssh_port": ssh_port,
+                "latency_ms": int((time.monotonic() - started_at) * 1000),
+                "error": "ssh_timeout",
+            }
+        except Exception as exc:
+            return {
+                "ok": False,
+                "host": host,
+                "ssh_port": ssh_port,
+                "latency_ms": int((time.monotonic() - started_at) * 1000),
+                "error": str(exc),
+            }
+
+        output = (result.stdout or "").strip()
+        stderr = (result.stderr or "").strip()
+        ok = result.returncode == 0 and "__exp_cluster_ping__" in output
+        error = ""
+        error_kind = ""
+        if not ok:
+            detail = stderr or output or f"ssh_returncode={result.returncode}"
+            detail_l = detail.lower()
+            if "permission denied" in detail_l:
+                error_kind = "ssh_auth_failed"
+            elif "could not resolve hostname" in detail_l or "name or service not known" in detail_l:
+                error_kind = "ssh_dns_failed"
+            elif "connection timed out" in detail_l or "operation timed out" in detail_l:
+                error_kind = "ssh_timeout"
+            elif "connection refused" in detail_l:
+                error_kind = "ssh_refused"
+            else:
+                error_kind = "ssh_error"
+            error = detail[:220]
+
+        return {
+            "ok": ok,
+            "host": host,
+            "ssh_port": ssh_port,
+            "latency_ms": int((time.monotonic() - started_at) * 1000),
+            "error": error,
+            "error_kind": error_kind,
+        }
+
+    def get_network_health(
+        self,
+        db: Optional["DBExperimentsDB"] = None,
+        timeout_sec: int = 8,
+    ) -> Dict[str, Any]:
+        master_node_id, master_inference_reason = self._infer_master_node()
+        whitelist = sorted(self.machines.keys())
+        try:
+            if db:
+                heartbeats = db.get_filtered_cluster_heartbeats(
+                    whitelist,
+                    fail_closed=True,
+                )
+            else:
+                heartbeats = filter_worker_heartbeats(
+                    self._load_heartbeat_files(),
+                    whitelist,
+                    fail_closed=True,
+                )
+        except Exception:
+            heartbeats = {}
+
+        nodes: Dict[str, Dict[str, Any]] = {}
+        for node_id, conf in self.machines.items():
+            node_status = self._check_node_connectivity(
+                node_id,
+                conf if isinstance(conf, dict) else {},
+                timeout_sec=timeout_sec,
+            )
+            heartbeat = heartbeats.get(node_id, {}) if isinstance(heartbeats, dict) else {}
+            last_seen_sec = heartbeat.get("last_seen_sec")
+            if isinstance(last_seen_sec, (int, float)):
+                node_status["heartbeat_last_seen_sec"] = float(last_seen_sec)
+                node_status["heartbeat_online"] = float(last_seen_sec) < HEARTBEAT_ONLINE_SEC
+            else:
+                node_status["heartbeat_last_seen_sec"] = None
+                node_status["heartbeat_online"] = False
+            node_status["is_master"] = node_id == master_node_id
+            nodes[node_id] = node_status
+
+        reachable = [n for n in nodes.values() if n.get("ok")]
+        return {
+            "master_node_id": master_node_id,
+            "master_inference_reason": master_inference_reason,
+            "total_nodes": len(nodes),
+            "reachable_nodes": len(reachable),
+            "all_reachable": len(reachable) == len(nodes),
+            "nodes": nodes,
+        }
+
     def _setup_db_tunnel(self, conf: Dict[str, Any]) -> None:
         """Set up reverse SSH tunnel for DB access on remote machines."""
         host = conf.get("host")
@@ -402,9 +627,16 @@ class ClusterManager:
     ) -> Tuple[bool, Optional[int]]:
         try:
             if db:
-                heartbeats = db.get_cluster_heartbeats()
+                heartbeats = db.get_filtered_cluster_heartbeats(
+                    sorted(self.machines.keys()),
+                    fail_closed=True,
+                )
             else:
-                heartbeats = self._load_heartbeat_files()
+                heartbeats = filter_worker_heartbeats(
+                    self._load_heartbeat_files(),
+                    sorted(self.machines.keys()),
+                    fail_closed=True,
+                )
             
             hb = heartbeats.get(node_id, {})
             last_seen_sec = hb.get("last_seen_sec")
@@ -428,9 +660,14 @@ class ClusterManager:
             return (True, None)
         deadline = time.time() + max(1, timeout_sec)
         poll = max(1, START_HEARTBEAT_POLL_SEC)
+        whitelist = sorted(self.machines.keys())
         while time.time() <= deadline:
             try:
-                hb = db.get_cluster_heartbeats().get(node_id, {})
+                hb = db.get_worker_heartbeat(
+                    node_id,
+                    whitelist,
+                    fail_closed=True,
+                )
                 last_seen = hb.get("last_seen_sec")
                 if last_seen is not None and last_seen < HEARTBEAT_ONLINE_SEC:
                     return (True, int(last_seen))
@@ -511,7 +748,12 @@ class ClusterManager:
         db_env = ""
         tunnel_port = conf.get("db_tunnel_port")
         if tunnel_port:
-            db_env = f"export EXP_PGHOST=localhost EXP_PGPORT={int(tunnel_port)}"
+            port_text = str(int(tunnel_port))
+            db_env = (
+                "export "
+                f"EXP_PGHOST=127.0.0.1 PGHOST=127.0.0.1 "
+                f"EXP_PGPORT={port_text} PGPORT={port_text}"
+            )
         launcher_path, launcher_setup_cmd = self._build_runner_launcher(
             node_id=node_id,
             work_dir=str(work_dir),

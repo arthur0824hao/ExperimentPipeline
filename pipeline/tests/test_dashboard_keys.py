@@ -75,6 +75,26 @@ class TestFocusModeToggle:
         dashboard.handle_key("\t", ["node1"])
         assert dashboard.focus_mode == "cluster"
 
+    def test_tab_sets_visible_focus_message(self):
+        dashboard, _, _ = make_dashboard()
+
+        dashboard.handle_key("\t", ["node1"])
+
+        assert "Focus -> Experiments" in dashboard.message
+
+    def test_experiment_only_key_autofocuses_from_cluster(self):
+        experiments = [{"name": "exp-a"}, {"name": "exp-b"}]
+        dashboard, _, db = make_dashboard(experiments=experiments)
+        dashboard.focus_mode = "cluster"
+        dashboard.selected_exp_idx = 1
+        dashboard.selected_exp_name = "exp-b"
+
+        dashboard.handle_key("T", ["node1"])
+        _wait_for_action(dashboard, lambda: db.start_experiment_now.called)
+
+        assert dashboard.focus_mode == "experiments"
+        db.start_experiment_now.assert_called_once_with("exp-b")
+
 
 class TestClusterModeDisableAlsoKillsExperiments:
     def test_d_stops_worker_kills_experiments_and_disables(self):
@@ -115,6 +135,65 @@ class TestClusterModeHotkeys:
 
         _wait_for_action(dashboard, lambda: cluster_mgr.start_node.called)
         cluster_mgr.start_node.assert_called_once_with("minun", db=dashboard.db)
+
+    def test_y_cycles_to_next_strategy(self):
+        dashboard, _, db = make_dashboard(is_watch=True)
+        dashboard.focus_mode = "cluster"
+        db.get_allocation_strategy.return_value = "distributed"
+
+        dashboard.handle_key("Y", ["plusle", "minun"])
+
+        _wait_for_action(dashboard, lambda: db.set_allocation_strategy.called)
+        db.set_allocation_strategy.assert_called_once_with("centralized")
+
+    def test_numeric_hotkey_sets_strategy_directly(self):
+        dashboard, _, db = make_dashboard(is_watch=True)
+        dashboard.focus_mode = "cluster"
+
+        dashboard.handle_key("4", ["plusle", "minun"])
+
+        _wait_for_action(dashboard, lambda: db.set_allocation_strategy.called)
+        db.set_allocation_strategy.assert_called_once_with("fill-first")
+
+    def test_cluster_panel_renders_visible_strategy_buttons(self):
+        dashboard, cluster_mgr, db = make_dashboard(is_watch=True)
+        dashboard.focus_mode = "cluster"
+        db.get_allocation_strategy.return_value = "distributed"
+        cluster_mgr.get_cluster_status.return_value = {
+            "node-a": {"status": "ONLINE", "running_jobs": 0, "gpus": []}
+        }
+
+        panel = dashboard.build_cluster_panel(
+            cluster_mgr.get_cluster_status.return_value, ["node-a"]
+        )
+        rendered = Console(record=True, width=320)
+        rendered.print(panel)
+        text = rendered.export_text()
+
+        assert "Strategies:" in text
+        assert "(1) distributed" in text
+        assert "(4) fill-first" in text
+
+
+class TestAssignWorkerSafety:
+    def test_assign_worker_does_not_stop_old_worker(self):
+        experiments = [
+            {"name": "exp-a", "status": "RUNNING", "running_on": {"worker": "old-a"}}
+        ]
+        dashboard, cluster_mgr, db = make_dashboard(experiments=experiments)
+
+        msg = dashboard._run_async_action(
+            {
+                "type": "assign_worker",
+                "name": "exp-a",
+                "old_worker": "old-a",
+                "new_worker": "new-b",
+            }
+        )
+
+        assert "Assign exp-a -> new-b" in msg
+        db.assign_experiment_worker.assert_called_once_with("exp-a", "new-b")
+        cluster_mgr.stop_node.assert_not_called()
 
 
 class TestClusterActionDbMutationGuard:
@@ -221,19 +300,18 @@ class TestExperimentModeNavigation:
 
 
 class TestExperimentModeKill:
-    def test_selected_scope_then_k_kills_current_experiment(self):
+    def test_k_kills_current_experiment(self):
         experiments = [{"name": "exp-a"}, {"name": "exp-b"}]
         dashboard, _, db = make_dashboard(experiments=experiments)
         dashboard.focus_mode = "experiments"
         dashboard.selected_exp_idx = 1
 
-        dashboard.handle_key("S", ["node1"])
         dashboard.handle_key("K", ["node1"])
 
         _wait_for_action(dashboard, lambda: db.kill_experiment.called)
         db.kill_experiment.assert_called_once_with("exp-b")
 
-    def test_k_alone_does_not_kill_without_scope(self):
+    def test_k_alone_uses_selected_scope_by_default(self):
         experiments = [{"name": "exp-a"}, {"name": "exp-b"}]
         dashboard, _, db = make_dashboard(experiments=experiments)
         dashboard.focus_mode = "experiments"
@@ -241,7 +319,8 @@ class TestExperimentModeKill:
 
         dashboard.handle_key("K", ["node1"])
 
-        db.kill_experiment.assert_not_called()
+        _wait_for_action(dashboard, lambda: db.kill_experiment.called)
+        db.kill_experiment.assert_called_once_with("exp-b")
 
     def test_footer_shows_two_step_hint_contract(self):
         experiments = [{"name": "exp-a"}]
@@ -260,13 +339,12 @@ class TestExperimentModeKill:
 
 
 class TestExperimentModeFreeze:
-    def test_selected_scope_then_f_freezes_current_experiment(self):
+    def test_f_freezes_current_experiment(self):
         experiments = [{"name": "exp-a"}, {"name": "exp-b"}]
         dashboard, _, db = make_dashboard(experiments=experiments)
         dashboard.focus_mode = "experiments"
         dashboard.selected_exp_idx = 1
 
-        dashboard.handle_key("S", ["node1"])
         dashboard.handle_key("F", ["node1"])
 
         _wait_for_action(dashboard, lambda: db.freeze_experiment.called)
@@ -274,13 +352,12 @@ class TestExperimentModeFreeze:
 
 
 class TestExperimentModeTwoStepDeleteArchive:
-    def test_selected_scope_then_d_deletes_current_experiment(self):
+    def test_d_deletes_current_experiment(self):
         experiments = [{"name": "exp-a"}, {"name": "exp-b"}]
         dashboard, _, db = make_dashboard(experiments=experiments)
         dashboard.focus_mode = "experiments"
         dashboard.selected_exp_idx = 1
 
-        dashboard.handle_key("S", ["node1"])
         dashboard.handle_key("d", ["node1"])
 
         _wait_for_action(dashboard, lambda: db.delete_experiment.called)
@@ -302,13 +379,12 @@ class TestExperimentModeTwoStepDeleteArchive:
             ]
         )
 
-    def test_selected_scope_then_v_archives_current_experiment(self):
+    def test_v_archives_current_experiment(self):
         experiments = [{"name": "exp-a"}, {"name": "exp-b"}]
         dashboard, _, db = make_dashboard(experiments=experiments)
         dashboard.focus_mode = "experiments"
         dashboard.selected_exp_idx = 0
 
-        dashboard.handle_key("S", ["node1"])
         dashboard.handle_key("v", ["node1"])
 
         _wait_for_action(dashboard, lambda: db.archive_experiment.called)
@@ -345,13 +421,12 @@ class TestExperimentModeStartNow:
 
 
 class TestExperimentModeRerun:
-    def test_selected_scope_then_r_reruns_current_experiment_clean(self):
+    def test_r_reruns_current_experiment_clean(self):
         experiments = [{"name": "exp-a"}, {"name": "exp-b"}]
         dashboard, _, db = make_dashboard(experiments=experiments)
         dashboard.focus_mode = "experiments"
         dashboard.selected_exp_idx = 0
 
-        dashboard.handle_key("S", ["node1"])
         dashboard.handle_key("R", ["node1"])
 
         _wait_for_action(dashboard, lambda: db.rerun_experiment.called)
@@ -1269,6 +1344,26 @@ class TestCascadeRerunKill:
         called_names = [call.args[0] for call in db.rerun_experiment.call_args_list]
         assert called_names[0] == "main"
         assert set(called_names[1:]) == {"child-a", "child-b"}
+
+    def test_rerun_cascade_does_not_include_completed_children(self):
+        experiments = [
+            {"name": "main", "role": "main"},
+            {"name": "child-a", "parent_experiment": "main", "role": "child"},
+        ]
+        dashboard, _, db = make_dashboard(experiments=experiments)
+        db.load.return_value = {
+            "experiments": experiments,
+            "completed": [
+                {"name": "child-done", "parent_experiment": "main", "status": "COMPLETED"}
+            ],
+            "archived": [],
+        }
+
+        dashboard._run_async_action({"type": "exp_rerun", "name": "main"})
+
+        called_names = [call.args[0] for call in db.rerun_experiment.call_args_list]
+        assert "child-done" not in called_names
+        assert set(called_names) == {"main", "child-a"}
 
 
 # @behavior: experiments.behavior.yaml#cluster-f-retry-failed-only

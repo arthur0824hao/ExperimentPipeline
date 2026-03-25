@@ -1,0 +1,42 @@
+schema_version: 1
+title: "GraphSAGE Full-Batch Runtime Contract"
+scope: "ExperimentPipeline GS targeted trainers"
+updated_at: "2026-03-25T11:50:00Z"
+applies_to:
+  - "pipeline/scripts/train_phase1_graphsage_targeted.py"
+  - "pipeline/scripts/train_phase3_graphsage_targeted.py"
+purpose: "Record the B-019 behavior migration from NeighborLoader/minibatch execution to deterministic full-batch training for GS targeted trainers."
+runtime_contract:
+  execution_mode: "full-batch only"
+  removed_paths:
+    - "NeighborLoader / create_loaders(...) training path"
+    - "minibatch evaluation helper path"
+  amp_policy:
+    enabled_when: "CUDA available"
+    primitives:
+      - "torch.cuda.amp.autocast"
+      - "torch.cuda.amp.GradScaler"
+  forward_rule: "Use model(data.x, data.edge_index) on full graph each epoch."
+  supervision_rule: "Compute loss using logits[train_mask] against y[train_mask]."
+  validation_rule: "Select threshold from val_mask probabilities with F1 grid search."
+config_contract:
+  removed_keys:
+    - "use_minibatch"
+    - "batch_size"
+    - "eval_batch_size"
+    - "num_neighbors"
+  affected_sections:
+    - "phase1_graphsage_targeted"
+    - "phase3_graphsage_targeted"
+    - "experiment_env EXP_P1_GS_*"
+    - "experiment_env EXP_P3_GS_*"
+operational_notes:
+  cache_policy: "Warm-cache tensors may be invalidated by trainer hash rotation and can be manually cleared when rerunning GS arms."
+  rerun_targets:
+    - "EXP_P1_GS_H56_COMBINED_V1"
+    - "EXP_P3_GS_H56_COMBINED_V1"
+  expected_post_reset_state: "NEEDS_RERUN or RUNNING if workers claim immediately"
+history:
+  - date: "2026-03-25"
+    author: "agent/openai-gpt-5.3-codex"
+    change: "Created EP-level behavior contract for B-019 full-batch GraphSAGE migration and config cleanup."
