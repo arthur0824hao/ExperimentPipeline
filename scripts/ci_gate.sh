@@ -24,7 +24,7 @@ then
   exit 1
 fi
 
-declare -a modified_py
+declare -a modified_py=()
 while IFS= read -r line; do
   [[ -n "${line}" ]] && modified_py+=("${line}")
 done < <(
