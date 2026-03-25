@@ -158,7 +158,14 @@ def _should_fallback_memory_estimator_import(exc: Exception) -> bool:
     if not isinstance(exc, (ImportError, ModuleNotFoundError, OSError)):
         return False
     msg = f"{type(exc).__name__}: {exc}"
-    markers = ("libtorch_global_deps.so", "preprocess_lib/__init__.py", "torch")
+    markers = (
+        "libtorch_global_deps.so",
+        "preprocess_lib/__init__.py",
+        "torch",
+        "torch_geometric",
+        "pandas",
+        "numpy",
+    )
     return any(marker in msg for marker in markers)
 
 
