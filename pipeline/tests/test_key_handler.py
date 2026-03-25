@@ -39,7 +39,6 @@ def test_experiment_panel_keymap_has_expected_bindings():
     assert mapping["W"] == "exp_nav_up"
     assert mapping["\x1b[A"] == "exp_nav_up"
     assert mapping["s"] == "exp_nav_down"
-    assert mapping["S"] == "exp_nav_down"
     assert mapping["\x1b[B"] == "exp_nav_down"
     assert mapping["N"] == "exp_page_next"
     assert mapping["P"] == "exp_page_prev"

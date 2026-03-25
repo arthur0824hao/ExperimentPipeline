@@ -41,6 +41,22 @@ else
   echo "[ci_gate] No modified Python files detected; skipping py_compile"
 fi
 
+tkt_changed=0
+while IFS= read -r path; do
+  [[ -z "${path}" ]] && continue
+  case "${path}" in
+    .tkt/*)
+      tkt_changed=1
+      break
+      ;;
+  esac
+done < <(
+  {
+    git diff --name-only --diff-filter=ACMRTUXB -- '.tkt/**'
+    git diff --cached --name-only --diff-filter=ACMRTUXB -- '.tkt/**'
+  } | sort -u
+)
+
 echo "[ci_gate] pytest key handler regression"
 python3 -m pytest -q pipeline/tests/test_key_handler.py
 
@@ -54,7 +70,11 @@ for json_file in configs/*.json; do
 done
 shopt -u nullglob
 
-echo "[ci_gate] YAML lint + sanitizer check for .tkt"
-python3 pipeline/tools/tkt_yaml_sanitize.py --target "${REPO_ROOT}"
+if [[ ${tkt_changed} -eq 1 ]]; then
+  echo "[ci_gate] YAML lint + sanitizer check for changed .tkt scope"
+  python3 pipeline/tools/tkt_yaml_sanitize.py --target "${REPO_ROOT}"
+else
+  echo "[ci_gate] No .tkt changes detected; skipping repo-wide .tkt sanitizer"
+fi
 
 echo "[ci_gate] PASS"

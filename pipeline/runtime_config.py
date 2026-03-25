@@ -9,6 +9,9 @@ from typing import Any, Dict, Iterable, List
 PHASE3_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = PHASE3_DIR.parent.parent
 PHASE3_RUNTIME_CONFIG_FILE = PROJECT_ROOT / "configs" / "phase3_runtime.json"
+DEFAULT_RUNTIME_SECTIONS: Dict[str, Dict[str, Any]] = {
+    "phase3_graphsage_targeted": {"hidden_dim": 56},
+}
 DEFAULT_PRE_WARM_FEATURE_SETS: Dict[str, List[str]] = {
     "ORIGIN": ["base_basic12_cut_d152"],
     "SENIOR10": ["base_basic12_cut_d152", "senior_gap_10dim_cut_d152"],
@@ -41,7 +44,10 @@ def load_phase3_runtime_config() -> Dict[str, Any]:
 def get_runtime_section(name: str) -> Dict[str, Any]:
     payload = load_phase3_runtime_config()
     section = payload.get(name, {})
-    return section if isinstance(section, dict) else {}
+    if isinstance(section, dict) and section:
+        return section
+    fallback = DEFAULT_RUNTIME_SECTIONS.get(name, {})
+    return dict(fallback) if isinstance(fallback, dict) else {}
 
 
 def cfg_int(section: Dict[str, Any], key: str, default: int) -> int:
