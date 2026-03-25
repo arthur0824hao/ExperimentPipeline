@@ -10,6 +10,8 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
 
+from machine_constraints import filter_worker_heartbeats, load_machine_constraints
+
 try:
     from artifact import _load_json_dict
     from formatting import _parse_iso_ts, format_time_ago
@@ -60,17 +62,7 @@ class ClusterManager:
             if MACHINES_FILE != _DEFAULT_MACHINES_FILE
             else MACHINES_FILES
         )
-        for config_path in machine_paths:
-            if not config_path.exists():
-                continue
-            try:
-                with open(config_path, "r") as f:
-                    data = json.load(f)
-                if isinstance(data, dict):
-                    return data
-            except Exception:
-                continue
-        return {}
+        return load_machine_constraints(machine_paths)
 
     def _load_heartbeat_files(self) -> Dict[str, Dict[str, Any]]:
         heartbeats: Dict[str, Dict[str, Any]] = {}
@@ -103,7 +95,7 @@ class ClusterManager:
     def get_cluster_status(self, db: Optional["DBExperimentsDB"] = None) -> Dict:
         status_map = {}
         logger = logging.getLogger(__name__)
-        whitelist = set(self.machines.keys())
+        whitelist = sorted(self.machines.keys())
 
         for mid, conf in self.machines.items():
             status_map[mid] = {
@@ -118,10 +110,20 @@ class ClusterManager:
                 "our_gpu_ids": [],
             }
 
-        heartbeats = db.get_cluster_heartbeats() if db else self._load_heartbeat_files()
+        if db:
+            heartbeats = db.get_filtered_cluster_heartbeats(
+                whitelist,
+                fail_closed=False,
+            )
+        else:
+            heartbeats = filter_worker_heartbeats(
+                self._load_heartbeat_files(),
+                whitelist,
+                fail_closed=False,
+            )
         if db and whitelist and hasattr(db, "cleanup_worker_heartbeats"):
             try:
-                db.cleanup_worker_heartbeats(sorted(whitelist))
+                db.cleanup_worker_heartbeats(whitelist)
             except Exception:
                 pass
         buddy_reports: Dict[str, Dict[str, Any]] = {}
@@ -133,8 +135,6 @@ class ClusterManager:
             except Exception:
                 buddy_reports = {}
         for w_id, hb in heartbeats.items():
-            if whitelist and w_id not in whitelist:
-                continue
             seconds_ago = hb.get("last_seen_sec", 999999)
             is_online = seconds_ago < HEARTBEAT_STALE_SEC
             buddy = buddy_reports.get(w_id, {})
@@ -160,8 +160,9 @@ class ClusterManager:
                 }
             )
 
+        whitelist_set = set(whitelist)
         for w_id, buddy in buddy_reports.items():
-            if whitelist and w_id not in whitelist:
+            if whitelist_set and w_id not in whitelist_set:
                 continue
             if not bool(buddy.get("target_process_alive", False)):
                 continue
@@ -496,8 +497,19 @@ class ClusterManager:
         timeout_sec: int = 8,
     ) -> Dict[str, Any]:
         master_node_id, master_inference_reason = self._infer_master_node()
+        whitelist = sorted(self.machines.keys())
         try:
-            heartbeats = db.get_cluster_heartbeats() if db else self._load_heartbeat_files()
+            if db:
+                heartbeats = db.get_filtered_cluster_heartbeats(
+                    whitelist,
+                    fail_closed=True,
+                )
+            else:
+                heartbeats = filter_worker_heartbeats(
+                    self._load_heartbeat_files(),
+                    whitelist,
+                    fail_closed=True,
+                )
         except Exception:
             heartbeats = {}
 
@@ -615,9 +627,16 @@ class ClusterManager:
     ) -> Tuple[bool, Optional[int]]:
         try:
             if db:
-                heartbeats = db.get_cluster_heartbeats()
+                heartbeats = db.get_filtered_cluster_heartbeats(
+                    sorted(self.machines.keys()),
+                    fail_closed=True,
+                )
             else:
-                heartbeats = self._load_heartbeat_files()
+                heartbeats = filter_worker_heartbeats(
+                    self._load_heartbeat_files(),
+                    sorted(self.machines.keys()),
+                    fail_closed=True,
+                )
             
             hb = heartbeats.get(node_id, {})
             last_seen_sec = hb.get("last_seen_sec")
@@ -641,9 +660,14 @@ class ClusterManager:
             return (True, None)
         deadline = time.time() + max(1, timeout_sec)
         poll = max(1, START_HEARTBEAT_POLL_SEC)
+        whitelist = sorted(self.machines.keys())
         while time.time() <= deadline:
             try:
-                hb = db.get_cluster_heartbeats().get(node_id, {})
+                hb = db.get_worker_heartbeat(
+                    node_id,
+                    whitelist,
+                    fail_closed=True,
+                )
                 last_seen = hb.get("last_seen_sec")
                 if last_seen is not None and last_seen < HEARTBEAT_ONLINE_SEC:
                     return (True, int(last_seen))
@@ -724,7 +748,12 @@ class ClusterManager:
         db_env = ""
         tunnel_port = conf.get("db_tunnel_port")
         if tunnel_port:
-            db_env = f"export EXP_PGHOST=localhost EXP_PGPORT={int(tunnel_port)}"
+            port_text = str(int(tunnel_port))
+            db_env = (
+                "export "
+                f"EXP_PGHOST=127.0.0.1 PGHOST=127.0.0.1 "
+                f"EXP_PGPORT={port_text} PGPORT={port_text}"
+            )
         launcher_path, launcher_setup_cmd = self._build_runner_launcher(
             node_id=node_id,
             work_dir=str(work_dir),

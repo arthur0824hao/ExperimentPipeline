@@ -83,10 +83,17 @@ def test_experiment_panel_up_down_navigation_regression():
         experiments=[{"name": "exp-a"}, {"name": "exp-b"}, {"name": "exp-c"}]
     )
     dashboard.focus_mode = "experiments"
+    dashboard._panel_exp_rows = [
+        {"name": "exp-a"},
+        {"name": "exp-b"},
+        {"name": "exp-c"},
+    ]
     dashboard.selected_exp_idx = 1
+    dashboard.db.load.reset_mock()
 
     dashboard.handle_key("\x1b[A", ["node-1"])
     assert dashboard.selected_exp_idx == 0
 
     dashboard.handle_key("\x1b[B", ["node-1"])
     assert dashboard.selected_exp_idx == 1
+    dashboard.db.load.assert_not_called()

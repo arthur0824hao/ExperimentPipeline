@@ -20,19 +20,15 @@ import subprocess
 import platform
 import threading
 import queue
-import select
 import shlex
 import shutil
-import tty
 import re
 import importlib
 import importlib.util
-import termios
 import signal
-from contextlib import ExitStack
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Optional, Any, Tuple, Set, cast
+from typing import List, Dict, Optional, Any, Tuple, Set
 from concurrent.futures import ThreadPoolExecutor, Future
 
 from rich.live import Live
@@ -46,6 +42,7 @@ from rich.markup import escape
 from rich.columns import Columns
 
 from cli_shared import add_common_args, emit_result, setup_logging
+from dashboard_input import DashboardInputSession
 from db_registry import DBExperimentsDB, derive_progression_status, get_conn
 from experiment_registration import build_experiment_config, register_experiment
 from condition import (
@@ -128,7 +125,8 @@ from memory_contract import (
     get_required_mem_mb,
 )
 from allocator import GPUAllocator, enforce_formal_slot_serialization
-from cluster import ClusterManager
+from cluster import ClusterManager, HEARTBEAT_ONLINE_SEC
+from panel_nav import clamp_exp_selection
 from logger_hybrid import HybridLogger
 from worker import (
     run_experiment_process,
@@ -139,7 +137,6 @@ from worker import (
     release_distributed_lock,
     _clean_experiment_artifacts,
     _clear_runtime_markers,
-    get_key,
 )
 from health import (
     cleanup_on_startup,
@@ -888,6 +885,24 @@ class UnifiedDashboard:
         self._action_pool: Optional[ThreadPoolExecutor] = None
         self._action_pool_running = False
 
+    def current_focus_label(self) -> str:
+        return "Experiments" if self.focus_mode == "experiments" else "Cluster"
+
+    def set_focus_mode(self, focus_mode: str, *, announce: bool = False) -> None:
+        target = (
+            "experiments"
+            if str(focus_mode).strip().lower() == "experiments"
+            else "cluster"
+        )
+        changed = self.focus_mode != target
+        self.focus_mode = target
+        self.action_mode = False
+        self.assign_mode = False
+        self.assign_workers = []
+        self.exp_two_step = TwoStepKeyHandler()
+        if announce and changed:
+            self.set_message(f"Focus -> {self.current_focus_label()}")
+
     def _ensure_action_pool(self) -> None:
         if self._action_pool_running and self._action_pool is not None:
             return
@@ -1163,9 +1178,9 @@ class UnifiedDashboard:
                     requester_worker=self.worker_id,
                 )
                 if queued:
-                    hb = self.db.get_cluster_heartbeats().get(worker, {})
-                    hb_state = str(hb.get("status") or "").upper()
-                    if hb_state == "ONLINE":
+                    hb = self.db.get_worker_heartbeat(worker)
+                    hb_age = float(hb.get("last_seen_sec") or 999999)
+                    if hb and hb_age < HEARTBEAT_ONLINE_SEC:
                         suffix = "worker online"
                     elif hb:
                         suffix = "worker offline/stale"
@@ -1720,7 +1735,7 @@ class UnifiedDashboard:
         display_experiments = display_experiments + condition_nodes + staged_matrix_rows
         display_experiments.sort(key=_sort_key)
         self._panel_exp_rows = self._apply_experiment_pagination(display_experiments)
-        self._resolve_exp_selection(self._panel_exp_rows)
+        clamp_exp_selection(self, self._panel_exp_rows)
         selected_exp_name = self.selected_exp_name
 
         selected_marked = False
@@ -2293,7 +2308,7 @@ class UnifiedDashboard:
         pending_str = (
             f" │ ActionQ: [yellow]{pending_actions}[/]" if pending_actions > 0 else ""
         )
-        header_text = f"[bold]Phase 3 Runner v3.1[/] │ Worker: [cyan]{self.worker_id}[/] │ Running: [green]{running_count}[/]{pending_str} │ {gpu_summary} │ Uptime: {uptime}s │ {datetime.now().strftime('%H:%M:%S')}"
+        header_text = f"[bold]Phase 3 Runner v3.1[/] │ Worker: [cyan]{self.worker_id}[/] │ Focus: [magenta]{self.current_focus_label()}[/] │ Running: [green]{running_count}[/]{pending_str} │ {gpu_summary} │ Uptime: {uptime}s │ {datetime.now().strftime('%H:%M:%S')}"
         layout["header"].update(Panel(header_text, style="on blue"))
 
         if self.focus_mode == "experiments":
@@ -3141,172 +3156,148 @@ def main():  # pragma: no cover
     num_gpus = len(allocator.gpus) if allocator.gpus else 1
     max_workers = num_gpus * current_max_jobs
 
-    input_stream = sys.stdin
-    input_stream_stack = ExitStack()
-    use_input = True
-    if not sys.stdin.isatty():
-        try:
-            input_stream = input_stream_stack.enter_context(open("/dev/tty", "r"))
-        except Exception:
-            use_input = False
-
-    if use_input:
-        fd = cast(int, input_stream.fileno())
-        old_settings = termios.tcgetattr(fd)
-    else:
-        fd = None
-        old_settings = None
-
     try:
-        signal.signal(signal.SIGINT, _signal_handler)
-        signal.signal(signal.SIGTERM, _signal_handler)
-        signal.signal(signal.SIGHUP, _signal_handler)
-        if use_input and fd is not None:
-            tty.setcbreak(fd)
+        with DashboardInputSession.open() as input_session:
+            use_input = input_session.enabled
+            signal.signal(signal.SIGINT, _signal_handler)
+            signal.signal(signal.SIGTERM, _signal_handler)
+            signal.signal(signal.SIGHUP, _signal_handler)
 
-        sentinel_thread: Optional[threading.Thread] = None
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            scheduler_thread = threading.Thread(
-                target=scheduler_loop, args=(executor,), daemon=True
-            )
-            scheduler_thread.start()
-            if sentinel_enabled and not args.watch:
-                sentinel_thread = threading.Thread(
-                    target=sentinel_loop,
-                    daemon=True,
-                    name="buddy-sentinel",
+            sentinel_thread: Optional[threading.Thread] = None
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                scheduler_thread = threading.Thread(
+                    target=scheduler_loop, args=(executor,), daemon=True
                 )
-                sentinel_thread.start()
-            else:
-                logger.log(
-                    f"Sentinel disabled (enabled={sentinel_enabled}, watch={args.watch})"
-                )
-            with Live(
-                dashboard.build_layout(0), refresh_per_second=8, screen=True
-            ) as live:
-                while True:
-                    dashboard.drain_async_updates()
+                scheduler_thread.start()
+                if sentinel_enabled and not args.watch:
+                    sentinel_thread = threading.Thread(
+                        target=sentinel_loop,
+                        daemon=True,
+                        name="buddy-sentinel",
+                    )
+                    sentinel_thread.start()
+                else:
+                    logger.log(
+                        f"Sentinel disabled (enabled={sentinel_enabled}, watch={args.watch})"
+                    )
+                with Live(
+                    dashboard.build_layout(0), refresh_per_second=8, screen=True
+                ) as live:
+                    while True:
+                        dashboard.drain_async_updates()
 
-                    try:
-                        sys_info: Dict[str, Any] = {"gpus": [], "cpu": {}}
                         try:
-                            sys_info = collect_system_info()
-                        except Exception as sys_err:
-                            now = time.time()
-                            if (
-                                heartbeat_failure_count == 0
-                                or now - heartbeat_last_error_log >= heartbeat_log_interval
-                            ):
-                                heartbeat_last_error_log = now
-                                logger.log(
-                                    "System info probe failed; heartbeat uses empty payload: "
-                                    f"worker={args.worker_id} err={type(sys_err).__name__}: {sys_err}"
-                                )
-
-                        if not args.watch:
-                            with running_futures_lock:
-                                running_names = sorted(running_futures.keys())
-
-                            heartbeat_ok = db.update_heartbeat(
-                                args.worker_id,
-                                os.getpid(),
-                                len(running_names),
-                                running_names,
-                                sys_info.get("gpus"),
-                                sys_info.get("cpu"),
-                            )
-
-                            if heartbeat_ok:
-                                if heartbeat_failure_count:
-                                    logger.log(
-                                        "Heartbeat write recovered: "
-                                        f"worker={args.worker_id} recover_after={heartbeat_failure_count}"
-                                    )
-                                heartbeat_failure_count = 0
-                            else:
-                                heartbeat_failure_count += 1
+                            sys_info: Dict[str, Any] = {"gpus": [], "cpu": {}}
+                            try:
+                                sys_info = collect_system_info()
+                            except Exception as sys_err:
                                 now = time.time()
                                 if (
-                                    heartbeat_failure_count == 1
+                                    heartbeat_failure_count == 0
                                     or now - heartbeat_last_error_log >= heartbeat_log_interval
                                 ):
                                     heartbeat_last_error_log = now
                                     logger.log(
-                                        "Heartbeat DB write failed: "
-                                        f"worker={args.worker_id} pid={os.getpid()} "
-                                        f"running_jobs={len(running_names)} "
-                                        f"running_names={running_names[:5]} "
-                                        f"consecutive_failures={heartbeat_failure_count} "
-                                        f"detail={db.get_last_heartbeat_error()}"
+                                        "System info probe failed; heartbeat uses empty payload: "
+                                        f"worker={args.worker_id} err={type(sys_err).__name__}: {sys_err}"
                                     )
-                    except Exception as e:
-                        heartbeat_failure_count += 1
-                        now = time.time()
-                        if (
-                            heartbeat_failure_count == 1
-                            or now - heartbeat_last_error_log >= heartbeat_log_interval
-                        ):
-                            heartbeat_last_error_log = now
-                            logger.log(
-                                "Heartbeat loop failed: "
-                                f"worker={args.worker_id} err={type(e).__name__}: {e} "
-                                f"consecutive_failures={heartbeat_failure_count}"
-                            )
 
-                    if use_input:
-                        quit_requested = False
-                        while True:
-                            rlist, _, _ = select.select([input_stream], [], [], 0)
-                            if not rlist:
-                                break
-                            key = get_key(input_stream)
-                            if key:
+                            if not args.watch:
+                                with running_futures_lock:
+                                    running_names = sorted(running_futures.keys())
+
+                                heartbeat_ok = db.update_heartbeat(
+                                    args.worker_id,
+                                    os.getpid(),
+                                    len(running_names),
+                                    running_names,
+                                    sys_info.get("gpus"),
+                                    sys_info.get("cpu"),
+                                )
+
+                                if heartbeat_ok:
+                                    if heartbeat_failure_count:
+                                        logger.log(
+                                            "Heartbeat write recovered: "
+                                            f"worker={args.worker_id} recover_after={heartbeat_failure_count}"
+                                        )
+                                    heartbeat_failure_count = 0
+                                else:
+                                    heartbeat_failure_count += 1
+                                    now = time.time()
+                                    if (
+                                        heartbeat_failure_count == 1
+                                        or now - heartbeat_last_error_log >= heartbeat_log_interval
+                                    ):
+                                        heartbeat_last_error_log = now
+                                        logger.log(
+                                            "Heartbeat DB write failed: "
+                                            f"worker={args.worker_id} pid={os.getpid()} "
+                                            f"running_jobs={len(running_names)} "
+                                            f"running_names={running_names[:5]} "
+                                            f"consecutive_failures={heartbeat_failure_count} "
+                                            f"detail={db.get_last_heartbeat_error()}"
+                                        )
+                        except Exception as e:
+                            heartbeat_failure_count += 1
+                            now = time.time()
+                            if (
+                                heartbeat_failure_count == 1
+                                or now - heartbeat_last_error_log >= heartbeat_log_interval
+                            ):
+                                heartbeat_last_error_log = now
+                                logger.log(
+                                    "Heartbeat loop failed: "
+                                    f"worker={args.worker_id} err={type(e).__name__}: {e} "
+                                    f"consecutive_failures={heartbeat_failure_count}"
+                                )
+
+                        if use_input:
+                            quit_requested = False
+                            for key in input_session.ready_keys():
                                 cluster_status = cluster_mgr.get_cluster_status(db)
                                 workers = sorted(cluster_status.keys())
                                 if not dashboard.handle_key(key, workers):
                                     quit_requested = True
                                     break
-                        if quit_requested:
+                            if quit_requested:
+                                break
+
+                        with running_futures_lock:
+                            completed_names = [
+                                name
+                                for name, future in running_futures.items()
+                                if future.done()
+                            ]
+                        for name in completed_names:
+                            with running_futures_lock:
+                                future = running_futures.pop(name, None)
+                            if future is None:
+                                continue
+                            try:
+                                future.result()
+                            except Exception as e:
+                                logger.log(f"Experiment {name} raised exception: {e}")
+
+                        if stop_requested["value"]:
                             break
 
-                    with running_futures_lock:
-                        completed_names = [
-                            name
-                            for name, future in running_futures.items()
-                            if future.done()
-                        ]
-                    for name in completed_names:
                         with running_futures_lock:
-                            future = running_futures.pop(name, None)
-                        if future is None:
-                            continue
-                        try:
-                            future.result()
-                        except Exception as e:
-                            logger.log(f"Experiment {name} raised exception: {e}")
+                            running_count = len(running_futures)
+                        live.update(dashboard.build_layout(running_count))
 
-                    if stop_requested["value"]:
-                        break
+                        time.sleep(0.1)
 
-                    with running_futures_lock:
-                        running_count = len(running_futures)
-                    live.update(dashboard.build_layout(running_count))
-
-                    time.sleep(0.1)
-
-            stop_requested["value"] = True
-            scheduler_thread.join(timeout=2)
-            if sentinel_thread is not None:
-                sentinel_thread.join(timeout=2)
+                stop_requested["value"] = True
+                scheduler_thread.join(timeout=2)
+                if sentinel_thread is not None:
+                    sentinel_thread.join(timeout=2)
 
     except KeyboardInterrupt:
         logger.log("Runner interrupted by user")
         _terminate_running_processes()
     finally:
         dashboard.shutdown()
-        if use_input and fd is not None and old_settings is not None:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-        input_stream_stack.close()
         logger.log("Runner stopped")
 
 

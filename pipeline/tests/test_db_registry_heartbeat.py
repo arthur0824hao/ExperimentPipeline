@@ -26,7 +26,8 @@ def _mock_conn_and_cursor():
 
 
 @patch("db_registry.get_conn")
-def test_update_heartbeat_upsert_with_payload(mock_get_conn):
+@patch("db_registry._load_worker_whitelist", return_value=["w1"])
+def test_update_heartbeat_upsert_with_payload(mock_whitelist, mock_get_conn):
     conn_cm, _, cur = _mock_conn_and_cursor()
     mock_get_conn.return_value = conn_cm
     db = DBExperimentsDB(dsn="postgresql://fake")
@@ -52,7 +53,8 @@ def test_update_heartbeat_upsert_with_payload(mock_get_conn):
 
 
 @patch("db_registry.get_conn")
-def test_update_heartbeat_defaults_gpu_cpu_to_empty_json(mock_get_conn):
+@patch("db_registry._load_worker_whitelist", return_value=["w2"])
+def test_update_heartbeat_defaults_gpu_cpu_to_empty_json(mock_whitelist, mock_get_conn):
     conn_cm, _, cur = _mock_conn_and_cursor()
     mock_get_conn.return_value = conn_cm
     db = DBExperimentsDB(dsn="postgresql://fake")
@@ -72,7 +74,8 @@ def test_update_heartbeat_defaults_gpu_cpu_to_empty_json(mock_get_conn):
 
 
 @patch("db_registry.get_conn", side_effect=RuntimeError("db down"))
-def test_update_heartbeat_handles_db_exception(mock_get_conn):
+@patch("db_registry._load_worker_whitelist", return_value=["w"])
+def test_update_heartbeat_handles_db_exception(mock_whitelist, mock_get_conn):
     db = DBExperimentsDB(dsn="postgresql://fake")
     ok = db.update_heartbeat("w", 1, 1, ["exp"])
     assert ok is False
@@ -127,6 +130,69 @@ def test_get_cluster_heartbeats_returns_expected_dict_shape(mock_get_conn):
     assert row["gpu_probe_error"] == "nvml unavailable"
     assert row["timestamp"]
     assert row["last_seen_sec"] == pytest.approx(5, abs=2)
+
+
+@patch("db_registry.get_conn")
+@patch("db_registry._load_worker_whitelist", return_value=["w1"])
+def test_get_filtered_cluster_heartbeats_respects_whitelist(
+    mock_whitelist, mock_get_conn
+):
+    conn_cm, _, cur = _mock_conn_and_cursor()
+    mock_get_conn.return_value = conn_cm
+    now = datetime.now(timezone.utc)
+    cur.fetchall.return_value = [
+        {
+            "worker_id": "w1",
+            "last_seen": now - timedelta(seconds=5),
+            "pid": 123,
+            "running_jobs": 1,
+            "running_experiments": ["exp1"],
+            "gpu_info": [],
+            "cpu_info": {},
+        },
+        {
+            "worker_id": "oc-rerun4",
+            "last_seen": now - timedelta(seconds=5),
+            "pid": 456,
+            "running_jobs": 1,
+            "running_experiments": ["ghost"],
+            "gpu_info": [],
+            "cpu_info": {},
+        },
+    ]
+    db = DBExperimentsDB(dsn="postgresql://fake")
+
+    hb = db.get_filtered_cluster_heartbeats()
+
+    assert set(hb.keys()) == {"w1"}
+    mock_whitelist.assert_called()
+
+
+@patch("db_registry.get_conn")
+@patch("db_registry._load_worker_whitelist", return_value=["w1"])
+def test_get_worker_heartbeat_fail_closed_for_unknown_worker(
+    mock_whitelist, mock_get_conn
+):
+    conn_cm, _, cur = _mock_conn_and_cursor()
+    mock_get_conn.return_value = conn_cm
+    now = datetime.now(timezone.utc)
+    cur.fetchall.return_value = [
+        {
+            "worker_id": "oc-rerun4",
+            "last_seen": now - timedelta(seconds=5),
+            "pid": 456,
+            "running_jobs": 1,
+            "running_experiments": ["ghost"],
+            "gpu_info": [],
+            "cpu_info": {},
+        }
+    ]
+    db = DBExperimentsDB(dsn="postgresql://fake")
+
+    hb = db.get_worker_heartbeat("oc-rerun4")
+
+    assert hb == {}
+    mock_whitelist.assert_called()
 
 
 @patch("db_registry.get_conn")

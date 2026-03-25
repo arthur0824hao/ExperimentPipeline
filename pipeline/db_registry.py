@@ -34,6 +34,13 @@ import psycopg2
 import psycopg2.extras
 import psycopg2.pool
 
+from machine_constraints import (
+    filter_worker_heartbeats,
+    get_worker_heartbeat as _get_worker_heartbeat,
+    load_machine_constraints,
+    load_worker_whitelist,
+)
+
 # ---------------------------------------------------------------------------
 # Connection pool (module-level singleton)
 # ---------------------------------------------------------------------------
@@ -302,20 +309,11 @@ def _get_dsn_candidates() -> List[str]:
 
 
 def _load_machine_constraints() -> Dict[str, Dict[str, Any]]:
-    for config_path in MACHINES_FILES:
-        try:
-            if not config_path.exists():
-                continue
-            data = json.loads(config_path.read_text(encoding="utf-8"))
-            if isinstance(data, dict):
-                return {str(k): v for k, v in data.items() if isinstance(v, dict)}
-        except Exception:
-            continue
-    return {}
+    return load_machine_constraints(MACHINES_FILES)
 
 
 def _load_worker_whitelist() -> List[str]:
-    return sorted(_load_machine_constraints().keys())
+    return load_worker_whitelist(MACHINES_FILES)
 
 
 def _max_allowed_gpu_total_mb(
@@ -1850,6 +1848,34 @@ class DBExperimentsDB:
         except Exception as e:
             print(f"[DBExperimentsDB] get_cluster_heartbeats error: {e}")
             return {}
+
+    def get_filtered_cluster_heartbeats(
+        self,
+        whitelist: Optional[List[str]] = None,
+        *,
+        fail_closed: bool = True,
+    ) -> Dict[str, Dict]:
+        allowed = whitelist if whitelist is not None else _load_worker_whitelist()
+        return filter_worker_heartbeats(
+            self.get_cluster_heartbeats(),
+            allowed,
+            fail_closed=fail_closed,
+        )
+
+    def get_worker_heartbeat(
+        self,
+        worker_id: str,
+        whitelist: Optional[List[str]] = None,
+        *,
+        fail_closed: bool = True,
+    ) -> Dict[str, Any]:
+        allowed = whitelist if whitelist is not None else _load_worker_whitelist()
+        return _get_worker_heartbeat(
+            self.get_cluster_heartbeats(),
+            worker_id,
+            allowed,
+            fail_closed=fail_closed,
+        )
 
     # --- Stale check (THE key improvement over file-based) ---
 

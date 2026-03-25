@@ -5,6 +5,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
+from panel_nav import (
+    clamp_exp_selection,
+    cluster_nav_down as _cluster_nav_down,
+    cluster_nav_left as _cluster_nav_left,
+    cluster_nav_right as _cluster_nav_right,
+    cluster_nav_up as _cluster_nav_up,
+    exp_nav_down as _exp_nav_down,
+    exp_nav_up as _exp_nav_up,
+    exp_page_next as _exp_page_next,
+    exp_page_prev as _exp_page_prev,
+)
 from tui_keys import Action, TwoStepKeyHandler
 
 
@@ -47,6 +58,16 @@ CLUSTER_PANEL_KEYMAP: Tuple[KeyMap, ...] = (
     KeyMap(action="strategy_5", keys=("5",)),
     KeyMap(action="escape", keys=("\x1b",)),
 )
+
+
+_EXPERIMENT_AUTOFOCUS_ACTIONS = {
+    "exp_page_next",
+    "exp_page_prev",
+    "exp_repipeline",
+    "exp_start_now",
+    "exp_move_up",
+    "exp_move_down",
+}
 
 
 def _resolve_mapped_action(key: str, mappings: Sequence[KeyMap]) -> Optional[str]:
@@ -175,7 +196,6 @@ def _handle_experiment_action(
     action_name: str,
     key: str,
     workers: List[str],
-    data: Dict[str, Any],
     panel_experiments: List[Dict[str, Any]],
 ) -> bool:
     if action_name == "assign_open" and panel_experiments:
@@ -194,29 +214,19 @@ def _handle_experiment_action(
 
     if action_name == "exp_nav_up":
         _reset_experiment_two_step(dashboard)
-        dashboard.selected_exp_idx = max(0, dashboard.selected_exp_idx - 1)
-        if panel_experiments:
-            dashboard.selected_exp_name = panel_experiments[dashboard.selected_exp_idx].get("name")
-        return True
+        return _exp_nav_up(dashboard, panel_experiments)
 
     if action_name == "exp_nav_down":
         _reset_experiment_two_step(dashboard)
-        if panel_experiments:
-            dashboard.selected_exp_idx = min(
-                len(panel_experiments) - 1,
-                dashboard.selected_exp_idx + 1,
-            )
-            dashboard.selected_exp_name = panel_experiments[dashboard.selected_exp_idx].get("name")
-        return True
+        return _exp_nav_down(dashboard, panel_experiments)
 
-    if action_name in {"exp_page_next", "exp_page_prev"}:
+    if action_name == "exp_page_next":
         _reset_experiment_two_step(dashboard)
-        total = dashboard._panel_exp_total or (
-            len(data.get("experiments", [])) + len(data.get("completed", []))
-        )
-        dashboard._refresh_experiment_pagination(total)
-        dashboard._change_experiment_page(1 if action_name == "exp_page_next" else -1)
-        return True
+        return _exp_page_next(dashboard)
+
+    if action_name == "exp_page_prev":
+        _reset_experiment_two_step(dashboard)
+        return _exp_page_prev(dashboard)
 
     if action_name == "exp_repipeline" and panel_experiments:
         _reset_experiment_two_step(dashboard)
@@ -322,23 +332,13 @@ def _handle_cluster_action(
         return True
 
     if action_name == "cluster_nav_up" and not dashboard.action_mode:
-        dashboard._move_cluster_selection(-1, 0, len(workers))
-        return True
+        return _cluster_nav_up(dashboard, len(workers))
     if action_name == "cluster_nav_down" and not dashboard.action_mode:
-        dashboard._move_cluster_selection(1, 0, len(workers))
-        return True
+        return _cluster_nav_down(dashboard, len(workers))
     if action_name == "cluster_nav_left":
-        if dashboard.action_mode:
-            dashboard.action_idx = max(0, dashboard.action_idx - 1)
-        else:
-            dashboard._move_cluster_selection(0, -1, len(workers))
-        return True
+        return _cluster_nav_left(dashboard, len(workers))
     if action_name == "cluster_nav_right":
-        if dashboard.action_mode:
-            dashboard.action_idx = min(len(dashboard.actions) - 1, dashboard.action_idx + 1)
-        else:
-            dashboard._move_cluster_selection(0, 1, len(workers))
-        return True
+        return _cluster_nav_right(dashboard, len(workers))
     if action_name == "cluster_enter":
         if not dashboard.action_mode:
             dashboard.action_mode = True
@@ -399,9 +399,8 @@ def _handle_cluster_action(
 
 
 def _toggle_focus(dashboard: Any) -> bool:
-    dashboard.focus_mode = "experiments" if dashboard.focus_mode == "cluster" else "cluster"
-    dashboard.action_mode = False
-    dashboard.exp_two_step = TwoStepKeyHandler()
+    target = "experiments" if dashboard.focus_mode == "cluster" else "cluster"
+    dashboard.set_focus_mode(target, announce=True)
     return True
 
 
@@ -415,25 +414,28 @@ def dispatch_dashboard_key(dashboard: Any, key: Optional[str], workers: List[str
     if key == "\t":
         return _toggle_focus(dashboard)
 
+    experiment_action = _resolve_mapped_action(key, EXPERIMENT_PANEL_KEYMAP)
+    cluster_action = _resolve_mapped_action(key, CLUSTER_PANEL_KEYMAP)
+
+    if (
+        dashboard.focus_mode == "cluster"
+        and experiment_action in _EXPERIMENT_AUTOFOCUS_ACTIONS
+        and cluster_action is None
+    ):
+        dashboard.set_focus_mode("experiments", announce=True)
+
     if dashboard.focus_mode == "experiments":
-        data = dashboard.db.load()
-        panel_experiments = dashboard._panel_exp_rows
-        if not panel_experiments:
-            panel_experiments = data.get("experiments", [])
-        dashboard._resolve_exp_selection(panel_experiments)
+        panel_experiments = list(dashboard._panel_exp_rows)
 
         if dashboard.assign_mode:
             return _handle_assign_mode(dashboard, key, panel_experiments)
 
-        action_name = _resolve_mapped_action(key, EXPERIMENT_PANEL_KEYMAP)
         return _handle_experiment_action(
             dashboard,
-            action_name or "exp_two_step",
+            experiment_action or "exp_two_step",
             key,
             workers,
-            data,
             panel_experiments,
         )
 
-    action_name = _resolve_mapped_action(key, CLUSTER_PANEL_KEYMAP)
-    return _handle_cluster_action(dashboard, action_name or "noop", key, workers)
+    return _handle_cluster_action(dashboard, cluster_action or "noop", key, workers)

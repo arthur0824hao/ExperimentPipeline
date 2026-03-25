@@ -35,15 +35,24 @@ modules:
     description: "Cluster status derivation from heartbeats and DB queries"
     public_api:
       - get_cluster_status
+      - get_network_health
       - load_machines
     internal:
       - _load_heartbeat_files
+      - _infer_master_node
+      - _check_node_connectivity
     guarantees:
       - "ONLINE status requires last_seen_sec < HEARTBEAT_ONLINE_SEC (default 60s)"
       - "STALE status means HEARTBEAT_ONLINE_SEC <= last_seen_sec < HEARTBEAT_STALE_SEC"
       - "OFFLINE recoverable status means last_seen_sec >= HEARTBEAT_STALE_SEC OR no heartbeat exists"
       - "DISABLED status is set by DB.is_worker_disabled() regardless of heartbeat"
+      - "Cluster status starts from configured machines only; unknown heartbeat rows must be filtered before rendering"
+      - "DB heartbeat cleanup is driven by the configured worker whitelist and should remove non-registered worker rows opportunistically"
+      - "Cluster network health and heartbeat freshness checks must use filtered heartbeat accessors rather than raw DB heartbeat maps"
       - "our_gpu_ids are populated from DB query of RUNNING experiments with non-null gpu_id"
+      - "Network health probes each configured node with timeout-bounded SSH echo and reports latency_ms"
+      - "Master inference is deterministic and fail-safe: ambiguous topology returns master_node_id=null with reason"
+      - "Node connectivity failures are classified as ssh_timeout, ssh_auth_failed, ssh_dns_failed, ssh_refused, or ssh_error"
 
 stages:
   - name: "check_existing_process"
@@ -93,3 +102,4 @@ cross_cutting:
   - "Both thresholds should be configurable via runtime_config; defaults are 60s (ONLINE) and 120s (STALE)"
   - "stale-but-running workers should be recoverable via explicit enable/start action"
   - "Manual cluster actions are the only allowed interactive SSH trigger surface"
+  - "Cluster status payload may expose both runtime status and explicit network_health for operator diagnostics"

@@ -16,13 +16,13 @@ try:
     from db_registry import DBExperimentsDB
     from formatting import normalize_status
     from logger_hybrid import HybridLogger
-    from runtime_config import cfg_int, get_runtime_section
+    from runtime_config import cfg_bool, cfg_int, get_runtime_section
 except ModuleNotFoundError:
     from .cluster import ClusterManager
     from .db_registry import DBExperimentsDB
     from .formatting import normalize_status
     from .logger_hybrid import HybridLogger
-    from .runtime_config import cfg_int, get_runtime_section
+    from .runtime_config import cfg_bool, cfg_int, get_runtime_section
 
 
 BASE_DIR = Path(__file__).parent.absolute()
@@ -31,8 +31,11 @@ RESULTS_DB_DIR = BASE_DIR / "results_db"
 LOGS_DIR = BASE_DIR / "logs"
 
 _RUNNER_CFG = get_runtime_section("experiments_runner")
+_SENTINEL_CFG = get_runtime_section("sentinel")
 
 HEARTBEAT_STALE_SEC = cfg_int(_RUNNER_CFG, "heartbeat_stale_sec", 120)
+SENTINEL_ENABLED = cfg_bool(_SENTINEL_CFG, "enabled", True)
+SENTINEL_BUDDY_REPORT_TTL_SEC = cfg_int(_SENTINEL_CFG, "buddy_report_ttl_sec", 90)
 ORPHAN_REAPER_INTERVAL_SEC = cfg_int(_RUNNER_CFG, "orphan_reaper_interval_sec", 30)
 ORPHAN_ETIMES_SEC = cfg_int(_RUNNER_CFG, "orphan_etimes_sec", 120)
 ORPHAN_CONFIRMATION_SEC = cfg_int(_RUNNER_CFG, "orphan_confirmation_sec", 30)
@@ -103,7 +106,7 @@ def _get_active_runner_pids_from_db(
     if db is None:
         return active_pids
     try:
-        heartbeats = db.get_cluster_heartbeats()
+        heartbeats = db.get_filtered_cluster_heartbeats()
         for wid, info in heartbeats.items():
             if info.get("last_seen_sec", 999999) > stale_sec:
                 continue
@@ -260,7 +263,7 @@ def reap_orphan_training_processes(
 
     local_hb_running: Set[str] = set()
     try:
-        hb_data = db.get_cluster_heartbeats().get(worker_id, {})
+        hb_data = db.get_worker_heartbeat(worker_id)
         hb_running = hb_data.get("running_experiments") or []
         if isinstance(hb_running, list):
             local_hb_running = {str(x) for x in hb_running if str(x)}
@@ -395,6 +398,7 @@ def check_stale_locks(
     stale_results = db.check_stale_experiments(
         stale_sec=HEARTBEAT_STALE_SEC,
         caller_worker=local_worker_id,
+        buddy_report_ttl_sec=SENTINEL_BUDDY_REPORT_TTL_SEC if SENTINEL_ENABLED else None,
     )
     for name, stale_worker in stale_results:
         logger.log(
