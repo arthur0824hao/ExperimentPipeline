@@ -34,7 +34,8 @@ def exp_nav_down(dashboard: Any, panel_experiments: List[Dict[str, Any]]) -> boo
 def exp_page_next(dashboard: Any) -> bool:
     """Advance to the next experiment page."""
     total = dashboard._panel_exp_total or 0
-    dashboard._refresh_experiment_pagination(total)
+    if total > 0:
+        dashboard._refresh_experiment_pagination(total)
     dashboard._change_experiment_page(1)
     return True
 
@@ -42,7 +43,8 @@ def exp_page_next(dashboard: Any) -> bool:
 def exp_page_prev(dashboard: Any) -> bool:
     """Go back to the previous experiment page."""
     total = dashboard._panel_exp_total or 0
-    dashboard._refresh_experiment_pagination(total)
+    if total > 0:
+        dashboard._refresh_experiment_pagination(total)
     dashboard._change_experiment_page(-1)
     return True
 

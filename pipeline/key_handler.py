@@ -28,7 +28,7 @@ class KeyMap:
 EXPERIMENT_PANEL_KEYMAP: Tuple[KeyMap, ...] = (
     KeyMap(action="assign_open", keys=("A",)),
     KeyMap(action="exp_nav_up", keys=("w", "W", "\x1b[A")),
-    KeyMap(action="exp_nav_down", keys=("s", "S", "\x1b[B")),
+    KeyMap(action="exp_nav_down", keys=("s", "\x1b[B")),
     KeyMap(action="exp_page_next", keys=("N",)),
     KeyMap(action="exp_page_prev", keys=("P",)),
     KeyMap(action="exp_repipeline", keys=("p",)),
@@ -404,6 +404,21 @@ def _toggle_focus(dashboard: Any) -> bool:
     return True
 
 
+def _get_panel_experiments(dashboard: Any) -> List[Dict[str, Any]]:
+    panel_experiments = list(getattr(dashboard, "_panel_exp_rows", []) or [])
+    if not panel_experiments:
+        try:
+            snapshot = dashboard.db.load()
+        except Exception:
+            snapshot = {}
+        experiments = snapshot.get("experiments", []) if isinstance(snapshot, dict) else []
+        if isinstance(experiments, list):
+            panel_experiments = [exp for exp in experiments if isinstance(exp, dict)]
+    dashboard._panel_exp_total = len(panel_experiments)
+    clamp_exp_selection(dashboard, panel_experiments)
+    return panel_experiments
+
+
 def dispatch_dashboard_key(dashboard: Any, key: Optional[str], workers: List[str]) -> bool:
     if not key:
         return True
@@ -425,7 +440,7 @@ def dispatch_dashboard_key(dashboard: Any, key: Optional[str], workers: List[str
         dashboard.set_focus_mode("experiments", announce=True)
 
     if dashboard.focus_mode == "experiments":
-        panel_experiments = list(dashboard._panel_exp_rows)
+        panel_experiments = _get_panel_experiments(dashboard)
 
         if dashboard.assign_mode:
             return _handle_assign_mode(dashboard, key, panel_experiments)
