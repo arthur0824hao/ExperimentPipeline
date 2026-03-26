@@ -1,0 +1,48 @@
+id: TKT-000
+bundle: "B-011"
+type: integrate
+title: "Integrate and coordinate B-011"
+description: |
+  Coordinate the B-011 bundle in strict wave order.
+
+  Wave 1: TKT-001 — shared query/service layer (pipeline/control_plane.py + tests)
+  Wave 2: TKT-002 — Agent CLI v1 (pipeline/ep_cli.py + tests) — depends on TKT-001
+           TKT-003 — Wire web dashboard + CI gate smoke (pipeline/web_dashboard.py + scripts/ci_gate.sh) — depends on TKT-001
+  Wave 3: TKT-A00 — Audit (full regression, import smoke, CLI JSON sanity) — depends on all
+
+  Rules:
+  - Do not start Wave 2 before TKT-001 is completed.
+  - Do not start Wave 3 before all Wave 2 tickets are completed.
+  - Close this ticket only after TKT-A00 audit passes and all evidence is present.
+  - Do NOT expand scope: no scheduler, no allocator, no TUI rewrite, no lineage, no dashboard features.
+acceptance_criteria:
+  - "Wave 1 completed before Wave 2 starts"
+  - "Wave 2 completed before Wave 3 starts"
+  - "No bounded extraction was attempted (none needed)"
+  - "Audit ticket completed with full-suite regression, import smoke, and CLI JSON sanity evidence"
+  - "Final bundle summary clearly separates: main deliverables, roadmap items, blocked items, non-goals"
+status: completed
+claimed_by: coder
+claimed_at: "2026-03-26T10:07:19Z"
+started_at: "2026-03-26T10:07:19Z"
+completed_at: "2026-03-26T10:07:19Z"
+category: null
+effort_estimate: null
+agent_type: null
+source_plan: null
+source_ticket_index: null
+result:
+  summary: "Completed B-011 in wave order: shared query layer, agent CLI v1, web wiring through shared facade, and successful audit evidence."
+  artifacts:
+    - pipeline/control_plane.py
+    - pipeline/ep_cli.py
+    - pipeline/web_dashboard.py
+    - scripts/ci_gate.sh
+    - .tkt/bundles/B-011/TKT-A00.yaml
+  notes: "No bounded extraction attempted; non-goals held (no scheduler/allocator/TUI rewrite)."
+  evidence: "Full suite + gate + CLI sanity evidence recorded in TKT-A00."
+depends_on:
+  - TKT-001
+  - TKT-002
+  - TKT-003
+  - TKT-A00

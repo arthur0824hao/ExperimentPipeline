@@ -1,0 +1,31 @@
+id: "B-011"
+goal_ref: "G-004"
+title: "Control-plane Query/Action Layer + Agent CLI v1"
+status: completed
+created_at: "2026-03-26T12:00:00Z"
+created_by: pm-agent
+main_agent: null
+ticket_count: 5
+priority: high
+track: "architecture"
+source_plan: null
+worktree_path: null
+worktree_branch: null
+depends_on: []
+scope_notes: |
+  This bundle pushes EP from "human-only TUI" to "agent-operable via stable CLI/JSON surface".
+  Deliverables:
+    A. Shared control-plane query/service layer (pipeline/control_plane.py)
+    B. Agent CLI v1 with --json (pipeline/ep_cli.py)
+    C. TUI/web wired through shared layer (pipeline/web_dashboard.py)
+  Non-goals:
+    - Large-scale TUI rewrite
+    - Full action plane in one go
+    - Lineage / artifact manifest / experiment comparison
+    - Scheduler policy overhaul
+    - Allocator / OOM / restore semantics refactor
+    - Cluster-wide deploy
+    - DB migration automation
+    - New dashboard feature stacking
+  Bounded extraction: None planned (no module split needed for this scope).
+  Preflight prerequisite: B-010 current truth must reach origin/master before B-011 can close.

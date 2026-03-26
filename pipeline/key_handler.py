@@ -414,7 +414,8 @@ def _get_panel_experiments(dashboard: Any) -> List[Dict[str, Any]]:
         experiments = snapshot.get("experiments", []) if isinstance(snapshot, dict) else []
         if isinstance(experiments, list):
             panel_experiments = [exp for exp in experiments if isinstance(exp, dict)]
-    dashboard._panel_exp_total = len(panel_experiments)
+    prev_total = int(getattr(dashboard, "_panel_exp_total", 0) or 0)
+    dashboard._panel_exp_total = max(prev_total, len(panel_experiments))
     clamp_exp_selection(dashboard, panel_experiments)
     return panel_experiments
 

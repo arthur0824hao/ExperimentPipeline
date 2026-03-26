@@ -1,0 +1,231 @@
+id: TKT-001
+bundle: "B-011"
+type: worker
+title: "pipeline/control_plane.py + pipeline/tests/test_control_plane.py — Shared query/service layer"
+description: |
+  Create the shared control-plane query/service layer that both TUI/web and CLI will use.
+  This replaces direct db_registry / cluster access with a single query facade.
+
+  FILE 1: pipeline/control_plane.py (NEW — create from scratch)
+
+  Create this file with the following exact structure:
+
+  ```python
+  #!/usr/bin/env python3
+  """Shared control-plane query/service layer.
+
+  Provides a single entry point for queries about experiments, cluster health,
+  and status summaries. Both the TUI and CLI use this layer instead of
+  directly accessing db_registry / cluster internals.
+  """
+  from __future__ import annotations
+
+  from typing import Any, Dict, List, Optional
+
+  try:
+      from db_registry import DBExperimentsDB
+      from cluster import ClusterManager
+  except ModuleNotFoundError:
+      from pipeline.db_registry import DBExperimentsDB
+      from pipeline.cluster import ClusterManager
+
+
+  class ControlPlaneService:
+      """Read-only query facade over DBExperimentsDB and ClusterManager."""
+
+      def __init__(
+          self,
+          db: Optional[DBExperimentsDB] = None,
+          cluster_mgr: Optional[ClusterManager] = None,
+      ) -> None:
+          self.db = db or DBExperimentsDB()
+          self.cluster_mgr = cluster_mgr or ClusterManager()
+
+      # -- Experiments queries ------------------------------------------------
+
+      def list_experiments(self, *, page: int = 1, per_page: int = 50) -> Dict[str, Any]:
+          """Return paginated experiment list (same shape as /api/experiments)."""
+          rows = self.db.load_all_for_panel() or []
+          total = len(rows)
+          page = max(1, page)
+          per_page = max(1, min(200, per_page))
+          start = (page - 1) * per_page
+          end = start + per_page
+          return {
+              "items": rows[start:end],
+              "page": page,
+              "per_page": per_page,
+              "total": total,
+              "total_pages": max(1, (total + per_page - 1) // per_page),
+          }
+
+      def get_experiment(self, name: str) -> Optional[Dict[str, Any]]:
+          """Return detail dict for a single experiment, or None."""
+          return self.db.get_experiment(name)
+
+      # -- Cluster queries ----------------------------------------------------
+
+      def get_cluster_health(self) -> Dict[str, Any]:
+          """Return cluster health summary with worker statuses."""
+          status = self.cluster_mgr.get_cluster_status(self.db)
+          for node_id, info in status.items():
+              disabled = bool(self.db.is_worker_disabled(node_id))
+              info["worker_disabled"] = disabled
+              if disabled:
+                  info["status"] = "DISABLED"
+          return {"cluster": status}
+
+      # -- Aggregate status ---------------------------------------------------
+
+      def get_status_summary(self) -> Dict[str, Any]:
+          """Return a high-level status snapshot."""
+          snapshot = self.db.load()
+          experiments = snapshot.get("experiments", [])
+          completed = snapshot.get("completed", [])
+
+          by_status: Dict[str, int] = {}
+          for exp in experiments:
+              st = str(exp.get("status", "UNKNOWN")).upper()
+              by_status[st] = by_status.get(st, 0) + 1
+
+          cluster = self.cluster_mgr.get_cluster_status(self.db)
+          online = sum(1 for v in cluster.values() if v.get("status") == "ONLINE")
+          total_workers = len(cluster)
+
+          return {
+              "active_experiments": len(experiments),
+              "completed_experiments": len(completed),
+              "by_status": by_status,
+              "workers_online": online,
+              "workers_total": total_workers,
+          }
+  ```
+
+  FILE 2: pipeline/tests/test_control_plane.py (NEW — create from scratch)
+
+  Create this test file with the following exact structure:
+
+  ```python
+  #!/usr/bin/env python3
+  """Tests for the shared control-plane query/service layer."""
+  import sys
+  from pathlib import Path
+  from unittest.mock import MagicMock
+
+  import pytest
+
+  sys.path.insert(0, str(Path(__file__).parent.parent))
+
+  from control_plane import ControlPlaneService
+
+
+  def _make_service(experiments=None, cluster_status=None):
+      """Create a ControlPlaneService with mocked DB and cluster manager."""
+      db = MagicMock()
+      db.load_all_for_panel.return_value = experiments or []
+      db.get_experiment.return_value = None
+      db.load.return_value = {"experiments": experiments or [], "completed": []}
+      db.is_worker_disabled.return_value = False
+
+      cluster_mgr = MagicMock()
+      cluster_mgr.get_cluster_status.return_value = cluster_status or {}
+
+      return ControlPlaneService(db=db, cluster_mgr=cluster_mgr)
+
+
+  class TestListExperiments:
+      def test_empty(self):
+          svc = _make_service()
+          result = svc.list_experiments()
+          assert result["items"] == []
+          assert result["total"] == 0
+          assert result["page"] == 1
+
+      def test_pagination(self):
+          exps = [{"name": f"exp{i}", "status": "READY"} for i in range(10)]
+          svc = _make_service(experiments=exps)
+          result = svc.list_experiments(page=2, per_page=3)
+          assert len(result["items"]) == 3
+          assert result["page"] == 2
+          assert result["total"] == 10
+          assert result["total_pages"] == 4
+
+
+  class TestGetExperiment:
+      def test_found(self):
+          svc = _make_service()
+          svc.db.get_experiment.return_value = {"name": "exp1", "status": "RUNNING"}
+          result = svc.get_experiment("exp1")
+          assert result is not None
+          assert result["name"] == "exp1"
+
+      def test_not_found(self):
+          svc = _make_service()
+          assert svc.get_experiment("nope") is None
+
+
+  class TestGetClusterHealth:
+      def test_returns_cluster_dict(self):
+          svc = _make_service(cluster_status={"w1": {"status": "ONLINE"}})
+          result = svc.get_cluster_health()
+          assert "cluster" in result
+          assert result["cluster"]["w1"]["status"] == "ONLINE"
+
+
+  class TestGetStatusSummary:
+      def test_counts(self):
+          exps = [
+              {"name": "a", "status": "RUNNING"},
+              {"name": "b", "status": "RUNNING"},
+              {"name": "c", "status": "NEEDS_RERUN"},
+          ]
+          svc = _make_service(
+              experiments=exps,
+              cluster_status={"w1": {"status": "ONLINE"}},
+          )
+          svc.db.load.return_value = {
+              "experiments": exps,
+              "completed": [{"name": "d"}],
+          }
+          result = svc.get_status_summary()
+          assert result["active_experiments"] == 3
+          assert result["completed_experiments"] == 1
+          assert result["by_status"]["RUNNING"] == 2
+          assert result["workers_online"] == 1
+  ```
+
+  Boundaries:
+  - Do NOT import from experiments.py or web_dashboard.py.
+  - Do NOT add action/mutation methods yet (read-only queries only).
+  - Do NOT touch any existing file.
+  - Use the same try/except ModuleNotFoundError import pattern as db_registry.py and web_dashboard.py.
+acceptance_criteria:
+  - "pipeline/control_plane.py exists with ControlPlaneService class"
+  - "ControlPlaneService has list_experiments, get_experiment, get_cluster_health, get_status_summary methods"
+  - "pipeline/tests/test_control_plane.py exists with tests for all 4 methods"
+  - "All tests pass: PYTHONPATH=pipeline python3 -m pytest pipeline/tests/test_control_plane.py -v"
+  - "Import smoke: PYTHONPATH=pipeline python3 -c 'from control_plane import ControlPlaneService'"
+status: completed
+claimed_by: coder
+claimed_at: "2026-03-26T10:07:19Z"
+started_at: "2026-03-26T10:07:19Z"
+completed_at: "2026-03-26T10:07:19Z"
+category: architecture
+effort_estimate: small
+agent_type: coder
+skills: []
+wave: 1
+qa_scenarios:
+  - "PYTHONPATH=pipeline python3 -m pytest pipeline/tests/test_control_plane.py -v => all pass"
+  - "PYTHONPATH=pipeline python3 -c 'from control_plane import ControlPlaneService' => exit 0"
+  - "python3 -m py_compile pipeline/control_plane.py => exit 0"
+source_plan: null
+source_ticket_index: 1
+result:
+  summary: "Added shared read-only ControlPlaneService facade and focused unit tests for experiment, cluster, and summary queries."
+  artifacts:
+    - pipeline/control_plane.py
+    - pipeline/tests/test_control_plane.py
+  notes: "Service is query-only and imported via ModuleNotFoundError fallback pattern."
+  evidence: "PYTHONPATH=pipeline python3 -m pytest pipeline/tests/test_control_plane.py -v => 6 passed."
+depends_on: []

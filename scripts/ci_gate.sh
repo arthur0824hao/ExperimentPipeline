@@ -1,80 +1,123 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+ROOT_DIR="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+cd "$ROOT_DIR"
 
-cd "${REPO_ROOT}"
+changed_files() {
+  if [[ -n "${GITHUB_BASE_SHA:-}" && -n "${GITHUB_SHA:-}" ]]; then
+    git diff --name-only "$GITHUB_BASE_SHA" "$GITHUB_SHA"
+    return
+  fi
 
-echo "[ci_gate] Repo: ${REPO_ROOT}"
+  if [[ -n "${GITHUB_BASE_REF:-}" ]]; then
+    local base_ref="origin/${GITHUB_BASE_REF}"
+    if git rev-parse --verify "$base_ref" >/dev/null 2>&1; then
+      local merge_base
+      merge_base="$(git merge-base "$base_ref" HEAD)"
+      git diff --name-only "$merge_base" HEAD
+      return
+    fi
+  fi
 
-if ! python3 - <<'PY'
-import importlib.util
-import sys
-missing = []
-for mod in ("pytest", "yaml"):
-    if importlib.util.find_spec(mod) is None:
-        missing.append(mod)
-if missing:
-    print("[ci_gate] missing python modules:", ", ".join(missing))
-    sys.exit(1)
+  if git rev-parse --verify HEAD~1 >/dev/null 2>&1; then
+    git diff --name-only HEAD~1 HEAD
+    return
+  fi
+}
+
+is_full_path_change() {
+  local path
+  while IFS= read -r path; do
+    [[ -z "$path" ]] && continue
+    case "$path" in
+      pipeline/*|configs/*|.github/*|scripts/ci_gate.sh)
+        return 0
+        ;;
+    esac
+  done
+  return 1
+}
+
+is_docs_only_change() {
+  local path
+  while IFS= read -r path; do
+    [[ -z "$path" ]] && continue
+    case "$path" in
+      docs/*|pipeline/docs/*|note/*|*.md|*.txt)
+        ;;
+      *)
+        return 1
+        ;;
+    esac
+  done
+  return 0
+}
+
+workflow_sanity() {
+  python3 - <<'PY'
+from pathlib import Path
+
+required = {
+    Path('.github/workflows/ci.yml'): ['jobs:', 'ep-gate:'],
+    Path('.github/workflows/deploy.yml'): ['jobs:', 'control-plane-deploy:'],
+}
+
+for path, tokens in required.items():
+    text = path.read_text(encoding='utf-8')
+    for token in tokens:
+        if token not in text:
+            raise SystemExit(f"workflow sanity failed: {path} missing '{token}'")
 PY
-then
-  echo "[ci_gate] install requirements before running gate"
-  exit 1
+}
+
+run_common_checks() {
+  bash -n scripts/ci_gate.sh
+  if [[ -f scripts/deploy_control_plane.sh ]]; then
+    bash -n scripts/deploy_control_plane.sh
+  fi
+  workflow_sanity
+}
+
+run_full_checks() {
+  echo "[ep-gate] full path: running test + import + syntax checks"
+  run_common_checks
+  PYTHONPATH="${ROOT_DIR}/pipeline:${PYTHONPATH:-}" python3 -m pytest pipeline/tests/ -q --tb=line
+  PYTHONPATH="${ROOT_DIR}/pipeline:${PYTHONPATH:-}" python3 - <<'PY'
+import allocator
+import artifact
+import cluster
+import control_plane
+import ep_cli
+import health
+import terminal_state
+import worker
+
+print('import smoke OK')
+PY
+  python3 -m py_compile pipeline/*.py
+}
+
+run_docs_checks() {
+  echo "[ep-gate] docs-only path: running syntax/sanity checks"
+  run_common_checks
+}
+
+CHANGED="$(changed_files || true)"
+
+if [[ -z "$CHANGED" ]]; then
+  run_full_checks
+  exit 0
 fi
 
-declare -a modified_py=()
-while IFS= read -r line; do
-  [[ -n "${line}" ]] && modified_py+=("${line}")
-done < <(
-  {
-    git diff --name-only --diff-filter=ACMRTUXB -- '*.py'
-    git diff --cached --name-only --diff-filter=ACMRTUXB -- '*.py'
-  } | sort -u
-)
-
-if [[ ${#modified_py[@]} -gt 0 ]]; then
-  echo "[ci_gate] py_compile on modified Python files"
-  python3 -m py_compile "${modified_py[@]}"
-else
-  echo "[ci_gate] No modified Python files detected; skipping py_compile"
+if is_full_path_change <<<"$CHANGED"; then
+  run_full_checks
+  exit 0
 fi
 
-tkt_changed=0
-while IFS= read -r path; do
-  [[ -z "${path}" ]] && continue
-  case "${path}" in
-    .tkt/*)
-      tkt_changed=1
-      break
-      ;;
-  esac
-done < <(
-  {
-    git diff --name-only --diff-filter=ACMRTUXB -- '.tkt/**'
-    git diff --cached --name-only --diff-filter=ACMRTUXB -- '.tkt/**'
-  } | sort -u
-)
-
-echo "[ci_gate] pytest key handler regression"
-python3 -m pytest -q pipeline/tests/test_key_handler.py
-
-echo "[ci_gate] pytest runtime config regression"
-python3 -m pytest -q pipeline/tests/test_runtime_config_resolution.py
-
-echo "[ci_gate] JSON lint configs/*.json"
-shopt -s nullglob
-for json_file in configs/*.json; do
-  python3 -m json.tool "${json_file}" > /dev/null
-done
-shopt -u nullglob
-
-if [[ ${tkt_changed} -eq 1 ]]; then
-  echo "[ci_gate] YAML lint + sanitizer check for changed .tkt scope"
-  python3 pipeline/tools/tkt_yaml_sanitize.py --target "${REPO_ROOT}"
-else
-  echo "[ci_gate] No .tkt changes detected; skipping repo-wide .tkt sanitizer"
+if is_docs_only_change <<<"$CHANGED"; then
+  run_docs_checks
+  exit 0
 fi
 
-echo "[ci_gate] PASS"
+run_full_checks

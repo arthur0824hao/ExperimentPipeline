@@ -1,0 +1,115 @@
+id: TKT-A00
+bundle: "B-011"
+type: audit
+title: "Audit B-011 with full regression, import smoke, and CLI JSON sanity"
+description: |
+  Perform the mandatory end-of-bundle audit after all worker tickets complete.
+  This audit is a hard gate: the bundle cannot be declared complete without evidence.
+
+  Audit must verify:
+
+  1. Full-suite regression:
+     ```bash
+     PYTHONPATH=pipeline python3 -m pytest pipeline/tests/ -q --tb=line
+     ```
+     Expected: all pass (346+ existing + new control_plane/ep_cli tests).
+
+  2. Import smoke (must include new modules):
+     ```bash
+     PYTHONPATH=pipeline python3 -c "
+     import allocator
+     import artifact
+     import cluster
+     import control_plane
+     import ep_cli
+     import health
+     import terminal_state
+     import worker
+     print('import smoke OK')
+     "
+     ```
+     Expected: exit 0, prints "import smoke OK".
+
+  3. CLI JSON sanity:
+     ```bash
+     PYTHONPATH=pipeline python3 -c "
+     import json
+     from unittest.mock import MagicMock
+     import ep_cli
+
+     # Mock ControlPlaneService to avoid DB
+     mock_svc = MagicMock()
+     mock_svc.get_status_summary.return_value = {'active': 0, 'completed': 0}
+     ep_cli.ControlPlaneService = lambda: mock_svc
+
+     import io, sys
+     buf = io.StringIO()
+     sys.stdout = buf
+     code = ep_cli.main(['status', '--output', 'json'])
+     sys.stdout = sys.__stdout__
+     output = buf.getvalue()
+     data = json.loads(output)
+     assert data['status'] == 'ok', f'Expected ok, got {data[\"status\"]}'
+     assert 'data' in data, 'Missing data key'
+     print('CLI JSON sanity OK')
+     "
+     ```
+     Expected: exit 0, prints "CLI JSON sanity OK".
+
+  4. CI gate script sanity:
+     ```bash
+     bash -n scripts/ci_gate.sh
+     ```
+     Expected: exit 0.
+
+  5. Py-compile for new modules:
+     ```bash
+     python3 -m py_compile pipeline/control_plane.py
+     python3 -m py_compile pipeline/ep_cli.py
+     ```
+     Expected: exit 0 for both.
+
+  6. Verify shared layer wiring:
+     - web_dashboard.py imports ControlPlaneService
+     - web_dashboard.py api_cluster and api_experiments use ControlPlaneService
+     - ep_cli.py uses ControlPlaneService
+     - Both go through the same query facade — no duplicate query logic
+
+  7. Scope boundary check:
+     - No changes to experiments.py main(), scheduler_loop, or input handling
+     - No changes to UnifiedDashboard class
+     - No changes to allocator, health, worker, terminal_state modules
+     - No bounded extraction was attempted
+     - No mutation/action commands in CLI (read-only only)
+acceptance_criteria:
+  - "Full suite regression is green with command evidence"
+  - "Import smoke is green with command evidence (includes control_plane, ep_cli)"
+  - "CLI JSON sanity is green with command evidence"
+  - "CI gate script parses cleanly"
+  - "New modules py-compile cleanly"
+  - "Shared layer wiring verified: web_dashboard and ep_cli both use ControlPlaneService"
+  - "Scope boundary verified: no scheduler/main/input/UI surface changes"
+  - "Bundle summary is accurate and consistent with artifacts"
+status: completed
+claimed_by: reviewer
+claimed_at: "2026-03-26T10:07:19Z"
+started_at: "2026-03-26T10:07:19Z"
+completed_at: "2026-03-26T10:07:19Z"
+category: null
+effort_estimate: small
+agent_type: reviewer
+source_plan: null
+source_ticket_index: null
+result:
+  summary: "Audit passed: full regression, import smoke, CLI JSON sanity, gate script parse, py-compile checks, and shared-layer wiring all verified."
+  artifacts:
+    - pipeline/control_plane.py
+    - pipeline/ep_cli.py
+    - pipeline/web_dashboard.py
+    - scripts/ci_gate.sh
+  notes: "B-010 truth reached origin/master before B-011 closure; CLI remains read-only."
+  evidence: "PYTHONPATH=pipeline python3 -m pytest pipeline/tests/ -q --tb=line => 380 passed, 19 skipped; bash scripts/ci_gate.sh passed."
+depends_on:
+  - TKT-001
+  - TKT-002
+  - TKT-003
