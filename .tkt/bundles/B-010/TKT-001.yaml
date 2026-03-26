@@ -1,0 +1,60 @@
+id: TKT-001
+bundle: "B-010"
+type: worker
+title: ".github/workflows + scripts/ci_gate.sh — Establish required ep-gate and protected deploy scaffold"
+description: |
+  Create the canonical CI and deploy scaffolding for ExperimentPipeline without expanding into cluster-wide rollout.
+
+  Scope:
+  1. Create `.github/workflows/ci.yml` with stable workflow/job naming so the required check candidate is exactly `ep-gate`.
+  2. The workflow must trigger on both `pull_request` and `push` to `master` without workflow-level path filters that can skip the required gate.
+  3. Create canonical `scripts/ci_gate.sh` if `scripts/` does not exist, and make the script distinguish docs-only changes from code/config/workflow changes.
+  4. If any change touches `pipeline/`, `configs/`, `.github/`, or `scripts/ci_gate.sh`, force the full-test path.
+  5. Full-test path must include `python3 -m pytest pipeline/tests/ -q --tb=line`, import smoke for split core modules, and syntax/sanity checks for workflow/shell files.
+  6. Create `.github/workflows/deploy.yml` and any small helper script needed for a protected control-plane-only deploy scaffold.
+  7. Deploy workflow must use GitHub environment protection and clearly choose mode A or B:
+     - A: real auto deploy only if repo already has concrete target/runner/secrets
+     - B: protected manual scaffold if prerequisites are missing
+  8. Deploy must never fan out to worker fleet and must never run DB migrations.
+  9. Add an in-repo branch protection specification document that lists required check name `ep-gate`, branch `master`, and whether branch must be up to date.
+
+  Boundaries:
+  - Do not patch phantom paths; create canonical `scripts/` if needed.
+  - Do not add workflow-level path filters that can skip the required gate.
+  - Do not auto-deploy to worker nodes.
+  - Do not add DB migration steps to deploy.
+acceptance_criteria:
+  - "`.github/workflows/ci.yml` exists and defines stable required job `ep-gate`"
+  - "CI triggers on PR and push to master without workflow-level path-filter skip of the required gate"
+  - "`scripts/ci_gate.sh` exists and forces full-test path for pipeline/config/workflow/gate changes"
+  - "`.github/workflows/deploy.yml` exists and is explicitly control-plane-only"
+  - "Deploy workflow clearly documents mode A (real auto deploy) or mode B (protected scaffold) without pretending blocked prerequisites are solved"
+  - "Branch protection spec is written in repo with required check name and branch policy"
+status: completed
+claimed_by: coder
+claimed_at: "2026-03-25T20:46:46Z"
+started_at: "2026-03-25T20:46:46Z"
+completed_at: "2026-03-25T20:46:46Z"
+category: stabilization
+effort_estimate: medium
+agent_type: coder
+skills: []
+wave: 1
+qa_scenarios:
+  - "bash scripts/ci_gate.sh on a clean checkout exits 0"
+  - "python3 -m pytest pipeline/tests/ -q --tb=line exits 0 when gate takes full path"
+  - "python3 -m py_compile pipeline/*.py or explicit core module list exits 0 for import smoke set"
+  - "bash -n scripts/ci_gate.sh and deploy helper scripts exit 0"
+  - "GitHub workflow YAML parses and defines job name `ep-gate`"
+source_plan: null
+source_ticket_index: 1
+result:
+  summary: "Added required CI gate workflow (`ep-gate`), gate script with docs/full-path logic, and control-plane-only deploy scaffold in mode B."
+  artifacts:
+    - .github/workflows/ci.yml
+    - scripts/ci_gate.sh
+    - .github/workflows/deploy.yml
+    - scripts/deploy_control_plane.sh
+  notes: "No workflow-level path filter was added; required-check candidate remains stable as `ep-gate`."
+  evidence: "bash scripts/ci_gate.sh passed (346 passed, 19 skipped)."
+depends_on: []

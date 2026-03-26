@@ -1,0 +1,50 @@
+id: TKT-005
+bundle: "B-010"
+type: worker
+title: "docs/branch-protection.md + deploy notes — Document required check and blocked deploy prerequisites explicitly"
+description: |
+  Write the reviewer-facing operational notes that cannot be enforced directly from a PR.
+
+  Scope:
+  1. Create a canonical doc (for example `docs/branch-protection.md` or equivalent stable path) that states:
+     - required check name: `ep-gate`
+     - target branch: `master`
+     - whether branch must be up to date before merge
+     - whether environment approval is required for deploy
+  2. If deploy remains scaffold mode B, list the blocked prerequisites explicitly:
+     - missing deployment target
+     - missing self-hosted runner labels
+     - missing secrets
+     - missing environment protection / approval wiring
+  3. Link this doc from the deploy/CI documentation path chosen in TKT-001/TKT-002.
+
+  Boundaries:
+  - Do not pretend branch protection was changed if repo cannot enforce it from code.
+  - Do not blur blocked deploy prerequisites into 'done'.
+acceptance_criteria:
+  - "Repo contains a stable branch-protection/deploy-policy doc"
+  - "Doc names `ep-gate` explicitly as the required check candidate"
+  - "If deploy is scaffold mode B, blocked prerequisites are listed concretely"
+status: completed
+claimed_by: coder
+claimed_at: "2026-03-25T20:46:46Z"
+started_at: "2026-03-25T20:46:46Z"
+completed_at: "2026-03-25T20:46:46Z"
+category: stabilization
+effort_estimate: small
+agent_type: coder
+skills: []
+wave: 2
+qa_scenarios:
+  - "Read branch-protection doc and confirm required check name, branch, and deploy-mode details are explicit"
+source_plan: null
+source_ticket_index: 5
+result:
+  summary: "Added stable branch/deploy policy doc naming required check `ep-gate`, branch policy, environment approval, and mode-B blocked prerequisites."
+  artifacts:
+    - docs/branch-protection.md
+    - docs/architecture.md
+  notes: "Deploy prerequisites are explicitly documented as blocked in scaffold mode B."
+  evidence: "docs/branch-protection.md includes required check/branch/up-to-date/environment details."
+depends_on:
+  - TKT-001

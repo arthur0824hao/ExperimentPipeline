@@ -1,0 +1,43 @@
+id: TKT-A00
+bundle: "B-010"
+type: audit
+title: "Audit B-010 with full-suite regression and workflow sanity"
+description: |
+  Perform the mandatory end-of-bundle audit after all worker tickets complete.
+  This audit is a hard gate: the bundle cannot be declared complete without full-suite green evidence.
+
+  Audit must verify:
+  1. `python3 -m pytest pipeline/tests/ -q --tb=line` passes.
+  2. Import smoke passes for extracted core modules, including the bounded split target.
+  3. CI workflow and deploy workflow files exist, parse sanely, and match the bundle summary.
+  4. Required-check candidate name is stable and documented as `ep-gate`.
+  5. Deploy mode is correctly reported as A or B and blocked items are explicit if B.
+  6. Exactly one bounded module split was completed.
+acceptance_criteria:
+  - "Full suite regression is green with command evidence"
+  - "Import smoke is green with command evidence"
+  - "Workflow sanity checks are green with command evidence"
+  - "Bundle summary is accurate and consistent with artifacts"
+status: completed
+claimed_by: reviewer
+claimed_at: "2026-03-25T20:46:46Z"
+started_at: "2026-03-25T20:46:46Z"
+completed_at: "2026-03-25T20:46:46Z"
+category: null
+effort_estimate: null
+agent_type: reviewer
+source_plan: null
+source_ticket_index: null
+result:
+  summary: "Audit passed: full-suite regression, import smoke, workflow sanity, required-check naming, deploy mode reporting, and single bounded split verification are all green."
+  artifacts:
+    - .github/workflows/ci.yml
+    - .github/workflows/deploy.yml
+    - scripts/ci_gate.sh
+    - scripts/deploy_control_plane.sh
+    - pipeline/terminal_state.py
+  notes: "Deploy mode reported as B with blocked prerequisites; no worker-fleet rollout or DB migration steps were added."
+  evidence: "bash scripts/ci_gate.sh => 346 passed, 19 skipped; workflow sanity/import smoke included in gate script."
+depends_on:
+  - TKT-004
+  - TKT-005

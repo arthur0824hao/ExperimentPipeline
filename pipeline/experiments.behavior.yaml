@@ -16,7 +16,6 @@ modules:
     internal:
       - _coerce_nvidia_int
       - _parse_nvidia_query_output
-      - _normalize_gpu_probe_error
       - get_cpu_load
       - _build_worker_gpu_free_maps
       - _best_free_mb_for_worker
@@ -90,7 +89,8 @@ modules:
 
   terminal_state:
     file: "pipeline/terminal_state.py"
-    description: "Terminal reason normalization and artifact truth reconciliation"
+    status: "current-live"
+    description: "Terminal reason normalization and artifact truth reconciliation (bounded extracted module)"
     public_api:
       - get_terminal_reason
       - reconcile_terminal_artifacts
@@ -121,7 +121,8 @@ modules:
 
   ready_queue:
     file: "pipeline/ready_queue.py"
-    description: "Ready queue handoff and registry insertion workflow"
+    status: "planned-target"
+    description: "Planned extraction target for ready queue handoff and registry insertion workflow (still lives in experiments.py today)"
     public_api:
       - consume_ready_queue_registration_handoff
     internal:
@@ -135,43 +136,16 @@ modules:
       - _is_feature_ready_for_runner
       - _insert_registered_configs
     dependencies: []
-    guarantees:
-      - "ready_register-style DB sync preserves per-entry runtime fields needed by workers (env, batch_size, eval_batch_size, max_retries, preferred_worker, group_id)"
 
   cluster:
     file: "pipeline/cluster.py"
     description: "Multi-node SSH cluster lifecycle manager"
     public_api:
       - ClusterManager
-      - get_cluster_status
-      - get_network_health
     internal: []
     dependencies:
       - artifact
       - formatting
-    guarantees:
-      - "Workers started through DB tunnel launchers export both EXP_PGHOST/PGHOST=127.0.0.1 and EXP_PGPORT/PGPORT=<tunnel_port> so remote runners use TCP instead of Unix socket fallback"
-
-  dashboard_input:
-    file: "pipeline/dashboard_input.py"
-    description: "Dashboard TTY acquisition, key decoding, and non-blocking key polling"
-    public_api:
-      - DashboardInputSession
-      - read_dashboard_key
-    internal: []
-    dependencies: []
-
-  machine_constraints:
-    file: "pipeline/machine_constraints.py"
-    description: "Shared machine inventory loading and heartbeat whitelist filtering"
-    public_api:
-      - load_machine_constraints
-      - load_worker_whitelist
-      - filter_worker_heartbeats
-      - get_worker_heartbeat
-    internal:
-      - normalize_worker_whitelist
-    dependencies: []
 
   allocator:
     file: "pipeline/allocator.py"
@@ -183,8 +157,6 @@ modules:
     dependencies:
       - gpu
       - artifact
-    guarantees:
-      - "Allocator claim headroom supports per-machine override (gpu_claim_headroom_mb)"
 
   health:
     file: "pipeline/health.py"
@@ -226,8 +198,9 @@ modules:
       - terminal_state
 
   logging:
-    file: "pipeline/logging.py"
-    description: "Runner log sink with best-effort lock discipline"
+    file: "pipeline/logger_hybrid.py"
+    status: "current-live"
+    description: "Runner log sink with best-effort lock discipline (current file is logger_hybrid.py; logging.py remains a planned naming target only)"
     public_api:
       - HybridLogger
     internal: []
@@ -260,10 +233,7 @@ dashboard:
 cross_cutting:
   - "UnifiedDashboard stays in experiments.py for now"
   - "main() and scheduler_loop stay in experiments.py"
-  - "Input/TTY stream setup and key polling live in pipeline/dashboard_input.py; experiments.py consumes ready keys only"
-  - "Pure panel navigation (up/down/page) lives in pipeline/panel_nav.py; no DB, no enqueue, no side effects"
-  - "Experiment panel navigation and selection use already-rendered panel rows; registry DB loads are for command execution paths, not cursor movement"
-  - "clamp_exp_selection is called only from the render path (build_experiments_panel), never from the key handler"
+  - "Input/TTY handling (get_key) stays in experiments.py"
   - "Constants (STATUS_*, paths, thresholds) stay in experiments.py"
   - "Watch mode is a read-only DB monitor + manual control surface and allows multiple concurrent instances"
   - "Watch mode has no singleton lock and must not create or depend on lock files"
@@ -274,11 +244,7 @@ cross_cutting:
   - "Panel health semantics: ONLINE (<60s), STALE (60-120s), OFFLINE (>=120s or missing heartbeat)"
   - "Watch mode is monitor-only and must not trigger SSH side effects (no implicit start/restart)"
   - "Manual cluster actions (start/stop/restart/enable/disable) are the only interactive SSH path"
-  - "Cluster status CLI payload includes network_health and postgres_health blocks for control-plane diagnostics"
-  - "Allocation strategy is DB-backed and read in real-time before new claims (distributed or centralized)"
-  - "Watch panel can switch allocation strategy via action/key path without editing config files"
   - "Runner process ignores SIGHUP to avoid accidental worker teardown from control-plane/session events"
   - "Worker loop is self-contained for heartbeat + queue processing; any future auto-repair must be separate from watch"
-  - "Dashboard header must expose current focus (Cluster vs Experiments) so panel-specific keymaps are visible to operators"
-  - "Experiment-only keys (repipeline/start-now/move/page) may auto-focus into the experiments panel when pressed from cluster mode"
-  - "Heartbeat whitelist filtering is shared through pipeline/machine_constraints.py and consumed by db_registry, cluster, and health"
+  - "terminal_state.py is current-live; ready_queue.py remains planned-target until extracted from experiments.py"
+  - "logger_hybrid.py is the current logging implementation; logging.py is not a landed module in current master"

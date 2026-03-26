@@ -1,0 +1,44 @@
+id: TKT-000
+bundle: "B-010"
+type: integrate
+title: "Integrate and coordinate B-010"
+description: |
+  Coordinate the stabilization bundle in strict wave order.
+  Do not start Wave 2 before all Wave 1 worker tickets are completed or explicitly blocked.
+  Do not start Wave 3 before all Wave 2 worker tickets are completed or explicitly blocked.
+  Close this ticket only after TKT-A00 audit passes, all required evidence is present, and the final bundle summary is written.
+acceptance_criteria:
+  - "Wave 1 completed before Wave 2 starts"
+  - "Wave 2 completed before Wave 3 starts"
+  - "Exactly one bounded module split completed in Wave 3"
+  - "Audit ticket completed with full-suite regression evidence"
+  - "Final bundle summary lists CI gate name, deploy mode, canonical docs paths, extracted module, and remaining blocked items"
+status: completed
+claimed_by: coder
+claimed_at: "2026-03-25T20:46:46Z"
+started_at: "2026-03-25T20:46:46Z"
+completed_at: "2026-03-25T20:46:46Z"
+category: null
+effort_estimate: null
+agent_type: null
+source_plan: null
+source_ticket_index: null
+result:
+  summary: "Completed B-010 in wave order with CI/deploy hardening, doc truth-source sync, one bounded terminal-state split, and passing audit evidence."
+  artifacts:
+    - .github/workflows/ci.yml
+    - .github/workflows/deploy.yml
+    - scripts/ci_gate.sh
+    - docs/architecture.md
+    - pipeline/docs/db_sync_investigation.md
+    - pipeline/terminal_state.py
+    - docs/branch-protection.md
+  notes: "CI gate name: ep-gate; deploy mode: B (protected scaffold); canonical db doc path: pipeline/docs/db_sync_investigation.md; extracted module: pipeline/terminal_state.py; remaining blocked items: deploy mode A prerequisites."
+  evidence: "bash scripts/ci_gate.sh (full path) => 346 passed, 19 skipped."
+depends_on:
+  - TKT-001
+  - TKT-002
+  - TKT-003
+  - TKT-004
+  - TKT-005
+  - TKT-A00

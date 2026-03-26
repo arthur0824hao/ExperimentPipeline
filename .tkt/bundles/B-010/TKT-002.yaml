@@ -1,0 +1,57 @@
+id: TKT-002
+bundle: "B-010"
+type: worker
+title: "docs/architecture.md + canonical db_sync_investigation path — Sync truth-source docs to current master"
+description: |
+  Correct documentation drift so the repo accurately describes its current control-plane architecture.
+
+  Scope:
+  1. Update `docs/architecture.md` to reflect current reality:
+     - DB is source of truth
+     - `experiments.json` is snapshot / compatibility artifact
+     - current pipeline module tree and actual boundaries between control-plane, runner, registry, preprocess
+     - current config files including `phase3_runtime.json` and `runtime.json` roles as they exist now
+     - current test surface and CI surface
+  2. Determine the canonical path for `db_sync_investigation.md`:
+     - verify whether canonical path is `pipeline/docs/db_sync_investigation.md`, `docs/db_sync_investigation.md`, or another current-master path
+     - do not update a non-canonical path
+  3. Update the canonical investigation doc so it agrees with current master and architecture doc.
+  4. Integrate latest reviewer facts:
+     - DB naming standardized
+     - new experiment DB exists and is populated
+     - already-merged PR results must no longer be described as pending or unfixed
+
+  Boundaries:
+  - No support appendix masquerading as progress.
+  - No broad repo reorganization.
+  - Only canonical docs path(s) may be updated.
+acceptance_criteria:
+  - "`docs/architecture.md` matches current master behavior and file tree"
+  - "Canonical path for `db_sync_investigation.md` is explicitly identified and only that path is updated"
+  - "Docs no longer describe old DB naming or already-merged fixes as pending"
+  - "Architecture doc and db sync investigation doc agree on truth-source and compatibility roles"
+status: completed
+claimed_by: coder
+claimed_at: "2026-03-25T20:46:46Z"
+started_at: "2026-03-25T20:46:46Z"
+completed_at: "2026-03-25T20:46:46Z"
+category: stabilization
+effort_estimate: medium
+agent_type: coder
+skills: []
+wave: 2
+qa_scenarios:
+  - "grep for stale phrases about pending DB naming mismatch returns no false-current claims in canonical docs"
+  - "Read both docs and confirm they agree on DB source-of-truth vs snapshot roles"
+  - "Any canonical path move is reflected by file existence and references"
+source_plan: null
+source_ticket_index: 2
+result:
+  summary: "Synced architecture truth-source docs with current master and updated canonical DB sync investigation document at pipeline/docs path."
+  artifacts:
+    - docs/architecture.md
+    - pipeline/docs/db_sync_investigation.md
+  notes: "Canonical db sync investigation path confirmed as pipeline/docs/db_sync_investigation.md."
+  evidence: "Docs now state DB (`exp_registry`) as truth source and experiments.json as compatibility snapshot."
+depends_on:
+  - TKT-001

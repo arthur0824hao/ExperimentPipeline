@@ -1,0 +1,57 @@
+id: TKT-004
+bundle: "B-010"
+type: worker
+title: "pipeline/terminal_state.py — Extract one bounded terminal-state module without touching scheduler or input surface"
+description: |
+  Perform exactly one bounded module split, preferring `pipeline/terminal_state.py`.
+
+  Scope:
+  1. Extract only a closed terminal-state responsibility from `pipeline/experiments.py` into new `pipeline/terminal_state.py`.
+  2. Keep `UnifiedDashboard`, `main()`, `scheduler_loop`, TTY/input handling, and broad dashboard flow inside `experiments.py`.
+  3. Define a clear public API for the extracted module and update imports accordingly.
+  4. Add or update focused tests so the split has protection.
+  5. Keep the change bounded; do not turn this into a large-scale `experiments.py` reorg.
+
+  Extraction rules:
+  - contract-driven based on the corrected behavior spec
+  - one file as main implementation target, at most two files touched for core code if possible
+  - avoid moving unrelated scheduler / input / dashboard logic
+
+  Fallback:
+  - only if `terminal_state.py` is proven unsuitable after concrete inspection, use `pipeline/ready_queue.py` instead and document why
+
+  Boundaries:
+  - No changes to `UnifiedDashboard`, `main()`, `scheduler_loop`, or input handling other than minimal import rewiring required by the extraction.
+  - No second split in the same ticket.
+acceptance_criteria:
+  - "Exactly one new bounded module exists: `pipeline/terminal_state.py` unless a documented ready_queue fallback is used"
+  - "`experiments.py` still owns main control flow, scheduler loop, and TTY/input handling"
+  - "Extracted module has a clear public API and import usage"
+  - "Focused tests cover the extracted responsibility and pass"
+status: completed
+claimed_by: coder
+claimed_at: "2026-03-25T20:46:46Z"
+started_at: "2026-03-25T20:46:46Z"
+completed_at: "2026-03-25T20:46:46Z"
+category: architecture
+effort_estimate: medium
+agent_type: coder
+skills: []
+wave: 3
+qa_scenarios:
+  - "python3 -m pytest pipeline/tests/ -q --tb=line -k terminal_state or updated focused tests exits 0"
+  - "python3 -c 'import pipeline.terminal_state' exits 0"
+  - "Read `experiments.py` and confirm main()/scheduler_loop/input handling remain there"
+source_plan: null
+source_ticket_index: 4
+result:
+  summary: "Completed one bounded split by extracting terminal-state logic into pipeline/terminal_state.py and rewired experiments.py to consume it."
+  artifacts:
+    - pipeline/terminal_state.py
+    - pipeline/experiments.py
+    - pipeline/tests/test_terminal_state.py
+  notes: "UnifiedDashboard/main/scheduler/input handling remain in experiments.py; split scope stayed bounded."
+  evidence: "python3 -m pytest pipeline/tests/ -q --tb=line passed with extracted module import smoke in ci_gate."
+depends_on:
+  - TKT-002
+  - TKT-003

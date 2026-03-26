@@ -1,0 +1,49 @@
+id: TKT-003
+bundle: "B-010"
+type: worker
+title: "pipeline/experiments.behavior.yaml — Mark current-state vs planned-state module boundaries honestly"
+description: |
+  Repair behavior-spec drift so contracts stop claiming planned modules are already live.
+
+  Scope:
+  1. Review `pipeline/experiments.behavior.yaml` against current master file tree.
+  2. Any module that is still planned must be marked as planned-target rather than current-state.
+  3. Explicitly address these drift points:
+     - `logging.py` vs `logger_hybrid.py`
+     - `terminal_state.py` planned extraction status
+     - `ready_queue.py` planned extraction status
+  4. Ensure the spec distinguishes:
+     - current live tree
+     - target planned extraction
+     - invariants that remain in `experiments.py`
+
+  Boundaries:
+  - Do not implement the split here.
+  - Do not rewrite other behavior specs unless required for consistency with this file.
+acceptance_criteria:
+  - "`pipeline/experiments.behavior.yaml` no longer presents planned modules as already landed"
+  - "Current-state vs target-state is explicit for terminal_state and ready_queue"
+  - "logging/logger_hybrid reality is described without ambiguity"
+status: completed
+claimed_by: coder
+claimed_at: "2026-03-25T20:46:46Z"
+started_at: "2026-03-25T20:46:46Z"
+completed_at: "2026-03-25T20:46:46Z"
+category: stabilization
+effort_estimate: small
+agent_type: coder
+skills: []
+wave: 2
+qa_scenarios:
+  - "Read `pipeline/experiments.behavior.yaml` and compare with live `pipeline/` tree; all mentioned modules are labeled honestly"
+  - "grep for `terminal_state.py` and `ready_queue.py` in behavior spec shows planned/current wording, not false-live wording"
+source_plan: null
+source_ticket_index: 3
+result:
+  summary: "Corrected experiments behavior spec to clearly separate current-live vs planned-target modules and fixed logging module reality."
+  artifacts:
+    - pipeline/experiments.behavior.yaml
+  notes: "terminal_state marked current-live; ready_queue marked planned-target; logger_hybrid noted as current implementation."
+  evidence: "Behavior spec now explicitly labels terminal_state/ready_queue and logging/logger_hybrid drift points."
+depends_on:
+  - TKT-001

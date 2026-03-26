@@ -1,0 +1,14 @@
+id: "B-010"
+goal_ref: null
+title: "Stabilization gate hardening, truth-source sync, and one bounded module split"
+status: completed
+created_at: "2026-03-26T00:00:00Z"
+created_by: pm-agent
+main_agent: null
+ticket_count: 7
+priority: high
+track: "stabilization"
+source_plan: null
+worktree_path: null
+worktree_branch: null
+depends_on: []

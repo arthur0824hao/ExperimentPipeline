@@ -1,0 +1,21 @@
+name: Deploy Control Plane
+
+on:
+  workflow_dispatch:
+
+jobs:
+  control-plane-deploy:
+    name: control-plane-deploy
+    runs-on: ubuntu-latest
+    environment:
+      name: control-plane-production
+    permissions:
+      contents: read
+    env:
+      DEPLOY_MODE: B
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy scaffold (control-plane only)
+        run: bash scripts/deploy_control_plane.sh
