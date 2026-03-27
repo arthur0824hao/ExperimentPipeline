@@ -1,0 +1,48 @@
+id: TKT-000
+bundle: "B-012"
+type: integrate
+title: "Integrate and coordinate B-012"
+description: |
+  Coordinate B-012 in strict wave order.
+
+  Wave 1: TKT-001 — run manifest contract (pipeline/run_manifest.py + tests)
+           TKT-002 — comparison engine (pipeline/compare.py + tests)
+  Wave 2: TKT-003 — CLI extension (pipeline/ep_cli.py + tests update)
+           TKT-004 — CI gate import smoke (scripts/ci_gate.sh)
+  Wave 3: TKT-A00 — Audit (full regression, import smoke, CLI manifest/compare sanity)
+
+  Rules:
+  - Do not start Wave 2 before both TKT-001 and TKT-002 are completed.
+  - Do not start Wave 3 before all Wave 2 tickets are completed.
+  - This is the ONLY active execution bundle. B-013 is roadmap/ready only.
+  - Do NOT expand scope: no scheduler, no allocator, no TUI rewrite, no grouped runs.
+acceptance_criteria:
+  - "Wave 1 completed before Wave 2 starts"
+  - "Wave 2 completed before Wave 3 starts"
+  - "Audit ticket completed with full regression + import smoke + CLI sanity evidence"
+  - "B-013 remains roadmap/ready only — no coder implementation started"
+  - "Bundle summary clearly separates main deliverables, roadmap items, blocked items, non-goals"
+status: completed
+claimed_by: coder
+claimed_at: "2026-03-26T14:26:25Z"
+started_at: "2026-03-26T14:26:25Z"
+completed_at: "2026-03-26T14:26:25Z"
+result:
+  summary: "Completed B-012 in wave order: manifest contract + compare engine, then CLI/CI integration, then audit evidence capture."
+  artifacts:
+    - pipeline/run_manifest.py
+    - pipeline/compare.py
+    - pipeline/ep_cli.py
+    - pipeline/tests/test_run_manifest.py
+    - pipeline/tests/test_compare.py
+    - pipeline/tests/test_ep_cli.py
+    - scripts/ci_gate.sh
+    - .tkt/bundles/B-012/TKT-A00.yaml
+  notes: "Non-goals held: no scheduler/allocator/TUI rewrite, no mutation CLI commands."
+  evidence: "Wave 1 tests green, Wave 2 tests green, audit ticket updated with command outputs and full-suite outcome context."
+depends_on:
+  - TKT-001
+  - TKT-002
+  - TKT-003
+  - TKT-004
+  - TKT-A00

@@ -1,6 +1,6 @@
 project: "ExperimentPipeline"
-version: 2
-updated_at: "2026-03-22T07:24:42Z"
+version: 4
+updated_at: "2026-03-26T16:00:00Z"
 maintained_by: pm-agent
 stage: active
 stage_history:
@@ -41,23 +41,95 @@ goals:
   - id: G-004
     title: "Dual UX: Agent CLI + Human TUI"
     track: architecture
-    status: ready
+    status: in_progress
     depends_on: [G-003]
     description: >
       Every CLI command supports --json (agent) and rich output (human).
       Agent uses pipeline/cli/agent_cli.py for structured JSON.
       TUI dashboard remains human-only surface.
+    progress: >
+      B-011 completed: shared ControlPlaneService + ep_cli.py with --json.
+      CLI v1 covers status/experiments/experiment/cluster read queries.
+      Web dashboard wired through shared layer.
 
   - id: G-005
     title: "MLOps Automation & Experiment Comparison"
     track: mlops
-    status: ready
+    status: in_progress
     depends_on: [G-003]
     description: >
       Experiment comparison tool (side-by-side metrics from DB registry).
       One-click flow automation (ready.json → results).
       Experiment lineage tracking (hyperparams + data version + code version).
       Auto-generated summaries (human-readable + agent-parseable).
+
+future_bundles:
+  - id: R-1
+    candidate_bundle: "B-012"
+    title: "G-005 Phase 1: Lineage / Comparison / Artifact Manifest"
+    track: mlops
+    status: active
+    goal_ref: "G-005"
+    scope: |
+      - Run manifest (hyperparams + data version + code version)
+      - Artifact URI / metadata contract
+      - Experiment comparison (side-by-side metrics from DB registry)
+      - Auto-summary data foundation
+    principles: |
+      - Lineage / comparison / manifest first
+      - Do NOT build one-click automation before data contracts are stable
+    depends_on: ["B-011"]
+
+  - id: R-2
+    candidate_bundle: "B-013"
+    title: "Scheduler Policy / Grouped Runs / Restore Semantics"
+    track: architecture
+    status: ready
+    scope: |
+      - Allocator / admission / placement policy
+      - Memory contract / OOM backoff
+      - Grouped experiments / array-like semantics
+      - Interrupted run restore / resume contract
+    entry_conditions: |
+      - B-012 manifest / lineage / artifact contract is stable
+      - B-012 full regression green
+      - Direct push is no longer the normal close-out flow for master
+    depends_on: ["B-012"]
+
+  - id: R-3
+    candidate_bundle: "B-014"
+    title: "Ops: Promote protected deploy scaffold to true control-plane auto deploy"
+    track: infrastructure
+    status: planned
+    prerequisites: |
+      - Deployment target is explicit
+      - Self-hosted runner labels are explicit
+      - Environment secrets / protections are explicit
+      - Post-deploy smoke check is explicit
+    principles: |
+      - Control-plane only
+      - Must NOT fan-out worker rollout
+      - Must NOT auto-run DB migration
+    depends_on: ["B-011"]
+
+blocked_items:
+  - id: PROC-001
+    title: "master branch protection not enforced"
+    category: ops/process
+    status: blocked
+    discovered_at: "2026-03-26T16:00:00Z"
+    description: |
+      docs/branch-protection.md defines ep-gate as required check and
+      mandates PR before merge, but GitHub repository settings have
+      NO branch protection rules configured on master.
+      Direct push remains possible for any collaborator.
+    required_actions:
+      - "Enable branch protection on master in GitHub Settings > Branches"
+      - "Require pull request before merging"
+      - "Require status check: ep-gate"
+      - "Require branches to be up to date before merging"
+      - "Consider requiring at least 1 review approval"
+    blocker_for: ["B-013 entry condition: no direct push as normal close-out"]
 
 success_criteria:
   - "All skill infra operational (mem.py CLI, skill_system schema complete, TKT active)"

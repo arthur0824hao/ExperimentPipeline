@@ -36,6 +36,27 @@ def _mock_control_plane(monkeypatch):
     mock_svc_cls.return_value = mock_svc
     monkeypatch.setattr("ep_cli.ControlPlaneService", mock_svc_cls)
 
+    mock_manifest = {
+        "schema_version": "1.0",
+        "name": "exp1",
+        "status": "COMPLETED",
+        "result": {"f1_score": 0.9},
+        "lineage": {},
+        "artifacts": [],
+    }
+    monkeypatch.setattr("ep_cli.build_manifest", lambda db, name: mock_manifest)
+    monkeypatch.setattr(
+        "ep_cli.build_manifest_batch",
+        lambda db, names=None: [mock_manifest],
+    )
+    monkeypatch.setattr(
+        "ep_cli.compare_experiments",
+        lambda db, a, b: {"experiments": [a, b], "outcome": {}, "status": None},
+    )
+
+    mock_db_cls = MagicMock()
+    monkeypatch.setattr("ep_cli.DBExperimentsDB", mock_db_cls)
+
 
 def _run_cli(argv):
     from ep_cli import main
@@ -85,3 +106,27 @@ class TestNoCommand:
     def test_returns_error(self, capsys):
         code = _run_cli([])
         assert code == 1
+
+
+class TestManifestCommand:
+    def test_json_output(self, capsys):
+        code = _run_cli(["manifest", "exp1", "--output", "json"])
+        assert code == 0
+        data = json.loads(capsys.readouterr().out)
+        assert data["data"]["name"] == "exp1"
+
+
+class TestManifestsCommand:
+    def test_json_output(self, capsys):
+        code = _run_cli(["manifests", "--output", "json"])
+        assert code == 0
+        data = json.loads(capsys.readouterr().out)
+        assert isinstance(data["data"], list)
+
+
+class TestCompareCommand:
+    def test_json_output(self, capsys):
+        code = _run_cli(["compare", "exp1", "exp2", "--output", "json"])
+        assert code == 0
+        data = json.loads(capsys.readouterr().out)
+        assert data["data"]["experiments"] == ["exp1", "exp2"]

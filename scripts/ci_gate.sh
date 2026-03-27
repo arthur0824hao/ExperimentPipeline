@@ -87,9 +87,11 @@ run_full_checks() {
 import allocator
 import artifact
 import cluster
+import compare
 import control_plane
 import ep_cli
 import health
+import run_manifest
 import terminal_state
 import worker
 

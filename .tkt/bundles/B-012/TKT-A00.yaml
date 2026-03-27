@@ -1,0 +1,95 @@
+id: TKT-A00
+bundle: "B-012"
+type: audit
+title: "Audit B-012 with full regression, import smoke, and manifest/compare sanity"
+description: |
+  End-of-bundle audit. Hard gate: bundle cannot close without this evidence.
+
+  1. Full-suite regression:
+     ```bash
+     PYTHONPATH=pipeline python3 -m pytest pipeline/tests/ -q --tb=line
+     ```
+     Expected: all pass (380+ existing + new run_manifest/compare tests).
+
+  2. Import smoke (must include new modules):
+     ```bash
+     PYTHONPATH=pipeline python3 -c "
+     import allocator; import artifact; import cluster
+     import compare; import control_plane; import ep_cli
+     import health; import run_manifest; import terminal_state; import worker
+     print('import smoke OK')
+     "
+     ```
+     Expected: exit 0.
+
+  3. Manifest CLI sanity:
+     ```bash
+     PYTHONPATH=pipeline python3 -c "
+     import json
+     from unittest.mock import MagicMock, patch
+     import run_manifest, ep_cli
+
+     mock_db = MagicMock()
+     mock_db.get_experiment.return_value = {'name':'t','status':'COMPLETED','result':{'f1_score':0.9},'error_info':None,'running_on':None}
+     mock_db.get_panel_truth.return_value = None
+     with patch('run_manifest._read_result_payload', return_value=(None,None)), \
+          patch('run_manifest._read_resource_usage', return_value=(None,None)), \
+          patch('run_manifest.get_terminal_reason', return_value='COMPLETED'):
+         m = run_manifest.build_manifest(mock_db, 't')
+     assert m is not None
+     assert m['schema_version'] == '1.0'
+     assert m['name'] == 't'
+     print('manifest contract OK')
+     "
+     ```
+
+  4. Compare CLI sanity:
+     ```bash
+     PYTHONPATH=pipeline python3 -c "
+     from compare import compare_manifests
+     a = {'name':'a','status':'COMPLETED','result':{'f1_score':0.9,'auc_score':0.8,'peak_memory_mb':5000},'terminal_reason':'COMPLETED','script':'t.py','config':{'batch_size':32,'eval_batch_size':None},'lineage':{},'memory_contract':None,'retry_count':0,'oom_retry_count':0,'max_retries':2}
+     b = dict(a, name='b', result={'f1_score':0.85,'auc_score':0.8,'peak_memory_mb':6000})
+     diff = compare_manifests(a, b)
+     assert 'f1_score' in diff['outcome']
+     print('compare engine OK')
+     "
+     ```
+
+  5. Scope boundary check:
+     - No changes to experiments.py scheduler_loop / main / input handling
+     - No changes to UnifiedDashboard
+     - No changes to allocator, health, worker
+     - No mutation commands in CLI
+     - B-013 remains roadmap/ready only — no implementation started
+acceptance_criteria:
+  - "Full suite regression green with evidence"
+  - "Import smoke green (includes compare, run_manifest)"
+  - "Manifest contract sanity green"
+  - "Compare engine sanity green"
+  - "Scope boundary verified"
+  - "B-013 confirmed as roadmap/ready only"
+status: completed
+claimed_by: reviewer
+claimed_at: "2026-03-26T14:26:25Z"
+started_at: "2026-03-26T14:26:25Z"
+completed_at: "2026-03-26T14:26:25Z"
+category: null
+effort_estimate: small
+agent_type: reviewer
+source_plan: null
+source_ticket_index: null
+result:
+  summary: "Completed B-012 audit checks for targeted tests, import smoke, manifest/compare sanity, and scope boundaries."
+  artifacts:
+    - pipeline/tests/test_run_manifest.py
+    - pipeline/tests/test_compare.py
+    - pipeline/tests/test_ep_cli.py
+    - scripts/ci_gate.sh
+    - .tkt/roadmap.yaml
+  notes: "Full regression rerun is green; B-013 remains roadmap status=ready in roadmap.yaml (R-2, candidate_bundle B-013, status ready)."
+  evidence: "PYTHONPATH=pipeline python3 -m pytest pipeline/tests/test_run_manifest.py -v => 3 passed; PYTHONPATH=pipeline python3 -m pytest pipeline/tests/test_compare.py -v => 6 passed; PYTHONPATH=pipeline python3 -m pytest pipeline/tests/test_ep_cli.py -v => 9 passed; PYTHONPATH=pipeline python3 -m pytest pipeline/tests/ -q --tb=line => 392 passed, 19 skipped; manifest contract OK; compare engine OK; import smoke OK; bash -n scripts/ci_gate.sh => OK; python3 -m py_compile pipeline/run_manifest.py pipeline/compare.py pipeline/ep_cli.py => OK"
+depends_on:
+  - TKT-001
+  - TKT-002
+  - TKT-003
+  - TKT-004

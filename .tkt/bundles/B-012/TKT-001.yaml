@@ -1,0 +1,263 @@
+id: TKT-001
+bundle: "B-012"
+type: worker
+title: "pipeline/run_manifest.py + pipeline/tests/test_run_manifest.py — Run manifest contract and builder"
+description: |
+  Define the canonical run manifest schema and provide a builder that produces
+  a manifest dict from DB + artifact data. This is the single source of truth
+  for what a "run" looks like — used by comparison, summary, and CLI surfaces.
+
+  FILE 1: pipeline/run_manifest.py (NEW — create from scratch)
+
+  The manifest contract must include these sections:
+
+  ```python
+  #!/usr/bin/env python3
+  """Run manifest contract — canonical schema for experiment run data.
+
+  Defines the authoritative shape of a run manifest and provides builders
+  that produce manifests from DB registry + on-disk artifacts.
+  """
+  from __future__ import annotations
+
+  import json
+  from pathlib import Path
+  from typing import Any, Dict, List, Optional
+
+  try:
+      from artifact import (
+          _read_result_payload,
+          _read_resource_usage,
+          get_terminal_reason,
+          get_completed_result_summary,
+          RESULTS_DB_DIR,
+          BASE_DIR,
+          LOGS_DIR,
+      )
+      from db_registry import DBExperimentsDB
+  except ModuleNotFoundError:
+      from pipeline.artifact import (
+          _read_result_payload,
+          _read_resource_usage,
+          get_terminal_reason,
+          get_completed_result_summary,
+          RESULTS_DB_DIR,
+          BASE_DIR,
+          LOGS_DIR,
+      )
+      from pipeline.db_registry import DBExperimentsDB
+
+
+  MANIFEST_SCHEMA_VERSION = "1.0"
+
+
+  def _artifact_refs(exp_name: str) -> List[Dict[str, Any]]:
+      """Build artifact reference list with existence and mtime."""
+      candidates = [
+          ("result", RESULTS_DB_DIR / f"{exp_name}.json"),
+          ("result_alt", BASE_DIR / "experiments" / exp_name / "outputs" / "results.json"),
+          ("resource_usage", BASE_DIR / "experiments" / exp_name / "resource_usage.json"),
+          ("log_stderr", LOGS_DIR / f"{exp_name}.err"),
+      ]
+      refs = []
+      for art_type, path in candidates:
+          exists = path.exists()
+          refs.append({
+              "type": art_type,
+              "path": str(path),
+              "exists": exists,
+              "mtime": path.stat().st_mtime if exists else None,
+          })
+      return refs
+
+
+  def build_manifest(db: DBExperimentsDB, name: str) -> Optional[Dict[str, Any]]:
+      """Build a run manifest for a single experiment from DB + artifacts.
+
+      Returns None if the experiment does not exist in DB.
+      """
+      exp = db.get_experiment(name)
+      if exp is None:
+          return None
+
+      # Artifact data
+      _, result_payload = _read_result_payload(name)
+      _, resource_payload = _read_resource_usage(name)
+      artifact_refs = _artifact_refs(name)
+
+      # DB canonical fields
+      result = exp.get("result")
+      error_info = exp.get("error_info")
+      running_on = exp.get("running_on")
+
+      # Terminal reason
+      panel_truth = db.get_panel_truth(name)
+      terminal_metadata = None
+      canonical_result = None
+      if panel_truth:
+          terminal_metadata = panel_truth.get("terminal_metadata")
+          canonical_result = panel_truth.get("canonical_result")
+      terminal_reason = get_terminal_reason(
+          name, exp.get("status", ""), result, error_info, terminal_metadata,
+      )
+
+      return {
+          "schema_version": MANIFEST_SCHEMA_VERSION,
+          # Identity
+          "name": name,
+          "run_id": exp.get("run_id"),
+          "batch_id": exp.get("batch_id"),
+          # Execution
+          "status": exp.get("status", "UNKNOWN"),
+          "started_at": running_on.get("started_at") if running_on else None,
+          "completed_at": exp.get("completed_at"),
+          "worker_id": running_on.get("worker") if running_on else None,
+          "gpu_id": running_on.get("gpu") if running_on else None,
+          "pid": running_on.get("pid") if running_on else None,
+          # Outcome
+          "result": result,
+          "error_info": error_info,
+          "terminal_reason": terminal_reason,
+          "canonical_result": canonical_result,
+          "terminal_metadata": terminal_metadata,
+          # Config / Hyperparams
+          "script": exp.get("script"),
+          "memory_contract": exp.get("memory_contract"),
+          "config": {
+              "batch_size": exp.get("batch_size"),
+              "eval_batch_size": exp.get("eval_batch_size"),
+          },
+          # Lineage / Provenance
+          "lineage": {
+              "parent_experiment": exp.get("parent_experiment"),
+              "group_id": exp.get("group_id"),
+              "depends_on_group": exp.get("depends_on_group"),
+              "condition_parent": exp.get("condition_parent"),
+              "gate_type": exp.get("gate_type"),
+              "gate_evidence_ref": exp.get("gate_evidence_ref"),
+              "role": exp.get("role"),
+              "main_experiment": exp.get("main_experiment"),
+          },
+          # Artifacts
+          "artifacts": artifact_refs,
+          # Retry
+          "retry_count": exp.get("retry_count", 0),
+          "oom_retry_count": exp.get("oom_retry_count", 0),
+          "max_retries": exp.get("max_retries", 0),
+          # Display
+          "display_order": exp.get("display_order"),
+      }
+
+
+  def build_manifest_batch(
+      db: DBExperimentsDB, names: Optional[List[str]] = None,
+  ) -> List[Dict[str, Any]]:
+      """Build manifests for multiple experiments. If names is None, build for all."""
+      if names is None:
+          rows = db.load_all_for_panel() or []
+          names = [r["name"] for r in rows if "name" in r]
+      manifests = []
+      for name in names:
+          m = build_manifest(db, name)
+          if m is not None:
+              manifests.append(m)
+      return manifests
+  ```
+
+  FILE 2: pipeline/tests/test_run_manifest.py (NEW — create from scratch)
+
+  ```python
+  #!/usr/bin/env python3
+  """Tests for run manifest contract."""
+  import sys
+  from pathlib import Path
+  from unittest.mock import MagicMock, patch
+
+  import pytest
+
+  sys.path.insert(0, str(Path(__file__).parent.parent))
+
+  from run_manifest import build_manifest, build_manifest_batch, MANIFEST_SCHEMA_VERSION
+
+
+  def _mock_db(exp_dict=None, panel_truth=None, all_rows=None):
+      db = MagicMock()
+      db.get_experiment.return_value = exp_dict
+      db.get_panel_truth.return_value = panel_truth
+      db.load_all_for_panel.return_value = all_rows or []
+      return db
+
+
+  @patch("run_manifest._read_result_payload", return_value=(None, None))
+  @patch("run_manifest._read_resource_usage", return_value=(None, None))
+  @patch("run_manifest.get_terminal_reason", return_value="COMPLETED")
+  class TestBuildManifest:
+      def test_returns_none_for_missing(self, *_):
+          db = _mock_db(exp_dict=None)
+          assert build_manifest(db, "nope") is None
+
+      def test_basic_manifest_shape(self, *_):
+          exp = {
+              "name": "exp1", "status": "COMPLETED", "batch_id": "b1",
+              "result": {"f1_score": 0.9, "auc_score": 0.8, "peak_memory_mb": 5000},
+              "error_info": None, "running_on": None, "completed_at": "2026-01-01T00:00:00",
+              "script": "train.py", "memory_contract": {"est_mem_decision_mb": 8000},
+              "parent_experiment": None, "group_id": "g1", "depends_on_group": None,
+              "condition_parent": None, "gate_type": None, "gate_evidence_ref": None,
+              "role": "main", "main_experiment": "exp1",
+              "retry_count": 0, "oom_retry_count": 0, "max_retries": 2,
+              "display_order": 1,
+          }
+          db = _mock_db(exp_dict=exp, panel_truth={"canonical_result": None, "terminal_metadata": None})
+          m = build_manifest(db, "exp1")
+          assert m is not None
+          assert m["schema_version"] == MANIFEST_SCHEMA_VERSION
+          assert m["name"] == "exp1"
+          assert m["result"]["f1_score"] == 0.9
+          assert m["lineage"]["group_id"] == "g1"
+          assert isinstance(m["artifacts"], list)
+
+      def test_batch_builds_all(self, *_):
+          exp = {"name": "e1", "status": "RUNNING", "running_on": None,
+                 "result": None, "error_info": None}
+          db = _mock_db(exp_dict=exp, all_rows=[{"name": "e1"}, {"name": "e2"}])
+          # e2 will return same mock — test counts
+          results = build_manifest_batch(db)
+          assert len(results) == 2
+  ```
+
+  Boundaries:
+  - Do NOT modify any existing file.
+  - Do NOT import from experiments.py directly (use db_registry + artifact only).
+  - Do NOT add write/mutation operations — manifest is read-only.
+  - Use the same try/except ModuleNotFoundError import pattern.
+acceptance_criteria:
+  - "pipeline/run_manifest.py exists with MANIFEST_SCHEMA_VERSION, build_manifest, build_manifest_batch"
+  - "Manifest includes sections: identity, execution, outcome, config, lineage, artifacts, retry"
+  - "pipeline/tests/test_run_manifest.py exists with tests covering None, basic shape, batch"
+  - "All tests pass: PYTHONPATH=pipeline python3 -m pytest pipeline/tests/test_run_manifest.py -v"
+  - "Import smoke: PYTHONPATH=pipeline python3 -c 'from run_manifest import build_manifest'"
+status: completed
+claimed_by: coder
+claimed_at: "2026-03-26T14:26:25Z"
+started_at: "2026-03-26T14:26:25Z"
+completed_at: "2026-03-26T14:26:25Z"
+category: mlops
+effort_estimate: medium
+agent_type: coder
+skills: []
+wave: 1
+qa_scenarios:
+  - "PYTHONPATH=pipeline python3 -m pytest pipeline/tests/test_run_manifest.py -v => all pass"
+  - "PYTHONPATH=pipeline python3 -c 'from run_manifest import build_manifest' => exit 0"
+  - "python3 -m py_compile pipeline/run_manifest.py => exit 0"
+source_plan: null
+source_ticket_index: 1
+result:
+  summary: "Implemented canonical run manifest builder and tests for missing experiment, base shape, and batch behavior."
+  artifacts:
+    - pipeline/run_manifest.py
+    - pipeline/tests/test_run_manifest.py
+  notes: "Read-only manifest contract kept within db_registry + artifact boundaries with dual import pattern."
+  evidence: "PYTHONPATH=pipeline python3 -m pytest pipeline/tests/test_run_manifest.py -v => 3 passed; PYTHONPATH=pipeline python3 -c 'from run_manifest import build_manifest' => OK; python3 -m py_compile pipeline/run_manifest.py => OK"
+depends_on: []
