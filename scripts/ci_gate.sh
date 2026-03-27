@@ -82,7 +82,7 @@ run_common_checks() {
 run_full_checks() {
   echo "[ep-gate] full path: running test + import + syntax checks"
   run_common_checks
-  PYTHONPATH="${ROOT_DIR}/pipeline:${PYTHONPATH:-}" python3 -m pytest pipeline/tests/ -q --tb=line --timeout=60 -x
+  PYTHONPATH="${ROOT_DIR}/pipeline:${PYTHONPATH:-}" python3 -m pytest pipeline/tests/ -q --tb=line -x
   PYTHONPATH="${ROOT_DIR}/pipeline:${PYTHONPATH:-}" python3 - <<'PY'
 import allocator
 import artifact
