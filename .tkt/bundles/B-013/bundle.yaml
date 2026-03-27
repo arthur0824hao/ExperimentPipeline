@@ -1,0 +1,34 @@
+id: "B-013"
+goal_ref: null
+title: "Scheduler Policy / Grouped Runs / Restore Semantics"
+status: open
+created_at: "2026-03-27T06:00:00Z"
+created_by: pm-agent
+main_agent: null
+ticket_count: 6
+priority: high
+track: "architecture"
+source_plan: null
+worktree_path: null
+worktree_branch: null
+depends_on: ["B-012"]
+scope_notes: |
+  This bundle refines the scheduler, allocator, and restore/resume
+  subsystems without rewriting the core loop.
+
+  Deliverables:
+    A. Allocator / admission / placement policy clarification
+    B. Memory contract / OOM backoff improvements
+    C. Grouped experiments / array-like semantics
+    D. Interrupted run restore / resume contract
+
+  Non-goals:
+    - New deploy automation
+    - Large-scale TUI/dashboard rewrite
+    - Lineage/comparison/manifest changes (done in B-012)
+    - Module extraction for its own sake
+
+  Entry conditions (from roadmap R-2):
+    - B-012 manifest / lineage / artifact contract is stable
+    - B-012 full regression green
+    - Direct push is no longer the normal close-out flow

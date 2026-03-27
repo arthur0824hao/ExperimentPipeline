@@ -9,6 +9,13 @@ import json
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
+@pytest.fixture(autouse=True)
+def _fast_pg_timeout():
+    """Force 1-second connect_timeout so tests that hit real PG fail fast."""
+    os.environ.setdefault("PGCONNECT_TIMEOUT", "1")
+    os.environ.setdefault("EXP_PGCONNECT_TIMEOUT", "1")
+
+
 @pytest.fixture
 def temp_dir():
     with tempfile.TemporaryDirectory() as tmpdir:

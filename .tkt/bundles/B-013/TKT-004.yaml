@@ -1,0 +1,99 @@
+id: TKT-004
+bundle: "B-013"
+type: worker
+title: "pipeline/tests/test_restore_contract.py — Restore/resume contract tests"
+description: |
+  Create a test file that exercises the restore/resume contract:
+  what happens when a RUNNING experiment is found after runner restart.
+
+  Key functions under test:
+  - db_registry.py:2043 heal_from_running_process(name, worker_id, gpu_id, pid, started_at)
+  - db_registry.py:1882 check_stale_experiments(stale_sec, caller_worker)
+
+  FILE 1: pipeline/tests/test_restore_contract.py (NEW — create from scratch)
+
+  ```python
+  #!/usr/bin/env python3
+  """Tests for restore/resume contract (heal_from_running_process, stale checks)."""
+  import sys
+  from pathlib import Path
+  from unittest.mock import MagicMock, patch, PropertyMock
+  from datetime import datetime, timezone, timedelta
+
+  import pytest
+
+  sys.path.insert(0, str(Path(__file__).parent.parent))
+
+
+  class TestHealFromRunningProcess:
+      """Test db_registry.DBExperimentsDB.heal_from_running_process behavior.
+
+      heal_from_running_process (db_registry.py ~2043) should:
+      1. Return False if experiment not in DB
+      2. Return True (no-op) if DB already shows correct worker/pid/status
+      3. Update worker/gpu/pid/started_at if DB shows RUNNING with different owner
+      4. Create new run_id and mark RUNNING if DB shows non-RUNNING status
+      """
+
+      @patch("db_registry.get_conn")
+      def test_missing_experiment_returns_false(self, mock_conn):
+          from db_registry import DBExperimentsDB
+          db = DBExperimentsDB.__new__(DBExperimentsDB)
+          db.dsn = None
+          db.json_path = None
+          db._run_ids = {}
+          db._run_ids_lock = __import__("threading").Lock()
+          db._last_heartbeat_error = None
+
+          ctx = MagicMock()
+          cur = MagicMock()
+          cur.fetchone.return_value = None
+          ctx.__enter__ = lambda s: ctx
+          ctx.__exit__ = MagicMock(return_value=False)
+          ctx.cursor.return_value.__enter__ = lambda s: cur
+          ctx.cursor.return_value.__exit__ = MagicMock(return_value=False)
+          mock_conn.return_value = ctx
+
+          result = db.heal_from_running_process("nope", "w1", 0, 1234)
+          assert result is False
+
+
+  class TestCheckStaleSemantics:
+      """Document that check_stale_experiments increments retry_count."""
+
+      def test_stale_sec_default(self):
+          from db_registry import DEFAULT_STALE_SEC
+          assert DEFAULT_STALE_SEC > 0
+          assert DEFAULT_STALE_SEC == 120
+
+      def test_max_retry_constant(self):
+          from db_registry import MAX_RETRY_COUNT
+          assert MAX_RETRY_COUNT == 2
+  ```
+
+  Boundaries:
+  - Do NOT modify db_registry.py or experiments.py.
+  - Tests document and verify current restore contract behavior.
+  - Complex DB integration tests are out of scope; use mocks.
+acceptance_criteria:
+  - "pipeline/tests/test_restore_contract.py exists"
+  - "Tests cover: missing experiment returns False, stale constants verified"
+  - "All tests pass: PYTHONPATH=pipeline python3 -m pytest pipeline/tests/test_restore_contract.py -v"
+status: open
+claimed_by: null
+claimed_at: null
+started_at: null
+completed_at: null
+category: architecture
+effort_estimate: small
+agent_type: coder
+skills: []
+wave: 2
+qa_scenarios:
+  - "PYTHONPATH=pipeline python3 -m pytest pipeline/tests/test_restore_contract.py -v => all pass"
+source_plan: null
+source_ticket_index: 4
+result: null
+depends_on:
+  - TKT-001
+  - TKT-002

@@ -1,0 +1,34 @@
+id: TKT-000
+bundle: "B-013"
+type: integrate
+title: "Integrate and coordinate B-013"
+description: |
+  Coordinate B-013 in strict wave order.
+
+  Wave 1: TKT-001 — Admission policy: codify preferred-worker fallback rules
+           TKT-002 — OOM backoff: clarify retry/oom_retry/max_retries contract
+  Wave 2: TKT-003 — Grouped runs: enforce group_id as atomic scheduling unit
+           TKT-004 — Restore contract: document and test heal_from_running_process
+  Wave 3: TKT-A00 — Audit (full regression + scope boundary)
+
+  Rules:
+  - Do not start Wave 2 before Wave 1 is completed.
+  - Do not start Wave 3 before all Wave 2 tickets are completed.
+  - Do NOT expand scope: no TUI rewrite, no deploy changes, no manifest/comparison changes.
+acceptance_criteria:
+  - "Wave 1 completed before Wave 2 starts"
+  - "Wave 2 completed before Wave 3 starts"
+  - "Audit ticket completed with full regression evidence"
+  - "Bundle summary clearly separates deliverables, roadmap items, non-goals"
+status: open
+claimed_by: null
+claimed_at: null
+started_at: null
+completed_at: null
+result: null
+depends_on:
+  - TKT-001
+  - TKT-002
+  - TKT-003
+  - TKT-004
+  - TKT-A00
