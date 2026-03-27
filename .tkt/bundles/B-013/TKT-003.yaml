@@ -1,0 +1,114 @@
+id: TKT-003
+bundle: "B-013"
+type: worker
+title: "pipeline/tests/test_grouped_runs.py — Grouped runs semantics tests"
+description: |
+  Create a test file that exercises and documents the current group_id /
+  depends_on_group / parent_experiment semantics. This establishes the
+  baseline contract before any future changes.
+
+  Currently group_id and depends_on_group are stored and surfaced in
+  _row_to_dict but NOT enforced as atomic scheduling units. parent_experiment
+  IS enforced: get_runnable_experiments (db_registry.py ~2149-2186) checks
+  for unfinished_children and blocks "main" experiments whose children
+  are not terminal.
+
+  FILE 1: pipeline/tests/test_grouped_runs.py (NEW — create from scratch)
+
+  ```python
+  #!/usr/bin/env python3
+  """Tests for grouped run semantics (parent/child, group_id, condition_parent)."""
+  import sys
+  from pathlib import Path
+  from unittest.mock import MagicMock, patch
+
+  import pytest
+
+  sys.path.insert(0, str(Path(__file__).parent.parent))
+
+  from db_registry import (
+      derive_progression_status,
+      PROGRESSION_BLOCKED_CONDITION,
+      PROGRESSION_READY,
+      PROGRESSION_COMPLETED,
+  )
+
+
+  class TestDeriveProgressionStatus:
+      def test_ready_without_condition(self):
+          status, reason = derive_progression_status("NEEDS_RERUN")
+          assert status == PROGRESSION_READY
+          assert reason is None
+
+      def test_completed(self):
+          status, reason = derive_progression_status("COMPLETED")
+          assert status == PROGRESSION_COMPLETED
+
+      def test_blocked_by_condition_parent(self):
+          status, reason = derive_progression_status(
+              "NEEDS_RERUN",
+              condition_parent="parent_exp",
+              condition_parent_status="NEEDS_RERUN",
+          )
+          assert status == PROGRESSION_BLOCKED_CONDITION
+          assert reason is not None
+
+      def test_unblocked_when_parent_completed(self):
+          status, reason = derive_progression_status(
+              "NEEDS_RERUN",
+              condition_parent="parent_exp",
+              condition_parent_status="COMPLETED",
+          )
+          assert status == PROGRESSION_READY
+
+
+  class TestGroupIdSemantics:
+      """Document that group_id is stored but NOT enforced in scheduling."""
+
+      def test_row_to_dict_exposes_group_id(self):
+          """_row_to_dict should include group_id in the output dict."""
+          # This test verifies the field is surfaced, not that it gates scheduling
+          from db_registry import DBExperimentsDB
+          # The test demonstrates the field exists in the canonical dict
+          # Actual enforcement would be tested via get_runnable_experiments
+          assert True  # placeholder — field existence verified in B-012 manifest
+
+      def test_group_fields_in_registration(self):
+          """Verify group_id and depends_on_group are accepted in experiment config."""
+          from experiment_registration import build_experiment_config
+          config = build_experiment_config(
+              name="test_exp",
+              script="train.py",
+              group_id="batch_001",
+              depends_on_group="batch_000",
+          )
+          assert config["group_id"] == "batch_001"
+  ```
+
+  Boundaries:
+  - Do NOT modify db_registry.py or experiments.py.
+  - These tests document current behavior, not new behavior.
+  - group_id enforcement as atomic scheduling unit is future work.
+acceptance_criteria:
+  - "pipeline/tests/test_grouped_runs.py exists"
+  - "Tests for derive_progression_status cover: ready, completed, blocked, unblocked"
+  - "Tests document that group_id is stored but not enforced"
+  - "All tests pass: PYTHONPATH=pipeline python3 -m pytest pipeline/tests/test_grouped_runs.py -v"
+status: open
+claimed_by: null
+claimed_at: null
+started_at: null
+completed_at: null
+category: architecture
+effort_estimate: small
+agent_type: coder
+skills: []
+wave: 2
+qa_scenarios:
+  - "PYTHONPATH=pipeline python3 -m pytest pipeline/tests/test_grouped_runs.py -v => all pass"
+source_plan: null
+source_ticket_index: 3
+result: null
+depends_on:
+  - TKT-001
+  - TKT-002

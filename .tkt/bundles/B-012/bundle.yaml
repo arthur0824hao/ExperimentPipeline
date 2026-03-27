@@ -1,0 +1,37 @@
+id: "B-012"
+goal_ref: "G-005"
+title: "Lineage / Comparison / Artifact Manifest"
+status: completed
+created_at: "2026-03-26T16:00:00Z"
+created_by: pm-agent
+main_agent: coder
+ticket_count: 6
+priority: high
+track: "mlops"
+source_plan: null
+worktree_path: null
+worktree_branch: null
+depends_on: ["B-011"]
+scope_notes: |
+  This bundle stabilises the run/artifact/summary data contracts so EP can
+  support reliable experiment comparison and lineage queries.
+
+  Deliverables:
+    A. Run manifest contract (pipeline/run_manifest.py) — canonical typed schema
+       covering identity, execution, outcome, config, lineage, artifact refs
+    B. Comparison surface (pipeline/compare.py) — structured diff of two manifests
+    C. CLI extension (pipeline/ep_cli.py) — manifest/compare/summary subcommands with --json
+    D. CI gate import smoke updated
+
+  Non-goals:
+    - Scheduler policy overhaul
+    - Allocator / admission / placement refactor
+    - Grouped runs / array semantics
+    - Restore / resume semantics overhaul
+    - New deploy automation
+    - Large-scale UI/TUI rewrite
+    - Module extraction for its own sake
+
+  Process preflight:
+    - PROC-001 (master branch protection) discovered as blocked item
+    - Roadmap R-1/R-2/R-3 synced, G-004/G-005 updated to in_progress

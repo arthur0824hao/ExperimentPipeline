@@ -18,10 +18,17 @@ from typing import Sequence
 
 try:
     from cli_shared import add_common_args, emit_result, setup_logging
+    from compare import compare_experiments
     from control_plane import ControlPlaneService
+    from run_manifest import build_manifest, build_manifest_batch
 except ModuleNotFoundError:
     from pipeline.cli_shared import add_common_args, emit_result, setup_logging
+    from pipeline.compare import compare_experiments
     from pipeline.control_plane import ControlPlaneService
+    from pipeline.run_manifest import build_manifest, build_manifest_batch
+
+
+DBExperimentsDB = None
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -46,6 +53,18 @@ def _build_parser() -> argparse.ArgumentParser:
 
     cluster = sub.add_parser("cluster", help="Cluster health summary")
     add_common_args(cluster)
+
+    manifest_one = sub.add_parser("manifest", help="Run manifest for one experiment")
+    add_common_args(manifest_one)
+    manifest_one.add_argument("name", help="Experiment name")
+
+    manifest_all = sub.add_parser("manifests", help="Run manifests for all experiments")
+    add_common_args(manifest_all)
+
+    cmp = sub.add_parser("compare", help="Compare two experiments")
+    add_common_args(cmp)
+    cmp.add_argument("name_a", help="First experiment name")
+    cmp.add_argument("name_b", help="Second experiment name")
 
     return parser
 
@@ -73,6 +92,48 @@ def _run(args: argparse.Namespace) -> int:
             return 1
     elif command == "cluster":
         data = svc.get_cluster_health()
+    elif command == "manifest":
+        global DBExperimentsDB
+        if DBExperimentsDB is None:
+            try:
+                from db_registry import DBExperimentsDB as _DBExperimentsDB
+            except ModuleNotFoundError:
+                from pipeline.db_registry import DBExperimentsDB as _DBExperimentsDB
+            DBExperimentsDB = _DBExperimentsDB
+        db = DBExperimentsDB()
+        data = build_manifest(db, args.name)
+        if data is None:
+            emit_result(
+                args,
+                {"error": {"message": f"Experiment '{args.name}' not found"}},
+                status="error",
+            )
+            return 1
+    elif command == "manifests":
+        if DBExperimentsDB is None:
+            try:
+                from db_registry import DBExperimentsDB as _DBExperimentsDB
+            except ModuleNotFoundError:
+                from pipeline.db_registry import DBExperimentsDB as _DBExperimentsDB
+            DBExperimentsDB = _DBExperimentsDB
+        db = DBExperimentsDB()
+        data = build_manifest_batch(db)
+    elif command == "compare":
+        if DBExperimentsDB is None:
+            try:
+                from db_registry import DBExperimentsDB as _DBExperimentsDB
+            except ModuleNotFoundError:
+                from pipeline.db_registry import DBExperimentsDB as _DBExperimentsDB
+            DBExperimentsDB = _DBExperimentsDB
+        db = DBExperimentsDB()
+        data = compare_experiments(db, args.name_a, args.name_b)
+        if data is None:
+            emit_result(
+                args,
+                {"error": {"message": "One or both experiments not found"}},
+                status="error",
+            )
+            return 1
     else:
         emit_result(
             args,

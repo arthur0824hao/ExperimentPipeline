@@ -1,0 +1,57 @@
+id: TKT-A00
+bundle: "B-013"
+type: audit
+title: "Audit B-013 with full regression and scope boundary check"
+description: |
+  End-of-bundle audit. Hard gate.
+
+  1. Full-suite regression:
+     ```bash
+     PYTHONPATH=pipeline python3 -m pytest pipeline/tests/ -q --tb=line
+     ```
+     Expected: all pass (392+ existing + new B-013 tests).
+
+  2. Import smoke (same as B-012):
+     ```bash
+     PYTHONPATH=pipeline python3 -c "
+     import allocator; import artifact; import cluster
+     import compare; import control_plane; import ep_cli
+     import health; import memory_contract; import run_manifest
+     import terminal_state; import worker
+     print('import smoke OK')
+     "
+     ```
+
+  3. New test files pass individually:
+     - PYTHONPATH=pipeline python3 -m pytest pipeline/tests/test_oom_retry.py -v
+     - PYTHONPATH=pipeline python3 -m pytest pipeline/tests/test_grouped_runs.py -v
+     - PYTHONPATH=pipeline python3 -m pytest pipeline/tests/test_restore_contract.py -v
+
+  4. Scope boundary check:
+     - No changes to scheduler_loop logic (only docstrings added to admission helpers)
+     - No changes to allocator.allocate behavior
+     - No changes to worker.run_experiment_process behavior
+     - No changes to experiments.py main/input handling
+     - No changes to TUI/dashboard rendering
+     - No deploy or manifest changes
+acceptance_criteria:
+  - "Full suite regression green"
+  - "Import smoke green (includes memory_contract)"
+  - "All new test files pass individually"
+  - "Scope boundary verified: no behavioral changes, only docstrings + tests"
+status: open
+claimed_by: null
+claimed_at: null
+started_at: null
+completed_at: null
+category: null
+effort_estimate: small
+agent_type: reviewer
+source_plan: null
+source_ticket_index: null
+result: null
+depends_on:
+  - TKT-001
+  - TKT-002
+  - TKT-003
+  - TKT-004

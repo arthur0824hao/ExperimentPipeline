@@ -1,0 +1,224 @@
+id: TKT-002
+bundle: "B-012"
+type: worker
+title: "pipeline/compare.py + pipeline/tests/test_compare.py — Comparison engine"
+description: |
+  Create the comparison engine that takes two run manifests (from TKT-001)
+  and produces a structured, JSON-serializable diff covering metrics,
+  config, lineage, and artifact differences.
+
+  FILE 1: pipeline/compare.py (NEW — create from scratch)
+
+  ```python
+  #!/usr/bin/env python3
+  """Experiment comparison engine.
+
+  Compares two run manifests and produces a structured diff dict suitable
+  for CLI --json output or programmatic consumption.
+  """
+  from __future__ import annotations
+
+  from typing import Any, Dict, List, Optional, Tuple
+
+  try:
+      from run_manifest import build_manifest
+      from db_registry import DBExperimentsDB
+  except ModuleNotFoundError:
+      from pipeline.run_manifest import build_manifest
+      from pipeline.db_registry import DBExperimentsDB
+
+
+  def _safe_diff(a: Any, b: Any) -> Optional[Dict[str, Any]]:
+      """Return diff dict if values differ, else None."""
+      if a == b:
+          return None
+      return {"a": a, "b": b}
+
+
+  def _metric_diff(result_a: Optional[Dict], result_b: Optional[Dict]) -> Dict[str, Any]:
+      """Compare outcome metrics between two experiments."""
+      def _get(r, key):
+          return r.get(key) if isinstance(r, dict) else None
+
+      f1_a, f1_b = _get(result_a, "f1_score"), _get(result_b, "f1_score")
+      auc_a, auc_b = _get(result_a, "auc_score"), _get(result_b, "auc_score")
+      peak_a, peak_b = _get(result_a, "peak_memory_mb"), _get(result_b, "peak_memory_mb")
+
+      diff = {}
+      if f1_a != f1_b:
+          diff["f1_score"] = {"a": f1_a, "b": f1_b, "delta": _delta(f1_a, f1_b)}
+      if auc_a != auc_b:
+          diff["auc_score"] = {"a": auc_a, "b": auc_b, "delta": _delta(auc_a, auc_b)}
+      if peak_a != peak_b:
+          diff["peak_memory_mb"] = {"a": peak_a, "b": peak_b, "delta": _delta(peak_a, peak_b)}
+      return diff
+
+
+  def _delta(a: Any, b: Any) -> Optional[float]:
+      """Compute numeric delta, returning None if either side is None."""
+      if a is None or b is None:
+          return None
+      try:
+          return float(b) - float(a)
+      except (TypeError, ValueError):
+          return None
+
+
+  def _dict_diff(a: Optional[Dict], b: Optional[Dict], keys: List[str]) -> Dict[str, Any]:
+      """Compare specific keys between two dicts."""
+      a = a or {}
+      b = b or {}
+      diff = {}
+      for key in keys:
+          va, vb = a.get(key), b.get(key)
+          if va != vb:
+              diff[key] = {"a": va, "b": vb}
+      return diff
+
+
+  def compare_manifests(manifest_a: Dict[str, Any], manifest_b: Dict[str, Any]) -> Dict[str, Any]:
+      """Compare two run manifests and return a structured diff."""
+      return {
+          "experiments": [manifest_a["name"], manifest_b["name"]],
+          "status": _safe_diff(manifest_a.get("status"), manifest_b.get("status")),
+          "terminal_reason": _safe_diff(
+              manifest_a.get("terminal_reason"), manifest_b.get("terminal_reason"),
+          ),
+          "outcome": _metric_diff(manifest_a.get("result"), manifest_b.get("result")),
+          "config": _dict_diff(
+              manifest_a.get("config"), manifest_b.get("config"),
+              ["batch_size", "eval_batch_size"],
+          ),
+          "lineage": _dict_diff(
+              manifest_a.get("lineage"), manifest_b.get("lineage"),
+              ["parent_experiment", "group_id", "condition_parent", "role"],
+          ),
+          "script": _safe_diff(manifest_a.get("script"), manifest_b.get("script")),
+          "memory_contract_diff": _safe_diff(
+              manifest_a.get("memory_contract"), manifest_b.get("memory_contract"),
+          ),
+          "retry": _dict_diff(
+              manifest_a, manifest_b,
+              ["retry_count", "oom_retry_count", "max_retries"],
+          ),
+      }
+
+
+  def compare_experiments(
+      db: DBExperimentsDB, name_a: str, name_b: str,
+  ) -> Optional[Dict[str, Any]]:
+      """Build manifests for two experiments and compare them.
+
+      Returns None if either experiment is not found.
+      """
+      ma = build_manifest(db, name_a)
+      mb = build_manifest(db, name_b)
+      if ma is None or mb is None:
+          return None
+      return compare_manifests(ma, mb)
+  ```
+
+  FILE 2: pipeline/tests/test_compare.py (NEW — create from scratch)
+
+  ```python
+  #!/usr/bin/env python3
+  """Tests for comparison engine."""
+  import sys
+  from pathlib import Path
+
+  import pytest
+
+  sys.path.insert(0, str(Path(__file__).parent.parent))
+
+  from compare import compare_manifests, _metric_diff, _delta
+
+
+  def _manifest(name="exp1", status="COMPLETED", f1=0.9, auc=0.8, peak=5000,
+                script="train.py", batch_size=32, group_id=None, role="main"):
+      return {
+          "schema_version": "1.0",
+          "name": name,
+          "status": status,
+          "result": {"f1_score": f1, "auc_score": auc, "peak_memory_mb": peak},
+          "terminal_reason": "COMPLETED" if status == "COMPLETED" else None,
+          "script": script,
+          "config": {"batch_size": batch_size, "eval_batch_size": None},
+          "lineage": {"parent_experiment": None, "group_id": group_id,
+                      "condition_parent": None, "role": role},
+          "memory_contract": None,
+          "retry_count": 0, "oom_retry_count": 0, "max_retries": 2,
+      }
+
+
+  class TestCompareManifests:
+      def test_identical(self):
+          m = _manifest()
+          diff = compare_manifests(m, m)
+          assert diff["experiments"] == ["exp1", "exp1"]
+          assert diff["outcome"] == {}
+          assert diff["status"] is None
+
+      def test_metric_diff(self):
+          a = _manifest(name="a", f1=0.85)
+          b = _manifest(name="b", f1=0.92)
+          diff = compare_manifests(a, b)
+          assert "f1_score" in diff["outcome"]
+          assert diff["outcome"]["f1_score"]["delta"] == pytest.approx(0.07)
+
+      def test_config_diff(self):
+          a = _manifest(name="a", batch_size=32)
+          b = _manifest(name="b", batch_size=64)
+          diff = compare_manifests(a, b)
+          assert "batch_size" in diff["config"]
+
+      def test_lineage_diff(self):
+          a = _manifest(name="a", group_id="g1")
+          b = _manifest(name="b", group_id="g2")
+          diff = compare_manifests(a, b)
+          assert "group_id" in diff["lineage"]
+
+
+  class TestDelta:
+      def test_numeric(self):
+          assert _delta(0.8, 0.9) == pytest.approx(0.1)
+
+      def test_none_input(self):
+          assert _delta(None, 0.9) is None
+  ```
+
+  Boundaries:
+  - Do NOT modify any existing file.
+  - Do NOT import from experiments.py directly.
+  - Comparison is read-only — no DB writes.
+  - compare_manifests works on pure dicts (no DB dependency).
+  - compare_experiments is the convenience wrapper that builds manifests first.
+acceptance_criteria:
+  - "pipeline/compare.py exists with compare_manifests and compare_experiments"
+  - "Comparison covers: status, terminal_reason, outcome metrics, config, lineage, script, retry"
+  - "pipeline/tests/test_compare.py exists with tests for identical, metric diff, config diff, lineage diff"
+  - "All tests pass: PYTHONPATH=pipeline python3 -m pytest pipeline/tests/test_compare.py -v"
+  - "Import smoke: PYTHONPATH=pipeline python3 -c 'from compare import compare_manifests'"
+status: completed
+claimed_by: coder
+claimed_at: "2026-03-26T14:26:25Z"
+started_at: "2026-03-26T14:26:25Z"
+completed_at: "2026-03-26T14:26:25Z"
+category: mlops
+effort_estimate: small
+agent_type: coder
+skills: []
+wave: 1
+qa_scenarios:
+  - "PYTHONPATH=pipeline python3 -m pytest pipeline/tests/test_compare.py -v => all pass"
+  - "PYTHONPATH=pipeline python3 -c 'from compare import compare_manifests' => exit 0"
+  - "python3 -m py_compile pipeline/compare.py => exit 0"
+source_plan: null
+source_ticket_index: 2
+result:
+  summary: "Implemented comparison engine and pure-dict diff helpers for outcome/config/lineage/script/retry surfaces."
+  artifacts:
+    - pipeline/compare.py
+    - pipeline/tests/test_compare.py
+  notes: "compare_manifests remains DB-agnostic; compare_experiments wraps manifest build flow."
+  evidence: "PYTHONPATH=pipeline python3 -m pytest pipeline/tests/test_compare.py -v => 6 passed; PYTHONPATH=pipeline python3 -c 'from compare import compare_manifests' => OK; python3 -m py_compile pipeline/compare.py => OK"
+depends_on: []

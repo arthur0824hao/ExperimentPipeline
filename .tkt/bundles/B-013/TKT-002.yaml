@@ -1,0 +1,117 @@
+id: TKT-002
+bundle: "B-013"
+type: worker
+title: "pipeline/tests/test_oom_retry.py — OOM backoff contract tests"
+description: |
+  Create a dedicated test file that exercises the OOM retry / backoff contract:
+  how retry_count, oom_retry_count, max_retries interact, and how memory_contract
+  updates flow through _update_oom_policy_contract → _persist_oom_policy_contract.
+
+  FILE 1: pipeline/tests/test_oom_retry.py (NEW — create from scratch)
+
+  ```python
+  #!/usr/bin/env python3
+  """Tests for OOM retry and memory contract backoff semantics."""
+  import sys
+  from pathlib import Path
+  from unittest.mock import MagicMock, patch
+
+  import pytest
+
+  sys.path.insert(0, str(Path(__file__).parent.parent))
+
+  from memory_contract import (
+      _update_oom_policy_contract,
+      _persist_oom_policy_contract,
+      get_required_mem_mb,
+      get_memory_contract,
+  )
+
+
+  class TestUpdateOomPolicyContract:
+      def test_reduces_batch_size(self):
+          contract = {"est_mem_decision_mb": 10000, "runtime_batch_adjustable": True}
+          updated = _update_oom_policy_contract(
+              contract,
+              current_batch_size=64,
+              current_eval_batch_size=64,
+              next_batch_size=32,
+              next_eval_batch_size=32,
+              expected_required_free_mb=10000,
+              stop_reason="oom_soft_retry",
+              force_true_mem=False,
+          )
+          assert updated is not None
+          assert isinstance(updated, dict)
+
+      def test_force_true_mem_sets_flag(self):
+          contract = {"est_mem_decision_mb": 10000}
+          updated = _update_oom_policy_contract(
+              contract,
+              current_batch_size=32,
+              current_eval_batch_size=32,
+              next_batch_size=16,
+              next_eval_batch_size=16,
+              expected_required_free_mb=10000,
+              stop_reason="oom_true",
+              force_true_mem=True,
+          )
+          assert updated.get("policy_forced_true_mem") is True
+
+
+  class TestPersistOomPolicyContract:
+      def test_persists_to_db(self):
+          db = MagicMock()
+          contract = {"est_mem_decision_mb": 12000}
+          _persist_oom_policy_contract(db, "exp1", contract, oom_retry_count=2)
+          db.update_experiment.assert_called_once()
+          call_args = db.update_experiment.call_args
+          assert call_args[0][0] == "exp1"
+          updates = call_args[0][1]
+          assert "extra" in updates
+          assert updates["extra"]["memory_contract"] == contract
+          assert updates["extra"]["oom_retry_count"] == 2
+
+
+  class TestGetRequiredMemMb:
+      def test_minimum_4000(self):
+          exp = {"memory_contract": {"est_mem_decision_mb": 1000}}
+          assert get_required_mem_mb(exp) >= 4000
+
+      def test_uses_est_mem_decision(self):
+          exp = {"memory_contract": {"est_mem_decision_mb": 15000}}
+          result = get_required_mem_mb(exp)
+          assert result >= 15000
+
+      def test_no_contract_returns_minimum(self):
+          exp = {}
+          result = get_required_mem_mb(exp)
+          assert result >= 4000
+  ```
+
+  FILE 2: pipeline/tests/test_oom_retry.py only (1 file)
+
+  Boundaries:
+  - Do NOT modify memory_contract.py — tests only.
+  - Do NOT modify worker.py or db_registry.py.
+  - Test the public API surface of memory_contract module.
+acceptance_criteria:
+  - "pipeline/tests/test_oom_retry.py exists with tests for update/persist/get_required"
+  - "All tests pass: PYTHONPATH=pipeline python3 -m pytest pipeline/tests/test_oom_retry.py -v"
+  - "Existing tests unbroken"
+status: open
+claimed_by: null
+claimed_at: null
+started_at: null
+completed_at: null
+category: architecture
+effort_estimate: small
+agent_type: coder
+skills: []
+wave: 1
+qa_scenarios:
+  - "PYTHONPATH=pipeline python3 -m pytest pipeline/tests/test_oom_retry.py -v => all pass"
+source_plan: null
+source_ticket_index: 2
+result: null
+depends_on: []

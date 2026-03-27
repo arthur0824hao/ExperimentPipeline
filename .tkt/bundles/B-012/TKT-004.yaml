@@ -1,0 +1,76 @@
+id: TKT-004
+bundle: "B-012"
+type: worker
+title: "scripts/ci_gate.sh — Add run_manifest and compare to import smoke"
+description: |
+  Update the CI gate import smoke list to include the new B-012 modules.
+
+  FILE 1: scripts/ci_gate.sh (MODIFY existing 123-line file)
+
+  CHANGE 1 — Lines 86-97: Add run_manifest and compare to import smoke.
+
+  OLD (exact lines 86-97):
+  ```bash
+    PYTHONPATH="${ROOT_DIR}/pipeline:${PYTHONPATH:-}" python3 - <<'PY'
+  import allocator
+  import artifact
+  import cluster
+  import control_plane
+  import ep_cli
+  import health
+  import terminal_state
+  import worker
+
+  print('import smoke OK')
+  PY
+  ```
+
+  NEW:
+  ```bash
+    PYTHONPATH="${ROOT_DIR}/pipeline:${PYTHONPATH:-}" python3 - <<'PY'
+  import allocator
+  import artifact
+  import cluster
+  import compare
+  import control_plane
+  import ep_cli
+  import health
+  import run_manifest
+  import terminal_state
+  import worker
+
+  print('import smoke OK')
+  PY
+  ```
+
+  Boundaries:
+  - Do NOT change anything else in ci_gate.sh.
+  - Only add `import compare` and `import run_manifest` to the import smoke block.
+acceptance_criteria:
+  - "ci_gate.sh import smoke includes compare and run_manifest"
+  - "bash -n scripts/ci_gate.sh => exit 0"
+status: completed
+claimed_by: coder
+claimed_at: "2026-03-26T14:26:25Z"
+started_at: "2026-03-26T14:26:25Z"
+completed_at: "2026-03-26T14:26:25Z"
+category: mlops
+effort_estimate: trivial
+agent_type: coder
+skills: []
+wave: 2
+qa_scenarios:
+  - "bash -n scripts/ci_gate.sh => exit 0"
+  - "grep 'import compare' scripts/ci_gate.sh => found"
+  - "grep 'import run_manifest' scripts/ci_gate.sh => found"
+source_plan: null
+source_ticket_index: 4
+result:
+  summary: "Updated CI import smoke block to include compare and run_manifest modules only."
+  artifacts:
+    - scripts/ci_gate.sh
+  notes: "No other CI gate behavior changed."
+  evidence: "bash -n scripts/ci_gate.sh => OK; PYTHONPATH=pipeline python3 -c 'import allocator; import artifact; import cluster; import compare; import control_plane; import ep_cli; import health; import run_manifest; import terminal_state; import worker; print(\"import smoke OK\")' => import smoke OK"
+depends_on:
+  - TKT-001
+  - TKT-002

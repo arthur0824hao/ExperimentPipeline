@@ -10,6 +10,7 @@ jobs:
   ep-gate:
     name: ep-gate
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,7 +23,7 @@ jobs:
           python-version: '3.13'
 
       - name: Install test dependencies
-        run: python3 -m pip install --upgrade pip pytest
+        run: python3 -m pip install --upgrade pip pytest pytest-timeout pyyaml rich psycopg2-binary pandas numpy fastapi uvicorn pydantic networkx scikit-learn tqdm
 
       - name: Run ep-gate
         run: bash scripts/ci_gate.sh

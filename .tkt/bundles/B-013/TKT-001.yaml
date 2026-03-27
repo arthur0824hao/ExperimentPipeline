@@ -1,0 +1,104 @@
+id: TKT-001
+bundle: "B-013"
+type: worker
+title: "pipeline/db_registry.py + pipeline/tests/test_db_registry_claim.py — Codify admission policy"
+description: |
+  Document and test the preferred-worker fallback admission rules. Currently
+  the rules exist in code but lack comprehensive test coverage and documentation.
+
+  FILE 1: pipeline/db_registry.py (MODIFY — add docstrings only, no logic change)
+
+  CHANGE 1 — Line ~337: Add docstring to _preferred_worker_fallback_allowed
+
+  Current function (line 337-351) has no docstring. Add a clear docstring:
+  ```python
+  def _preferred_worker_fallback_allowed(
+      preferred_worker: Optional[str],
+      claiming_worker: Optional[str],
+      est_mem_mb: int,
+      preferred_worker_max_mb: int,
+  ) -> bool:
+      """Decide if a non-preferred worker may claim this experiment.
+
+      Rules:
+      1. If no preferred_worker set, or preferred == claiming → allow.
+      2. If est_mem_mb <= 0 or preferred_worker_max_mb <= 0 → deny.
+      3. If est_mem_mb > preferred_worker_max_mb → allow (experiment
+         doesn't fit on preferred worker anyway).
+      4. Otherwise → deny (preferred worker can handle it).
+      """
+  ```
+
+  CHANGE 2 — Line ~1032: Add docstring to _claim_allowed_for_worker
+
+  Current function (line 1032-1056) has no docstring. Add:
+  ```python
+  def _claim_allowed_for_worker(self, cur, name: str, worker_id: str) -> bool:
+      """Check if worker_id is allowed to claim experiment by name.
+
+      Reads preferred_worker and memory_contract.est_mem_decision_mb
+      from the experiment row, computes preferred worker's max GPU
+      total from heartbeat data, and delegates to
+      _preferred_worker_fallback_allowed().
+      """
+  ```
+
+  FILE 2: pipeline/tests/test_db_registry_claim.py (MODIFY — add test cases)
+
+  Add a new test class at the end of the file:
+  ```python
+  class TestPreferredWorkerFallbackPolicy:
+      """Test the admission / preferred-worker fallback rules."""
+
+      def test_no_preferred_allows_any(self):
+          from db_registry import _preferred_worker_fallback_allowed
+          assert _preferred_worker_fallback_allowed(None, "w1", 8000, 24000) is True
+
+      def test_same_worker_allows(self):
+          from db_registry import _preferred_worker_fallback_allowed
+          assert _preferred_worker_fallback_allowed("w1", "w1", 8000, 24000) is True
+
+      def test_fits_on_preferred_denies_fallback(self):
+          from db_registry import _preferred_worker_fallback_allowed
+          # est_mem 8000 <= preferred_max 24000 → deny fallback
+          assert _preferred_worker_fallback_allowed("w1", "w2", 8000, 24000) is False
+
+      def test_exceeds_preferred_allows_fallback(self):
+          from db_registry import _preferred_worker_fallback_allowed
+          # est_mem 30000 > preferred_max 24000 → allow fallback
+          assert _preferred_worker_fallback_allowed("w1", "w2", 30000, 24000) is True
+
+      def test_zero_est_mem_denies(self):
+          from db_registry import _preferred_worker_fallback_allowed
+          assert _preferred_worker_fallback_allowed("w1", "w2", 0, 24000) is False
+
+      def test_zero_preferred_max_denies(self):
+          from db_registry import _preferred_worker_fallback_allowed
+          assert _preferred_worker_fallback_allowed("w1", "w2", 8000, 0) is False
+  ```
+
+  Boundaries:
+  - Do NOT change admission logic — only add docstrings and tests.
+  - Do NOT modify _preferred_worker_fallback_allowed behavior.
+  - Do NOT change claim_experiment or get_runnable_experiments logic.
+acceptance_criteria:
+  - "Docstrings added to _preferred_worker_fallback_allowed and _claim_allowed_for_worker"
+  - "6 new test cases for fallback policy edge cases"
+  - "All tests pass: PYTHONPATH=pipeline python3 -m pytest pipeline/tests/test_db_registry_claim.py -v"
+  - "Existing tests unbroken"
+status: open
+claimed_by: null
+claimed_at: null
+started_at: null
+completed_at: null
+category: architecture
+effort_estimate: small
+agent_type: coder
+skills: []
+wave: 1
+qa_scenarios:
+  - "PYTHONPATH=pipeline python3 -m pytest pipeline/tests/test_db_registry_claim.py -v => all pass"
+source_plan: null
+source_ticket_index: 1
+result: null
+depends_on: []
